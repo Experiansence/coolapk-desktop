@@ -526,6 +526,8 @@ interface GhostAnimationData {
 }
 
 const ghostData = ref<GhostAnimationData | null>(null);
+const subtopicScrollTimers = new Set<ReturnType<typeof setTimeout>>();
+let isUnmounted = false;
 
 const ghostStyle = computed(() => {
   if (!ghostData.value) return {};
@@ -559,7 +561,8 @@ function scrollSubtopicIntoView(tagName: string, smooth = true) {
   const normalizedTarget = getTopicName(tagName).toLowerCase();
 
   const doScroll = () => {
-    const container = sidebarSubtopicsListRef.value || (document.querySelector('.sidebar-subtopics-list') as HTMLElement);
+    const container = sidebarSubtopicsListRef.value
+      || (typeof document !== 'undefined' ? document.querySelector('.sidebar-subtopics-list') as HTMLElement : null);
     if (!container) return;
 
     // 1. 优先通过 key 查找对应项
@@ -596,10 +599,15 @@ function scrollSubtopicIntoView(tagName: string, smooth = true) {
   };
 
   nextTick(() => {
+    if (isUnmounted) return;
     doScroll();
-    setTimeout(doScroll, 80);
-    setTimeout(doScroll, 200);
-    setTimeout(doScroll, 380);
+    for (const delay of [80, 200, 380]) {
+      const timer = setTimeout(() => {
+        subtopicScrollTimers.delete(timer);
+        if (!isUnmounted) doScroll();
+      }, delay);
+      subtopicScrollTimers.add(timer);
+    }
   });
 }
 
@@ -926,6 +934,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  isUnmounted = true;
+  for (const timer of subtopicScrollTimers) clearTimeout(timer);
+  subtopicScrollTimers.clear();
   pageResizeObserver?.disconnect();
   pageResizeObserver = null;
   window.removeEventListener('resize', handleResize);
