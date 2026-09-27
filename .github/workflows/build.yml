@@ -396,7 +396,8 @@ jobs:
           aab="src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab"
           test -f "$apk"
           test -f "$aab"
-          verification="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk")"
+          # minSdk >= 24 时 apksigner 默认不验证 v1，按 API 23 验证才能检查 v1/v2 是否都存在。
+          verification="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --min-sdk-version 23 "$apk")"
           printf '%s\n' "$verification"
           grep -Fqx 'Verified using v1 scheme (JAR signing): true' <<< "$verification"
           grep -Fqx 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$verification"
