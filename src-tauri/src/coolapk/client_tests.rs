@@ -77,6 +77,18 @@ fn test_product_rating_query_matches_apk_contract() {
 }
 
 #[test]
+fn test_product_review_uses_official_feed_contract() {
+    let form = build_product_review_form("5573", 4, "影像不错", true);
+    let field = |key| form.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str());
+    assert_eq!(field("type"), Some("rating"));
+    assert_eq!(field("targetType"), Some("product_phone"));
+    assert_eq!(field("targetId"), Some("5573"));
+    assert_eq!(field("rating_score_1"), Some("4"));
+    assert_eq!(field("buy_status"), Some("1"));
+    assert_eq!(field("message"), Some("影像不错"));
+}
+
+#[test]
 fn test_product_rating_list_query_matches_apk_contract() {
     assert_eq!(
         build_product_rating_list_query("5573", 0, 0, 0),
@@ -84,8 +96,6 @@ fn test_product_rating_list_query_matches_apk_contract() {
             ("url", "/feed/nodeRatingList".to_string()),
             ("targetType", "7".to_string()),
             ("targetId", "5573".to_string()),
-            ("ratingType", "all".to_string()),
-            ("isOwner", "0".to_string()),
             ("page", "1".to_string()),
         ]
     );
@@ -93,6 +103,7 @@ fn test_product_rating_list_query_matches_apk_contract() {
         build_product_rating_list_query("5573", 5, 1, 2).last(),
         Some(&("star", "5".to_string()))
     );
+    assert!(build_product_rating_list_query("5573", 5, 1, 2).contains(&("isOwner", "1".to_string())));
 }
 
 #[test]
@@ -165,6 +176,14 @@ fn test_product_feeds_query_includes_sort_only_when_selected() {
 }
 
 #[test]
+fn test_product_subtab_query_matches_official_sample_tab() {
+    let query = build_product_subtab_query("5136", "4", 1);
+    assert!(query.contains(&("type", "subTabFeed".to_string())));
+    assert!(query.contains(&("subId", "4".to_string())));
+    assert!(query.contains(&("withSubTabFeedCard", "1".to_string())));
+}
+
+#[test]
 fn test_feed_cleaner_preserves_live_photo_metadata() {
     let raw = serde_json::json!({
         "id": "live-feed-1",
@@ -219,6 +238,7 @@ async fn probe_product_rating_endpoints_contract() {
         .expect("评分趋势接口应能返回 HTTP JSON");
     assert!(chart.get("data").is_some(), "评分趋势响应缺少 data: {chart}");
     assert!(chart["data"].is_object(), "评分趋势 data 不是对象: {chart}");
+    assert!(wrap_api_data(chart).is_ok(), "评分趋势接口返回业务错误");
 
     let list_query = build_product_rating_list_query(product_id, 0, 0, 1);
     let list = client
@@ -227,6 +247,57 @@ async fn probe_product_rating_endpoints_contract() {
         .expect("产品评分列表接口应能返回 HTTP JSON");
     assert!(list.get("data").is_some(), "评分列表响应缺少 data: {list}");
     assert!(list["data"].is_array(), "评分列表 data 不是数组: {list}");
+    assert!(wrap_api_data(list).is_ok(), "评分列表接口返回业务错误");
+}
+
+#[tokio::test]
+#[ignore]
+async fn probe_product_tabs_contract() {
+    let client = CoolapkClient::new();
+    let raw = client.get_product_detail_by_name("华为Mate 80 RS非凡大师").await.unwrap();
+    let data = &raw["data"];
+    println!("product id={} title={} tabs={:?} hot={} discussions={} follows={} owner_score={} rating_score={}",
+        data["id"], data["title"], data["tabList"].as_array().into_iter().flatten().map(|tab| (tab["title"].as_str(), tab["page_name"].as_str())).collect::<Vec<_>>(),
+        data["hot_num_txt"], data["feed_comment_num_txt"], data["follow_num_txt"],
+        data["owner_star_average_score"], data["rating_average_score"]);
+    let sample = client.api_get("/v6/page/dataList", &build_product_subtab_query("5136", "4", 1)).await.unwrap();
+    assert!(sample["data"].is_array(), "样张列表应返回数组");
+    println!("sample item count={} first types={:?}", sample["data"].as_array().map_or(0, Vec::len), sample["data"].as_array().into_iter().flatten().take(4).map(|item| (item["entityType"].as_str(), item["entityTemplate"].as_str())).collect::<Vec<_>>());
+    assert!(wrap_api_data(sample).is_ok(), "样张列表接口返回业务错误");
+    let sample_tab_url = data["tabList"].as_array().unwrap().iter().find(|tab| tab["page_name"] == "4").unwrap()["url"].as_str().unwrap();
+    let configured = client.get_discovery_page_data(sample_tab_url, "", "", 1, "", "", "", "").await.unwrap();
+    println!("configured sample count={}", configured["data"].as_array().map_or(0, Vec::len));
+    assert!(configured["data"].is_array(), "按栏目 URL 加载的样张列表应返回数组");
+    let external_tab_url = data["tabList"].as_array().unwrap().iter().find(|tab| tab["title"] == "鸿蒙").unwrap()["url"].as_str().unwrap();
+    let external = client.get_discovery_page_data(external_tab_url, "鸿蒙", "", 1, "", "", "", "").await.unwrap();
+    println!("configured external count={}", external["data"].as_array().map_or(0, Vec::len));
+    assert!(external["data"].is_array(), "按栏目 URL 加载的外部栏目应返回数组");
+    let rating_tab_url = data["tabList"].as_array().unwrap().iter().find(|tab| tab["page_name"] == "rating").unwrap()["url"].as_str().unwrap();
+    let rating_tab = client.get_discovery_page_data(rating_tab_url, "", "", 1, "", "", "", "").await.unwrap();
+    println!("rating tab first cards={:?}", rating_tab["data"].as_array().into_iter().flatten().take(3).map(|item| (item["entityType"].as_str(), item["entityTemplate"].as_str(), item["title"].as_str(), item["extraData"].as_str())).collect::<Vec<_>>());
+    let sort_card = rating_tab["data"].as_array().unwrap().iter().find(|item| item["entityTemplate"] == "sortSelectCard").unwrap();
+    for option in sort_card["entities"].as_array().unwrap() {
+        let url = option["url"].as_str().unwrap();
+        let sorted = client.get_discovery_page_data(url, "", "", 1, "", "", "", "").await.unwrap();
+        let first_feed = sorted["data"].as_array().into_iter().flatten().find(|item| item["entityType"] == "feed");
+        println!("rating sort={} items={} feeds={} has_more={} first_feed={}", option["title"],
+            sorted["data"].as_array().map_or(0, Vec::len),
+            sorted["data"].as_array().into_iter().flatten().filter(|item| item["entityType"] == "feed").count(),
+            sorted["hasMore"], first_feed.map_or(&Value::Null, |item| &item["id"]));
+        assert!(sorted["data"].is_array(), "点评排序请求应返回列表");
+        if option["title"] == "差评" {
+            let feeds: Vec<&Value> = sorted["data"].as_array().unwrap().iter().filter(|item| item["entityType"] == "feed").collect();
+            let first = feeds.first().and_then(|item| item["id"].as_i64()).map(|id| id.to_string()).unwrap_or_default();
+            let last = feeds.last().and_then(|item| item["id"].as_i64()).map(|id| id.to_string()).unwrap_or_default();
+            let next = client.get_discovery_page_data(url, "", "", 2, &first, &last, "", "").await.unwrap();
+            println!("rating worst page2 items={} feeds={}", next["data"].as_array().map_or(0, Vec::len), next["data"].as_array().into_iter().flatten().filter(|item| item["entityType"] == "feed").count());
+        }
+    }
+    for feed_type in ["article", "feedArticle"] {
+        let raw = client.api_get("/v6/page/dataList", &build_product_feeds_query("5136", feed_type, "", 1)).await.unwrap();
+        println!("product feed type={feed_type} items={}", raw["data"].as_array().map_or(0, Vec::len));
+        assert!(wrap_api_data(raw).is_ok(), "图文列表接口返回业务错误");
+    }
 }
 
 #[test]

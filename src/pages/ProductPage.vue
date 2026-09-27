@@ -29,32 +29,21 @@
             {{ productDescription }}
           </div>
           <div class="product-stats">
-            <span v-if="productDetail.follow_num">{{ formatCount(productDetail.follow_num) }} 关注</span>
-            <span v-if="productDetail.feed_comment_num">{{ formatCount(productDetail.feed_comment_num) }} 讨论</span>
-            <span v-if="productDetail.rating_average_score">评分 {{ productDetail.rating_average_score }}</span>
-            <span v-if="productDetail.wish_count">想要 {{ formatCount(productDetail.wish_count) }}</span>
-            <span v-if="productDetail.buy_count">已购 {{ formatCount(productDetail.buy_count) }}</span>
+            <span v-if="productDetail.hot_num_txt || productDetail.hot_num">{{ productDetail.hot_num_txt || formatCount(productDetail.hot_num) }} 热度</span>
+            <span v-if="productDetail.feed_comment_num_txt || productDetail.feed_comment_num">{{ productDetail.feed_comment_num_txt || productDetail.feed_comment_num }} 讨论</span>
+            <span v-if="productDetail.follow_num_txt || productDetail.follow_num">{{ productDetail.follow_num_txt || productDetail.follow_num }} 关注</span>
           </div>
         </div>
 
         <div class="header-actions">
           <button
             type="button"
-            :class="['wish-btn', { active: isWished }]"
-            :disabled="wishPending"
-            @click="toggleWish"
+            :class="['wish-btn', { active: isFollowing }]"
+            :disabled="followPending"
+            @click="toggleFollow"
           >
-            <i :class="isWished ? 'fas fa-heart' : 'far fa-heart'"></i>
-            <span>想要</span>
-          </button>
-          <button
-            type="button"
-            :class="['buy-btn', { active: isBought }]"
-            :disabled="buyPending"
-            @click="toggleBuy"
-          >
-            <i :class="isBought ? 'fas fa-check-circle' : 'far fa-check-circle'"></i>
-            <span>已购</span>
+            <i :class="isFollowing ? 'fas fa-check' : 'fas fa-plus'"></i>
+            <span>{{ isFollowing ? '已关注' : '关注' }}</span>
           </button>
         </div>
       </div>
@@ -64,7 +53,36 @@
       <EmptyState title="未找到该产品信息" description="该产品可能已下架或ID不正确" />
     </div>
 
-    <div class="product-sub-tabs custom-scrollbar">
+    <div v-if="productDetail && productScore > 0" class="product-score-card">
+      <div class="product-score-head"><strong>酷安评分</strong><button type="button" @click="selectTab('rating')">详细数据 <i class="fas fa-chevron-right"></i></button></div>
+      <div class="product-score-body">
+        <div class="product-score-number"><strong>{{ productScore.toFixed(1) }}</strong><span>{{ productDetail.owner_star_average_score ? '机主评分' : '全部用户评分' }} · {{ productDetail.owner_star_average_score ? (productDetail.owner_rating_total_num || productDetail.owner_star_total_count || 0) : (productDetail.rating_total_num || productDetail.star_total_count || 0) }} 人</span></div>
+        <div v-if="productRatingSpecs.length" class="product-score-specs">
+          <div v-for="item in productRatingSpecs" :key="item.name"><span>{{ item.name }}</span><div class="rating-distribution-track"><i :style="{ width: `${Math.min(100, item.score * 10)}%` }" /></div><span>{{ item.score.toFixed(1) }}</span></div>
+        </div>
+      </div>
+      <div class="product-score-actions">
+        <span v-if="productDetail.owner_rating_total_num">{{ productDetail.owner_rating_total_num }} 机主点评</span>
+        <button type="button" :class="['buy-btn', { active: isWished }]" :disabled="wishPending" @click="toggleWish">{{ isWished ? '已想买' : '想买' }}</button>
+        <button type="button" class="buy-btn" @click="openRatingComposer">打分</button>
+      </div>
+    </div>
+
+    <div v-if="productSpecs.length" class="product-spec-chips custom-scrollbar">
+      <span v-for="spec in productSpecs" :key="spec">{{ spec }}</span>
+    </div>
+
+    <div
+      v-if="allTabs.length"
+      ref="productTabsRef"
+      :class="['product-sub-tabs', 'custom-scrollbar', { 'is-dragging': productTabsDragging }]"
+      @wheel="handleProductTabWheel"
+      @pointerdown="startProductTabDrag"
+      @pointermove="moveProductTabDrag"
+      @pointerup="endProductTabDrag"
+      @pointercancel="endProductTabDrag"
+      @click.capture="cancelClickAfterTabDrag"
+    >
       <button
         v-for="tab in allTabs"
         :key="tab.key"
@@ -78,7 +96,7 @@
 
     <!-- ===== 动态 Tab ===== -->
     <template v-if="isFeedTab">
-      <EntityFilterBar
+      <EntityFilterBar v-if="!selectedSubId"
         v-model:sort="currentSort"
         v-model:search-keyword="searchKeyword"
         :sort-options="sortOptions"
@@ -105,7 +123,14 @@
       </div>
 
       <div v-else-if="productFeeds.length === 0 && !feedsLoading" class="empty-wrapper">
-        <EmptyState title="暂无相关动态" />
+        <div v-if="selectedSubId === '1'" class="product-subtab-empty">
+          <section class="product-subtab-empty-card">
+            <div class="product-subtab-empty-title"><i class="fas fa-battery-half"></i><span>续航时长</span></div>
+            <p>暂无人分享续航时长</p>
+          </section>
+          <p class="product-subtab-empty-invite">还没人分享续航时长，说说你用这个产品的续航时长～</p>
+        </div>
+        <EmptyState v-else title="暂无相关动态" />
       </div>
 
       <div v-else class="feed-list">
@@ -115,6 +140,20 @@
           <LoadingState v-if="feedsLoading && page > 1" text="加载更多中..." />
           <button v-else-if="feedsError" class="retry-inline" @click="retryFeeds">加载失败，点击重试</button>
           <div v-else-if="noMore" class="no-more">没有更多动态了</div>
+        </div>
+      </div>
+    </template>
+
+    <template v-if="selectedTab?.kind === 'external'">
+      <div v-if="externalLoading && externalItems.length === 0" class="loading-wrapper"><LoadingState text="正在加载栏目内容..." /></div>
+      <div v-else-if="externalError && externalItems.length === 0" class="error-wrapper"><ErrorState title="栏目加载失败" :message="externalError" @retry="fetchExternalTab(false)" /></div>
+      <div v-else-if="externalItems.length === 0" class="empty-wrapper"><EmptyState title="暂无内容" /></div>
+      <div v-else class="feed-list">
+        <DiscoveryEntityCard v-for="(item, index) in externalItems" :key="getEntityKey(item, index)" :entity="item" @open="openExternalEntity" />
+        <div class="pagination-footer">
+          <LoadingState v-if="externalLoading" text="加载更多中..." />
+          <button v-else-if="externalError" class="retry-inline" @click="fetchExternalTab(true)">加载失败，点击重试</button>
+          <div v-else-if="externalNoMore" class="no-more">没有更多内容了</div>
         </div>
       </div>
     </template>
@@ -250,55 +289,80 @@
     <template v-else-if="activeTab === 'rating'">
       <div class="rating-tab-content">
         <!-- 我的评分 -->
-        <div class="my-rating-card">
+        <div class="my-rating-card rating-compose-card">
           <div class="my-rating-head">
-            <span class="section-title"><i class="fas fa-star"></i> 我的评分</span>
-            <span v-if="!authStore.isLoggedIn" class="login-hint">登录后可以评分</span>
+            <span class="section-title"><i class="fas fa-star"></i> 我的打分</span>
+            <span v-if="myRating > 0" class="login-hint">当前已评 {{ myRating }} 星</span>
           </div>
 
-          <div v-if="authStore.isLoggedIn" class="rating-composer">
+          <button v-if="myRating === 0 && !showRatingComposer" type="button" class="rating-entry" @click="openRatingComposer">
+            <span>点击星星评分</span><span class="rating-entry-stars" aria-hidden="true">☆☆☆☆☆</span><i class="fas fa-chevron-right"></i>
+          </button>
+
+          <div v-if="authStore.isLoggedIn && myRating > 0" class="rating-login-tip">
+            <span>你已为该产品评 {{ myRating }} 星</span>
+            <button v-if="myRatingFeedId" type="button" class="login-btn" @click="router.push(`/feed/${myRatingFeedId}`)">查看我的点评</button>
+          </div>
+          <div v-else-if="authStore.isLoggedIn && showRatingComposer" class="rating-composer">
             <div class="star-input">
               <button
                 v-for="star in 5"
                 :key="star"
                 type="button"
                 class="star-btn"
-                :class="{ active: star <= myRating }"
+                :class="{ active: star <= selectedRating }"
                 @click="setMyRating(star)"
                 :title="`${star} 星`"
               >
-                <i :class="star <= myRating ? 'fas fa-star' : 'far fa-star'"></i>
+                <i :class="star <= selectedRating ? 'fas fa-star' : 'far fa-star'"></i>
               </button>
               <span class="rating-hint-text">
-                {{ myRating > 0 ? `已评 ${myRating} 星` : '点击星星进行评分' }}
+                {{ selectedRating > 0 ? `已选 ${selectedRating} 星` : '选择星级后发布点评' }}
               </span>
             </div>
+            <textarea v-model="ratingMessage" class="rating-message" maxlength="1000" placeholder="说一说你对这个产品的评价吧（可选）" />
             <div class="rating-options">
               <label class="buy-option">
                 <input v-model="buyChecked" type="checkbox" />
                 <span>我已购买该产品</span>
               </label>
-              <button
-                v-if="myRating > 0"
-                type="button"
-                class="cancel-rating-btn"
-                :disabled="ratingPending"
-                @click="clearMyRating"
-              >
-                取消评分
-              </button>
+              <button type="button" class="login-btn" :disabled="ratingPending || selectedRating === 0" @click="submitRating">发布点评</button>
             </div>
             <div v-if="ratingPending" class="rating-pending"><LoadingState text="正在提交评分..." /></div>
           </div>
 
-          <div v-else class="rating-login-tip">
+          <div v-else-if="!authStore.isLoggedIn && showRatingComposer" class="rating-login-tip">
             <span>评分需要登录酷安账号</span>
             <button type="button" class="login-btn" @click="authStore.openLoginModal()">立即登录</button>
           </div>
         </div>
 
+        <div v-if="ratingSummary.total > 0" class="my-rating-card rating-summary-card">
+          <div class="rating-list-head">
+            <span class="section-title"><i class="fas fa-star"></i> 评分概览</span>
+            <div class="rating-list-filter">
+              <button v-for="filter in ratingListFilters" :key="filter.key" type="button"
+                :class="['filter-pill', { active: summaryAudience === filter.key }]" @click="summaryAudience = filter.key">
+                {{ filter.label }}
+              </button>
+            </div>
+          </div>
+          <div class="rating-overview">
+            <div class="rating-overview-score"><strong>{{ ratingSummary.score.toFixed(1) }}</strong><span>{{ ratingSummary.total }} 人评分</span></div>
+            <div class="rating-distribution">
+              <div v-for="item in ratingSummary.stars" :key="item.star" class="rating-distribution-row">
+                <span>{{ item.star }} 星</span><div class="rating-distribution-track"><i :style="{ width: `${item.percent}%` }" /></div><span>{{ item.count }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="ratingSummary.recentCount > 0" class="rating-recent">最近 30 天：{{ ratingSummary.recentScore.toFixed(1) }} 分 · {{ ratingSummary.recentCount }} 人评分<span v-if="ratingSummary.positiveRate !== null"> · 好评率 {{ ratingSummary.positiveRate }}%</span></div>
+          <div v-if="ratingDimensions.length" class="rating-dimensions">
+            <span v-for="item in ratingDimensions" :key="item.name">{{ item.name }} {{ item.score.toFixed(1) }}</span>
+          </div>
+        </div>
+
         <!-- 评分趋势图 -->
-        <div class="rating-chart-wrapper">
+        <div ref="ratingChartRef" class="rating-chart-wrapper">
           <div v-if="chartLoading" class="loading-wrapper">
             <LoadingState text="正在加载评分趋势..." />
           </div>
@@ -311,16 +375,17 @@
         <!-- 用户评分列表 -->
         <div class="rating-list-section">
           <div class="rating-list-head">
-            <span class="section-title"><i class="fas fa-users"></i> 用户评分</span>
-            <div class="rating-list-filter">
+            <span class="section-title">排序规则</span>
+            <div class="rating-list-filter rating-sort-filter">
               <button
-                v-for="filter in ratingListFilters"
-                :key="filter.key"
+                v-for="option in ratingSortOptions"
+                :key="option.url"
                 type="button"
-                :class="['filter-pill', { active: activeRatingFilter === filter.key }]"
-                @click="selectRatingFilter(filter.key)"
+                :class="['filter-pill', { active: activeRatingSortUrl === option.url }]"
+                :disabled="ratingsLoading"
+                @click="selectRatingSort(option.url)"
               >
-                {{ filter.label }}
+                {{ option.label }}
               </button>
             </div>
           </div>
@@ -353,7 +418,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import FeedCard from '../components/feed/FeedCard.vue';
@@ -364,6 +429,7 @@ import ErrorState from '../components/common/ErrorState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
 import ProductConfigTable from '../components/product/ProductConfigTable.vue';
 import RatingChart from '../components/product/RatingChart.vue';
+import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
 import EntityFilterBar, { type SortOptionItem } from '../components/common/EntityFilterBar.vue';
 import { useAppStore } from '../stores/app';
 import { useAuthStore } from '../stores/auth';
@@ -377,6 +443,11 @@ import {
   PRODUCT_FEED_TYPE_OPTIONS,
   resolveFeedSearchSort,
 } from '../utils/coolapkFeedSearch';
+import { productTabs } from '../utils/productTabs';
+import { getEntityKey, parseDiscoveryPage, resolveDiscoveryRoute } from '../utils/discovery';
+import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
+import { productRatingRows, productRatingSortOptions, type ProductRatingSortOption } from '../utils/productRatingSort';
+import type { DiscoveryEntity } from '../types/discovery';
 
 const route = useRoute();
 const router = useRouter();
@@ -399,28 +470,74 @@ const feedsError = ref(false);
 const page = ref(1);
 const noMore = ref(false);
 
-const feedTabs = [
-  { key: 'feed', label: '讨论' },
-  { key: 'answer', label: '问答' },
-  { key: 'article', label: '图文' },
-  { key: 'video', label: '视频' },
-  { key: 'trade', label: '交易' },
-];
-const featureTabs = [
-  { key: 'config', label: '参数' },
-  { key: 'media', label: '媒体' },
-  { key: 'rating', label: '评分' },
-];
-const allTabs = [...feedTabs, ...featureTabs];
-const FEED_TAB_KEYS = new Set(feedTabs.map((tab) => tab.key));
+const allTabs = computed(() => productTabs(productId.value, productDetail.value?.tabList));
+const selectedTab = computed(() => allTabs.value.find((tab) => tab.key === activeTab.value));
+const productTabsRef = ref<HTMLElement | null>(null);
+const productTabsDragging = ref(false);
+let productTabsPointerStartX = 0;
+let productTabsScrollStartX = 0;
+let productTabsPointerId: number | null = null;
+let productTabsDidDrag = false;
+const externalItems = ref<DiscoveryEntity[]>([]);
+const externalLoading = ref(false);
+const externalError = ref('');
+const externalNoMore = ref(false);
+const externalPage = ref(1);
+const externalFirstItem = ref('');
+const externalLastItem = ref('');
+
+async function fetchExternalTab(loadMore: boolean) {
+  const tab = selectedTab.value;
+  if (tab?.kind !== 'external' || externalLoading.value || (loadMore && externalNoMore.value)) return;
+  externalLoading.value = true;
+  externalError.value = '';
+  if (!loadMore) {
+    externalItems.value = [];
+    externalPage.value = 1;
+    externalNoMore.value = false;
+    externalFirstItem.value = '';
+    externalLastItem.value = '';
+  }
+  try {
+    const response = await CoolapkTauriAPI.getDiscoveryPageData({
+      url: tab.url, title: tab.label, page: externalPage.value,
+      firstItem: externalFirstItem.value, lastItem: externalLastItem.value,
+    });
+    if (selectedTab.value?.key !== tab.key) return;
+    const parsed = parseDiscoveryPage(response, externalPage.value);
+    externalItems.value = loadMore ? [...externalItems.value, ...parsed.items] : parsed.items;
+    externalFirstItem.value = parsed.firstItem;
+    externalLastItem.value = parsed.lastItem;
+    externalNoMore.value = !parsed.hasMore || parsed.items.length === 0;
+    externalPage.value++;
+  } catch (error) {
+    if (selectedTab.value?.key === tab.key) externalError.value = getErrorMessage(error, '栏目加载失败');
+  } finally {
+    externalLoading.value = false;
+    if (selectedTab.value?.kind === 'external' && selectedTab.value.key !== tab.key) void fetchExternalTab(false);
+  }
+}
+
+function openExternalEntity(entity: DiscoveryEntity) {
+  const target = resolveDiscoveryRoute(entity);
+  if (!target) return;
+  if (target.kind === 'web') {
+    void CoolapkTauriAPI.openUrl(target.target, 'internal');
+    return;
+  }
+  const native = normalizeCoolapkRoute(target.target);
+  if (native) void router.push(native);
+  else void router.push({ path: '/page', query: { url: target.target, title: target.title || String(entity.title || ''), renderer: 'discovery' } });
+}
 
 function getRequestedTab(value: unknown): string {
   const requested = String(value || '');
-  return allTabs.some((tab) => tab.key === requested) ? requested : 'feed';
+  return /^[a-zA-Z0-9:_-]+$/.test(requested) ? requested : 'feed';
 }
 
 const activeTab = ref(getRequestedTab(route.query.tab));
-const isFeedTab = computed(() => FEED_TAB_KEYS.has(activeTab.value));
+const selectedSubId = computed(() => activeTab.value.match(/^subtab:(\d+)$/)?.[1] || '');
+const isFeedTab = computed(() => selectedTab.value?.kind === 'feed' || (!productDetail.value && activeTab.value === 'feed'));
 
 const currentSort = ref('default');
 const sortOptions: SortOptionItem[] = [
@@ -437,8 +554,12 @@ function handleSortChange(key: string) {
 }
 
 function selectTab(key: string) {
+  const tab = allTabs.value.find((item) => item.key === key);
+  if (tab?.kind === 'external' && key !== activeTab.value) externalItems.value = [];
   activeTab.value = key;
-  if (isFeedTab.value) {
+  if (tab?.kind === 'external') {
+    void fetchExternalTab(false);
+  } else if (isFeedTab.value) {
     resetFeeds();
     void fetchFeeds(false);
   } else if (key === 'config') {
@@ -449,6 +570,50 @@ function selectTab(key: string) {
     void fetchRatingChart();
     void fetchRatings();
   }
+}
+
+function handleProductTabWheel(event: WheelEvent) {
+  const tabs = event.currentTarget as HTMLElement;
+  if (tabs.scrollWidth <= tabs.clientWidth) return;
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (delta === 0) return;
+  event.preventDefault();
+  tabs.scrollLeft += delta;
+}
+
+function startProductTabDrag(event: PointerEvent) {
+  const tabs = event.currentTarget as HTMLElement;
+  if (event.button !== 0 || tabs.scrollWidth <= tabs.clientWidth) return;
+  productTabsPointerId = event.pointerId;
+  productTabsPointerStartX = event.clientX;
+  productTabsScrollStartX = tabs.scrollLeft;
+  productTabsDidDrag = false;
+}
+
+function moveProductTabDrag(event: PointerEvent) {
+  if (productTabsPointerId !== event.pointerId || !productTabsRef.value) return;
+  const delta = event.clientX - productTabsPointerStartX;
+  if (!productTabsDidDrag && Math.abs(delta) < 4) return;
+  if (!productTabsDidDrag) {
+    productTabsDidDrag = true;
+    productTabsDragging.value = true;
+    productTabsRef.value.setPointerCapture(event.pointerId);
+  }
+  event.preventDefault();
+  productTabsRef.value.scrollLeft = productTabsScrollStartX - delta;
+}
+
+function endProductTabDrag(event: PointerEvent) {
+  if (productTabsPointerId !== event.pointerId) return;
+  productTabsPointerId = null;
+  productTabsDragging.value = false;
+}
+
+function cancelClickAfterTabDrag(event: MouseEvent) {
+  if (!productTabsDidDrag) return;
+  event.preventDefault();
+  event.stopPropagation();
+  productTabsDidDrag = false;
 }
 
 const productLogo = computed(() => {
@@ -467,6 +632,15 @@ const productTitle = computed(() => {
     || productDetail.value.alias_title
     || productDetail.value.name
     || productId.value;
+});
+const productScore = computed(() => Number(productDetail.value?.owner_star_average_score || productDetail.value?.rating_average_score || 0));
+const productSpecs = computed(() => Array.isArray(productDetail.value?.product_specs)
+  ? productDetail.value.product_specs.map(String).filter(Boolean) : []);
+const productRatingSpecs = computed(() => {
+  const items = productDetail.value?.rating_item_info;
+  if (!Array.isArray(items)) return [];
+  return items.map((item: any) => ({ name: String(item.name || ''), score: Number(item.owner_average_score || item.average_score || 0) }))
+    .filter((item) => item.name && item.score > 0);
 });
 usePageTabTitle(productTitle);
 
@@ -487,6 +661,15 @@ async function fetchProductHeader() {
     const res = await CoolapkTauriAPI.getProductDetail(productId.value);
     if (res?.data && typeof res.data === 'object') {
       productDetail.value = res.data;
+      buyChecked.value = isBought.value;
+      const requested = String(route.query.tab || '');
+      const preferred = allTabs.value.find((tab) => tab.key === requested)?.key
+        || allTabs.value.find((tab) => tab.key === activeTab.value)?.key
+        || allTabs.value.find((tab) => tab.key === (res.data.selectedTab === 'main' ? 'config' : res.data.selectedTab))?.key
+        || allTabs.value[0]?.key;
+      if (preferred && preferred !== activeTab.value) selectTab(preferred);
+      else if (selectedTab.value?.kind === 'feed' && productFeeds.value.length === 0 && !feedsLoading.value) loadActiveTab();
+      else if (selectedTab.value?.kind === 'external' && externalItems.value.length === 0 && !externalLoading.value) loadActiveTab();
     } else {
       headerError.value = true;
     }
@@ -543,7 +726,9 @@ async function fetchFeeds(isLoadMore = false) {
     const firstItem = isLoadMore && productFeeds.value.length > 0 ? readFeedCursor(productFeeds.value[0]) : '';
     const lastItem = isLoadMore && productFeeds.value.length > 0 ? readFeedCursor(productFeeds.value[productFeeds.value.length - 1]) : '';
     let res: any;
-    if (kw) {
+    if (selectedSubId.value) {
+      res = await CoolapkTauriAPI.getProductSubtabFeeds(productId.value, selectedSubId.value, page.value);
+    } else if (kw) {
       const searchSort = resolveFeedSearchSort(currentSort.value);
       res = await CoolapkTauriAPI.searchByType({
         searchType: 'feed',
@@ -591,6 +776,9 @@ async function fetchFeeds(isLoadMore = false) {
 const isWished = computed(() => {
   return productDetail.value?.userAction?.wish === 1 || productDetail.value?.userAction?.wish === true;
 });
+const isFollowing = computed(() => {
+  return productDetail.value?.userAction?.follow === 1 || productDetail.value?.userAction?.follow === true;
+});
 const isBought = computed(() => {
   return productDetail.value?.userAction?.buy === 1 || productDetail.value?.userAction?.buy === true;
 });
@@ -599,9 +787,16 @@ const myRating = computed(() => {
   const num = Number(raw ?? 0);
   return Number.isFinite(num) && num > 0 ? Math.max(1, Math.min(5, Math.round(num))) : 0;
 });
+const myRatingFeedId = computed(() => {
+  const feed = productDetail.value?.ratingFeed || productDetail.value?.rating_feed;
+  const direct = feed?.id || feed?.feedId;
+  if (direct) return String(direct);
+  const url = String(productDetail.value?.userAction?.ratingFeedUrl || '');
+  return url.match(/\/feed\/(\d+)/)?.[1] || '';
+});
 
 const wishPending = ref(false);
-const buyPending = ref(false);
+const followPending = ref(false);
 
 function requireLogin(): boolean {
   if (authStore.isLoggedIn) return true;
@@ -619,9 +814,8 @@ async function toggleWish() {
       productDetail.value.userAction = {
         ...(productDetail.value.userAction || {}),
         wish: target ? 1 : 0,
-        follow: target ? 1 : 0,
       };
-      window.dispatchEvent(new CustomEvent('coolapk-product-event', { detail: { productId: productId.value, wished: target, wish: target ? 1 : 0, follow: target ? 1 : 0, userAction: productDetail.value.userAction } }));
+      window.dispatchEvent(new CustomEvent('coolapk-product-event', { detail: { productId: productId.value, wished: target, wish: target ? 1 : 0, userAction: productDetail.value.userAction } }));
     }
     showToast(target ? '已加入想要清单' : '已从想要清单移除', 'success');
   } catch (err) {
@@ -631,25 +825,21 @@ async function toggleWish() {
   }
 }
 
-async function toggleBuy() {
-  if (!requireLogin() || buyPending.value) return;
-  const target = !isBought.value;
-  buyPending.value = true;
+async function toggleFollow() {
+  if (!requireLogin() || followPending.value) return;
+  const target = !isFollowing.value;
+  followPending.value = true;
   try {
-    const uid = String(authStore.user?.uid || '');
-    const star = myRating.value > 0 ? myRating.value : 1;
-    await CoolapkTauriAPI.changeRatingStatus(productId.value, star, uid, target ? 1 : 0);
+    await CoolapkTauriAPI.changeProductFollowStatus(productId.value, target ? 1 : 0);
     if (productDetail.value) {
-      productDetail.value.userAction = {
-        ...(productDetail.value.userAction || {}),
-        buy: target ? 1 : 0,
-      };
+      productDetail.value.userAction = { ...(productDetail.value.userAction || {}), follow: target ? 1 : 0 };
+      window.dispatchEvent(new CustomEvent('coolapk-product-event', { detail: { productId: productId.value, follow: target ? 1 : 0, userAction: productDetail.value.userAction } }));
     }
-    showToast(target ? '已标记为已购' : '已取消已购标记', 'success');
+    showToast(target ? '已关注产品' : '已取消关注', 'success');
   } catch (err) {
     showToast(getErrorMessage(err, '操作失败'), 'error');
   } finally {
-    buyPending.value = false;
+    followPending.value = false;
   }
 }
 
@@ -835,7 +1025,10 @@ function openMedia(index: number) {
 // ===== 评分 =====
 const buyChecked = ref(false);
 const ratingPending = ref(false);
+const selectedRating = ref(0);
+const ratingMessage = ref('');
 const ratingChartPeriods = ref<RatingChartPeriods | null>(null);
+const ratingChartRef = ref<HTMLElement | null>(null);
 const chartLoading = ref(false);
 const chartError = ref(false);
 const ratings = ref<any[]>([]);
@@ -843,47 +1036,70 @@ const ratingsLoading = ref(false);
 const ratingsError = ref(false);
 const ratingsNoMore = ref(false);
 const ratingsPage = ref(1);
+const ratingSortOptions = ref<ProductRatingSortOption[]>([]);
+const activeRatingSortUrl = ref('');
+const ratingFirstItem = ref('');
+const ratingLastItem = ref('');
+const showRatingComposer = ref(false);
 const ratingListFilters = [
   { key: 'all', label: '全部' },
   { key: 'owner', label: '机主' },
 ];
-const activeRatingFilter = ref('all');
+const summaryAudience = ref('all');
+const ratingSummary = computed(() => {
+  const data = productDetail.value || {};
+  const owner = summaryAudience.value === 'owner';
+  const prefix = owner ? 'owner_' : '';
+  const counts = [5, 4, 3, 2, 1].map((star) => ({ star, count: Number(data[`${prefix}star_${star}_count`] || 0) }));
+  const total = Number(data[`${prefix}star_total_count`] || data[owner ? 'owner_rating_total_num' : 'rating_total_num'] || 0);
+  const rawScore = Number(data[`${prefix}star_average_score`] || data.rating_average_score || 0);
+  const score = rawScore <= 5 ? rawScore * 2 : rawScore;
+  const recentPrefix = owner ? 'recent_30_days_owner_' : 'recent_30_days_';
+  const rawRecentScore = Number(data[`${recentPrefix}star_average_score`] || 0);
+  const rawRate = data[`${recentPrefix}goods_percent`];
+  return {
+    total, score,
+    stars: counts.map((item) => ({ ...item, percent: total > 0 ? item.count / total * 100 : 0 })),
+    recentCount: Number(data[`${recentPrefix}star_total_count`] || 0),
+    recentScore: rawRecentScore <= 5 ? rawRecentScore * 2 : rawRecentScore,
+    positiveRate: rawRate === undefined || rawRate === null ? null : Math.round(Number(rawRate) <= 1 ? Number(rawRate) * 100 : Number(rawRate)),
+  };
+});
+const ratingDimensions = computed(() => {
+  const items = productDetail.value?.rating_item_info;
+  if (!Array.isArray(items)) return [];
+  return items.map((item: any) => ({
+    name: String(item.name || ''),
+    score: Number(summaryAudience.value === 'owner' ? item.owner_average_score : item.average_score),
+  })).filter((item) => item.name && Number.isFinite(item.score) && item.score > 0);
+});
 
 async function setMyRating(star: number) {
-  if (!requireLogin() || ratingPending.value) return;
-  ratingPending.value = true;
-  try {
-    const uid = String(authStore.user?.uid || '');
-    await CoolapkTauriAPI.changeRatingStatus(productId.value, star, uid, buyChecked.value ? 1 : 0);
-    if (productDetail.value) {
-      productDetail.value.userAction = {
-        ...(productDetail.value.userAction || {}),
-        rating: star,
-      };
-    }
-    showToast(`已评分 ${star} 星`, 'success');
-  } catch (err) {
-    showToast(getErrorMessage(err, '评分失败'), 'error');
-  } finally {
-    ratingPending.value = false;
-  }
+  if (ratingPending.value) return;
+  selectedRating.value = star;
 }
 
-async function clearMyRating() {
-  if (!requireLogin() || ratingPending.value) return;
+async function submitRating() {
+  if (!requireLogin() || ratingPending.value || selectedRating.value === 0) return;
   ratingPending.value = true;
   try {
-    const uid = String(authStore.user?.uid || '');
-    await CoolapkTauriAPI.changeRatingStatus(productId.value, 0, uid);
+    const result = await CoolapkTauriAPI.createProductRating(productId.value, selectedRating.value, ratingMessage.value, buyChecked.value);
     if (productDetail.value) {
+      if (result?.data?.id) productDetail.value.ratingFeed = result.data;
       productDetail.value.userAction = {
         ...(productDetail.value.userAction || {}),
-        rating: 0,
+        rating: selectedRating.value,
+        buy: buyChecked.value ? 1 : productDetail.value.userAction?.buy,
       };
     }
-    showToast('已取消评分', 'success');
+    ratingMessage.value = '';
+    showRatingComposer.value = false;
+    showToast('点评已发布', 'success');
+    resetRatings();
+    void fetchRatings();
+    void fetchRatingChart();
   } catch (err) {
-    showToast(getErrorMessage(err, '取消评分失败'), 'error');
+    showToast(getErrorMessage(err, '发布点评失败'), 'error');
   } finally {
     ratingPending.value = false;
   }
@@ -909,17 +1125,28 @@ async function fetchRatingChart() {
 }
 
 async function fetchRatings(isLoadMore = false) {
-  if (!productId.value || ratingsLoading.value || ratingsNoMore.value) return;
+  const url = activeRatingSortUrl.value || allTabs.value.find((tab) => tab.key === 'rating')?.url;
+  if (!productId.value || !url || ratingsLoading.value || ratingsNoMore.value) return;
   ratingsLoading.value = true;
   if (!isLoadMore) ratingsError.value = false;
   try {
-    const isOwner = activeRatingFilter.value === 'owner' ? 1 : 0;
-    const res = await CoolapkTauriAPI.getProductRatingList(productId.value, 0, isOwner, ratingsPage.value);
-    const newItems = (res && res.data && Array.isArray(res.data)) ? res.data : [];
-    if (newItems.length === 0) {
-      ratingsNoMore.value = true;
-    } else {
-      ratings.value = isLoadMore ? [...ratings.value, ...newItems] : newItems;
+    const res = await CoolapkTauriAPI.getDiscoveryPageData({
+      url, title: '点评', page: ratingsPage.value,
+      firstItem: isLoadMore ? ratingFirstItem.value : '',
+      lastItem: isLoadMore ? ratingLastItem.value : '',
+    });
+    const options = productRatingSortOptions(productId.value, res);
+    if (options.length) {
+      ratingSortOptions.value = options;
+      if (!activeRatingSortUrl.value) activeRatingSortUrl.value = options[0].url;
+    }
+    const newItems = productRatingRows(res);
+    ratings.value = isLoadMore ? [...ratings.value, ...newItems] : newItems;
+    // 点评排序接口未提供 hasMore；不足 20 条也可能还有下一页（差评列表已验证如此）。
+    ratingsNoMore.value = newItems.length === 0;
+    if (newItems.length) {
+      ratingFirstItem.value = readFeedCursor(ratings.value[0]);
+      ratingLastItem.value = readFeedCursor(ratings.value[ratings.value.length - 1]);
       ratingsPage.value++;
     }
   } catch (err) {
@@ -930,13 +1157,31 @@ async function fetchRatings(isLoadMore = false) {
   }
 }
 
-function selectRatingFilter(key: string) {
-  activeRatingFilter.value = key;
+function resetRatings() {
   ratingsPage.value = 1;
   ratingsNoMore.value = false;
   ratingsError.value = false;
   ratings.value = [];
+  ratingFirstItem.value = '';
+  ratingLastItem.value = '';
+}
+
+async function selectRatingSort(url: string) {
+  if (!ratingSortOptions.value.some((option) => option.url === url) || activeRatingSortUrl.value === url) return;
+  activeRatingSortUrl.value = url;
+  resetRatings();
+  await nextTick();
+  ratingChartRef.value?.scrollIntoView({ block: 'start', behavior: 'auto' });
   void fetchRatings();
+}
+
+function openRatingComposer() {
+  selectTab('rating');
+  if (!authStore.isLoggedIn) {
+    authStore.openLoginModal();
+    return;
+  }
+  showRatingComposer.value = true;
 }
 
 function handleScroll(e: Event) {
@@ -945,6 +1190,8 @@ function handleScroll(e: Event) {
   if (scrollTop + clientHeight >= scrollHeight - 100) {
     if (isFeedTab.value && !feedsLoading.value && !noMore.value) {
       fetchFeeds(true);
+    } else if (selectedTab.value?.kind === 'external' && !externalLoading.value && !externalNoMore.value) {
+      void fetchExternalTab(true);
     } else if (activeTab.value === 'media' && !mediaLoading.value && !mediaNoMore.value) {
       fetchMedia(true);
     } else if (activeTab.value === 'rating' && !ratingsLoading.value && !ratingsNoMore.value) {
@@ -979,7 +1226,9 @@ function resetFeeds() {
 }
 
 function loadActiveTab() {
-  if (isFeedTab.value) {
+  if (selectedTab.value?.kind === 'external') {
+    void fetchExternalTab(false);
+  } else if (isFeedTab.value) {
     void fetchFeeds(false);
   } else if (activeTab.value === 'config') {
     void fetchConfigs();
@@ -1028,6 +1277,28 @@ watch(
   flex-direction: column;
   gap: 12px;
 }
+
+.product-score-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.product-score-head, .product-score-body { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.product-score-head strong { color: var(--text-primary); font-size: 15px; }
+.product-score-head button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.product-score-body { margin-top: 12px; }
+.product-score-number { display: flex; flex-direction: column; min-width: 130px; color: var(--text-secondary); font-size: 12px; }
+.product-score-number strong { color: var(--brand-primary); font-size: 38px; line-height: 1.1; }
+.product-score-specs { flex: 1; max-width: 480px; display: grid; gap: 5px; }
+.product-score-specs > div { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 11px; }
+.product-score-specs > div span:first-child { min-width: 56px; text-align: right; }
+.product-score-specs > div span:last-child { min-width: 26px; }
+.product-score-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.product-score-actions > span { margin-right: auto; color: var(--text-tertiary); font-size: 12px; }
+.product-spec-chips { display: flex; gap: 8px; overflow-x: auto; white-space: nowrap; }
+.product-spec-chips span { padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface); color: var(--text-secondary); font-size: 12px; }
 
 .header-content {
   display: flex;
@@ -1142,6 +1413,8 @@ watch(
 .product-sub-tabs {
   display: flex;
   align-items: center;
+  width: 100%;
+  min-width: 0;
   gap: 20px;
   background-color: var(--surface);
   border: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
@@ -1154,10 +1427,18 @@ watch(
   top: 0;
   z-index: 20;
   overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x;
+  cursor: grab;
   user-select: none;
   scrollbar-width: none;
   box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.04));
   box-sizing: border-box;
+}
+
+.product-sub-tabs.is-dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
 }
 
 .product-sub-tabs::-webkit-scrollbar {
@@ -1234,6 +1515,56 @@ watch(
   min-height: 200px;
   display: grid;
   place-items: center;
+}
+
+.product-subtab-empty {
+  width: 100%;
+  min-height: 390px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.product-subtab-empty-card {
+  min-height: 142px;
+  padding: 20px 24px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+}
+
+.product-subtab-empty-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.product-subtab-empty-title i {
+  color: var(--brand-primary);
+}
+
+.product-subtab-empty-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: 15px;
+}
+
+.product-subtab-empty-invite {
+  flex: 1;
+  min-height: 150px;
+  margin: 0;
+  padding: 48px 24px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.6;
 }
 
 /* ===== 参数 Tab ===== */
@@ -1490,6 +1821,24 @@ watch(
   gap: 14px;
 }
 
+.rating-entry {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rating-entry-stars { margin-left: auto; color: var(--text-disabled); font-size: 24px; letter-spacing: 2px; white-space: nowrap; }
+.rating-entry > i { color: var(--text-tertiary); }
+.rating-entry:hover .rating-entry-stars { color: #f59e0b; }
+
 .my-rating-card {
   background-color: var(--surface);
   border: 1px solid var(--border);
@@ -1499,6 +1848,34 @@ watch(
   flex-direction: column;
   gap: var(--space-3);
 }
+
+.rating-overview {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.rating-overview-score {
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.rating-overview-score strong {
+  color: var(--brand-primary);
+  font-size: 36px;
+}
+
+.rating-distribution { flex: 1; display: grid; gap: 5px; }
+.rating-distribution-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.rating-distribution-row span:last-child { min-width: 35px; text-align: right; }
+.rating-distribution-track { flex: 1; height: 7px; border-radius: 5px; background: var(--background-secondary); overflow: hidden; }
+.rating-distribution-track i { display: block; height: 100%; background: var(--brand-primary); }
+.rating-recent { color: var(--text-secondary); font-size: 12px; }
+.rating-dimensions { display: flex; flex-wrap: wrap; gap: 8px; }
+.rating-dimensions span { padding: 5px 10px; border-radius: var(--radius-pill); background: var(--background-secondary); color: var(--text-secondary); font-size: 12px; }
 
 .my-rating-head {
   display: flex;
@@ -1564,6 +1941,19 @@ watch(
   display: flex;
   align-items: center;
   gap: var(--space-4);
+}
+
+.rating-message {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  box-sizing: border-box;
 }
 
 .buy-option {
@@ -1637,6 +2027,9 @@ watch(
   display: flex;
   gap: 6px;
 }
+
+.rating-sort-filter { max-width: 100%; overflow-x: auto; }
+.rating-sort-filter .filter-pill { white-space: nowrap; }
 
 .filter-pill {
   border: 1px solid var(--border);

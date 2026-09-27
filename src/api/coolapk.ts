@@ -243,6 +243,14 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_product_rating_chart', { productId });
   }
 
+  static async getProductSubtabFeeds(productId: string, subId: string, page: number = 1) {
+    return await invokeNative('get_product_subtab_feeds', { productId, subId, page });
+  }
+
+  static async createProductRating(productId: string, score: number, message: string, buyStatus: boolean) {
+    return await invokeNative('create_product_rating', { productId, score, message, buyStatus });
+  }
+
   static async getProductRatingList(productId: string, star: number = 0, isOwner: number = 0, page: number = 1) {
     return await invokeNative('get_product_rating_list', { productId, star, isOwner, page });
   }
@@ -251,7 +259,7 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_apk_rating_user_list', { apkId, page });
   }
 
-  // 产品评分使用 APK 的 /v6/apk/rating 接口；保留旧参数以兼容页面调用。
+  // 旧应用星级接口，仅保留调用兼容；产品点评使用 createProductRating。
   static async changeRatingStatus(productId: string, value: number, uid: string, buyStatus?: number, isOwner?: number) {
     const args: any = { productId, value, uid };
     if (buyStatus !== undefined) args.buyStatus = buyStatus;

@@ -299,6 +299,27 @@ pub async fn get_product_rating_chart(
 }
 
 #[tauri::command]
+pub async fn get_product_subtab_feeds(
+    state: State<'_, AppState>,
+    product_id: String,
+    sub_id: String,
+    page: u32,
+) -> Result<Value, String> {
+    state.client.get_product_subtab_feeds(&product_id, &sub_id, page).await
+}
+
+#[tauri::command]
+pub async fn create_product_rating(
+    state: State<'_, AppState>,
+    product_id: String,
+    score: i32,
+    message: String,
+    buy_status: bool,
+) -> Result<Value, String> {
+    state.client.create_product_rating(&product_id, score, &message, buy_status).await
+}
+
+#[tauri::command]
 pub async fn get_product_rating_list(
     state: State<'_, AppState>,
     product_id: String,

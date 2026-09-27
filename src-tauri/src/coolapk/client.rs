@@ -259,6 +259,33 @@ fn build_product_rating_query(product_id: &str, value: i32) -> Vec<(&'static str
     ]
 }
 
+fn build_product_review_form(
+    product_id: &str,
+    score: i32,
+    message: &str,
+    buy_status: bool,
+) -> Vec<(&'static str, String)> {
+    let mut form = build_create_feed_form_for_type(message, None, None, "rating", "");
+    for (key, value) in &mut form {
+        match *key {
+            "targetType" => *value = "product_phone".to_string(),
+            "targetId" => *value = product_id.to_string(),
+            _ => {}
+        }
+    }
+    form.extend([
+        ("rating_score_1", score.to_string()),
+        ("buy_status", if buy_status { "1" } else { "0" }.to_string()),
+        ("comment_good", String::new()),
+        ("comment_general", String::new()),
+        ("comment_bad", String::new()),
+        ("comment_good_pic", String::new()),
+        ("comment_general_pic", String::new()),
+        ("comment_bad_pic", String::new()),
+    ]);
+    form
+}
+
 fn build_product_rating_list_query(
     product_id: &str,
     star: i32,
@@ -269,10 +296,11 @@ fn build_product_rating_list_query(
         ("url", "/feed/nodeRatingList".to_string()),
         ("targetType", "7".to_string()),
         ("targetId", product_id.to_string()),
-        ("ratingType", "all".to_string()),
-        ("isOwner", is_owner.to_string()),
         ("page", page.max(1).to_string()),
     ];
+    if is_owner == 1 {
+        query.push(("isOwner", "1".to_string()));
+    }
     if star > 0 {
         query.push(("star", star.to_string()));
     }
@@ -612,6 +640,20 @@ fn build_product_feeds_query(
     }
     query.push(("page", page.to_string()));
     query
+}
+
+fn build_product_subtab_query(product_id: &str, sub_id: &str, page: u32) -> Vec<(&'static str, String)> {
+    vec![
+        ("url", "/page?url=/product/feedList".to_string()),
+        ("cacheExpires", "60".to_string()),
+        ("type", "subTabFeed".to_string()),
+        ("withSortCard", "1".to_string()),
+        ("withSubTabFeedCard", "1".to_string()),
+        ("ignoreEntityById", "1".to_string()),
+        ("id", product_id.to_string()),
+        ("subId", sub_id.to_string()),
+        ("page", page.max(1).to_string()),
+    ]
 }
 
 fn topic_hub_cursor(value: &Value) -> String {
@@ -7009,6 +7051,15 @@ impl CoolapkClient {
         Ok(json!({ "code": 200, "data": Self::extract_cleaned_list(&raw) }))
     }
 
+    /// 产品页服务端子栏目（样张、到手价等）对应的动态列表。
+    pub async fn get_product_subtab_feeds(&self, product_id: &str, sub_id: &str, page: u32) -> Result<Value, String> {
+        if product_id.trim().is_empty() || sub_id.trim().is_empty() || !sub_id.chars().all(|ch| ch.is_ascii_digit()) {
+            return Err("产品或子栏目 ID 无效".to_string());
+        }
+        let raw = self.api_get("/v6/page/dataList", &build_product_subtab_query(product_id, sub_id, page)).await?;
+        Ok(json!({ "code": 200, "data": Self::extract_cleaned_list(&raw) }))
+    }
+
     /// 产品（数码）配置详情
     /// 数据来源: GET /v6/product/config?id={config_id}
     pub async fn get_product_config(&self, config_id: &str) -> Result<Value, String> {
@@ -7243,10 +7294,28 @@ impl CoolapkClient {
         )
     }
 
+    /// 官方产品点评使用 feed/createFeed 的 rating + product_phone 表单。
+    pub async fn create_product_rating(
+        &self,
+        product_id: &str,
+        score: i32,
+        message: &str,
+        buy_status: bool,
+    ) -> Result<Value, String> {
+        if product_id.trim().is_empty() || !(1..=5).contains(&score) {
+            return Err("请选择 1 至 5 星并确认产品".to_string());
+        }
+        self.submit_create_feed_form(
+            build_product_review_form(product_id.trim(), score, message.trim(), buy_status),
+            "发布产品点评失败：",
+        )
+        .await
+    }
+
     /// 产品用户评分列表（NodeRating）。
     ///
-    /// 官方客户端复用节点评分列表接口，产品类型使用 NodeRating 的数码产品类型值
-    /// `7`，而不是产品详情页路由名 `product`。后者会被服务端判定为非法访问。
+    /// 官方客户端复用节点评分列表接口，列表的 targetType 为 `7`；
+    /// 不带 ratingType 和 isOwner=0，和官方默认请求一致。
     /// 数据来源: GET /v6/page/dataList?url=/feed/nodeRatingList&targetType=7&targetId={id}
     pub async fn get_product_rating_list(
         &self,

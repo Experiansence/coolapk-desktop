@@ -5,7 +5,7 @@ pub mod download_manager;
 use coolapk::client::CoolapkClient;
 use coolapk::commands::{
     AppState, add_config_compare, add_goods_to_goods_list, add_to_black_list, add_to_ignore_list,
-    bind_feed_to_goods_list, change_product_follow_status, change_product_wish_status, change_rating_status, check_login_info,
+    bind_feed_to_goods_list, change_product_follow_status, change_product_wish_status, change_rating_status, create_product_rating, check_login_info,
     check_login_status, clean_expired_cache, clear_app_cache, clear_user_cookie,
     close_login_window, create_answer, create_export_directory, create_feed, create_forward, create_goods_list, create_product_album,
     delete_feed, delete_goods_list_items, delete_reply, download_update, start_apk_download,
@@ -36,7 +36,7 @@ use coolapk::commands::{
     get_my_product_list, get_node_feeds, get_notification_count, clear_notification_count, get_notifications, get_picture_list,
     get_product_albums, get_product_brand_list, get_product_category_list, get_product_config,
     get_product_detail, get_product_detail_by_name, get_product_feeds, get_product_list, get_product_brand_products, get_secondhand_brand_list, get_secondhand_product_list,
-    get_product_media_list, get_product_rating_chart, get_product_rating_list, get_question_answers,
+    get_product_media_list, get_product_rating_chart, get_product_rating_list, get_product_subtab_feeds, get_question_answers,
     follow_question, unfollow_question, invite_question_answer,
     get_user_product_albums,
     get_hot_searches, get_rank_feeds, get_recent_history, get_reply_detail, get_search_suggestions,
@@ -1126,6 +1126,8 @@ pub fn run() {
             get_product_buy_list,
             get_my_product_list,
             get_product_rating_chart,
+            get_product_subtab_feeds,
+            create_product_rating,
             get_product_rating_list,
             get_apk_rating_user_list,
             change_rating_status,

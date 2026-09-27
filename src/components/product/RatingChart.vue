@@ -2,6 +2,10 @@
   <div class="rating-chart">
     <div class="chart-head">
       <span class="chart-title"><i class="fas fa-chart-line"></i> 评分趋势</span>
+      <div class="period-tabs" aria-label="评分范围">
+        <button type="button" :class="['period-btn', { active: audience === 'all' }]" @click="audience = 'all'">全部用户</button>
+        <button v-if="hasOwnerData" type="button" :class="['period-btn', { active: audience === 'owner' }]" @click="audience = 'owner'">机主</button>
+      </div>
       <div class="period-tabs">
         <button
           v-for="(label, key) in RATING_CHART_PERIOD_LABELS"
@@ -20,12 +24,18 @@
     </div>
 
     <div v-else class="chart-body">
+      <div class="period-tabs chart-metric-tabs" aria-label="走势指标">
+        <button type="button" :class="['period-btn', { active: metric === 'score' }]" @click="metric = 'score'">平均分</button>
+        <button type="button" :class="['period-btn', { active: metric === 'count' }]" @click="metric = 'count'">点评人数</button>
+      </div>
       <svg
         class="chart-svg"
         :viewBox="`0 0 ${viewWidth} ${viewHeight}`"
         preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="评分趋势折线图"
+        @mousemove="handleChartMove"
+        @mouseleave="hoveredIndex = -1"
       >
         <defs>
           <linearGradient id="chart-area-fill" x1="0" y1="0" x2="0" y2="1">
@@ -56,23 +66,15 @@
 
         <path :d="areaPath" class="area-fill" />
         <path :d="linePath" class="score-line" />
-        <polyline :points="linePointsAttr" class="score-line" fill="none" />
 
-        <g v-for="(point, index) in points" :key="`point-${index}`">
+        <g v-for="(point, index) in positioned" :key="`point-${index}`">
           <circle
+            v-if="hoveredIndex === index || positioned.length <= 40"
             :cx="point.x"
             :cy="point.y"
             r="3.4"
             class="score-dot"
           />
-          <circle
-            :cx="point.x"
-            :cy="point.y"
-            r="8"
-            class="score-dot-hit"
-          >
-            <title>{{ point.label }}：{{ point.score.toFixed(1) }} 分（{{ point.count }} 人）</title>
-          </circle>
           <text
             v-if="showXLabel(index)"
             :x="point.x"
@@ -84,8 +86,13 @@
           </text>
         </g>
       </svg>
+      <div v-if="hoveredPoint" class="chart-tooltip" :style="tooltipStyle" role="status">
+        <strong>{{ hoveredPoint.label }}</strong>
+        <span>均分 {{ hoveredPoint.score.toFixed(1) }} 分</span>
+        <span>{{ hoveredPoint.count }} 人评分</span>
+      </div>
       <div class="chart-legend">
-        <span class="legend-item"><i class="legend-line"></i>全部用户均分</span>
+        <span class="legend-item"><i class="legend-line"></i>{{ effectiveAudience === 'owner' ? '机主' : '全部用户' }}{{ metric === 'score' ? '均分' : '点评人数' }}</span>
         <span class="legend-note">悬停数据点查看详情</span>
       </div>
     </div>
@@ -93,7 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import EmptyState from '../common/EmptyState.vue';
 import { RATING_CHART_PERIOD_LABELS, extractRatingChartSeries, type RatingChartPeriodKey, type RatingChartPeriods } from '../../types/product';
 
@@ -102,6 +109,11 @@ const props = defineProps<{
 }>();
 
 const activePeriod = ref<RatingChartPeriodKey>('week');
+const audience = ref<'all' | 'owner'>('all');
+const metric = ref<'score' | 'count'>('score');
+const hoveredIndex = ref(-1);
+const tooltipStyle = ref({ left: '0px', top: '0px' });
+const hasOwnerData = computed(() => (['day', 'week', 'month'] as const).some((key) => props.periods?.[key]?.ownerRatingChart?.x?.length));
 
 const viewWidth = 640;
 const viewHeight = 240;
@@ -113,9 +125,10 @@ const period = computed(() => {
   if (!periods) return null;
   return periods[activePeriod.value] || null;
 });
+const effectiveAudience = computed(() => audience.value === 'owner' || !period.value?.ratingChart ? 'owner' : 'all');
 
 const points = computed(() => {
-  const series = extractRatingChartSeries(period.value);
+  const series = extractRatingChartSeries(period.value, effectiveAudience.value);
   return series.map((point) => ({
     ...point,
     x: 0,
@@ -140,6 +153,8 @@ const maxScore = computed(() => {
 });
 
 const maxCount = computed(() => countValues.value.length ? Math.max(...countValues.value) : 0);
+const chartMin = computed(() => metric.value === 'score' ? minScore.value : 0);
+const chartMax = computed(() => metric.value === 'score' ? maxScore.value : Math.max(1, maxCount.value));
 
 const innerWidth = computed(() => viewWidth - padding.left - padding.right);
 const innerHeight = computed(() => viewHeight - padding.top - padding.bottom);
@@ -151,16 +166,32 @@ function xAt(index: number): number {
 }
 
 function yFor(score: number): number {
-  const range = Math.max(maxScore.value - minScore.value, 0.0001);
-  const ratio = (score - minScore.value) / range;
+  const range = Math.max(chartMax.value - chartMin.value, 0.0001);
+  const ratio = (score - chartMin.value) / range;
   return padding.top + (1 - ratio) * innerHeight.value;
 }
 
 const positioned = computed(() => points.value.map((point, index) => ({
   ...point,
   x: xAt(index),
-  y: yFor(point.score),
+  y: yFor(metric.value === 'score' ? point.score : point.count),
 })));
+
+const hoveredPoint = computed(() => positioned.value[hoveredIndex.value] || null);
+
+function handleChartMove(event: MouseEvent) {
+  const svg = event.currentTarget as SVGSVGElement;
+  const bounds = svg.getBoundingClientRect();
+  if (!bounds.width || positioned.value.length === 0) return;
+  const x = ((event.clientX - bounds.left) / bounds.width) * viewWidth;
+  const index = Math.max(0, Math.min(positioned.value.length - 1,
+    Math.round(((x - padding.left) / innerWidth.value) * (positioned.value.length - 1))));
+  hoveredIndex.value = index;
+  tooltipStyle.value = {
+    left: `${Math.max(8, Math.min(bounds.width - 150, event.clientX - bounds.left + 12))}px`,
+    top: `${Math.max(8, event.clientY - bounds.top - 70)}px`,
+  };
+}
 
 const linePath = computed(() => {
   if (positioned.value.length === 0) return '';
@@ -168,8 +199,6 @@ const linePath = computed(() => {
     .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`)
     .join(' ');
 });
-
-const linePointsAttr = computed(() => positioned.value.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
 
 const areaPath = computed(() => {
   if (positioned.value.length === 0) return '';
@@ -185,9 +214,9 @@ const gridYs = computed(() => {
   const gridLines: Array<{ y: number; value: number; label: string }> = [];
   for (let row = 0; row <= rows; row++) {
     // 与 yFor(score) 保持一致：顶部对应 maxScore，底部对应 minScore
-    const value = maxScore.value - (maxScore.value - minScore.value) * (row / rows);
+    const value = chartMax.value - (chartMax.value - chartMin.value) * (row / rows);
     const y = padding.top + (row / rows) * innerHeight.value;
-    gridLines.push({ y, value, label: value.toFixed(1) });
+    gridLines.push({ y, value, label: metric.value === 'score' ? value.toFixed(1) : String(Math.round(value)) });
   }
   return gridLines;
 });
@@ -210,7 +239,6 @@ function shortDateLabel(raw: string): string {
   return text.slice(0, 8);
 }
 
-watch(activePeriod, () => { /* 数据为响应式计算，无需额外处理 */ });
 </script>
 
 <style scoped>
@@ -229,6 +257,7 @@ watch(activePeriod, () => { /* 数据为响应式计算，无需额外处理 */ 
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .chart-title {
@@ -271,6 +300,25 @@ watch(activePeriod, () => { /* 数据为响应式计算，无需额外处理 */ 
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  position: relative;
+}
+
+.chart-metric-tabs { align-self: flex-start; }
+
+.chart-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 .chart-svg {

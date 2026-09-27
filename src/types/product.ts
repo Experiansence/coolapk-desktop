@@ -173,16 +173,38 @@ export const RATING_CHART_PERIOD_LABELS: Record<RatingChartPeriodKey, string> = 
 /** 从评分趋势响应中提取指定周期的折线数据点（x 轴时间 + y 轴均分） */
 export function extractRatingChartSeries(
   period: RatingChartPeriod | null | undefined,
+  audience: 'all' | 'owner' = 'all',
 ): Array<{ label: string; score: number; count: number }> {
-  const chart = period?.ratingChart || period?.ownerRatingChart || null;
+  const chart = audience === 'owner' ? period?.ownerRatingChart : (period?.ratingChart || period?.ownerRatingChart);
   if (!chart || !Array.isArray(chart.x)) return [];
   const points = chart.x
-    .filter((item) => item && item.score !== undefined && item.score !== null)
+    .filter((item) => item && item.score !== undefined && item.score !== null && item.count !== 0)
     .map((item) => ({
-      label: String(item.datelineStr ?? item.startDate ?? item.dateline ?? ''),
+      label: ratingChartDateLabel(item),
       score: Number(item.score),
       count: Number(item.count ?? 0),
+      order: ratingChartDateOrder(item),
     }))
-    .filter((point) => Number.isFinite(point.score));
-  return points.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+    .filter((point) => Number.isFinite(point.score) && point.score > 0 && point.score <= 10);
+  return points.sort((a, b) => a.order - b.order).map(({ order: _order, ...point }) => point);
+}
+
+function ratingChartDateOrder(item: RatingChartData): number {
+  const raw = item.startDate ?? item.dateline ?? item.datelineStr;
+  if (typeof raw === 'number') return raw;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(String(raw ?? ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function ratingChartDateLabel(item: RatingChartData): string {
+  const raw = item.startDate || item.datelineStr || item.dateline;
+  if (raw === undefined || raw === null) return '';
+  if (typeof raw === 'number' || /^\d{10,13}$/.test(String(raw))) {
+    const value = Number(raw);
+    const date = new Date(value < 1e11 ? value * 1000 : value);
+    if (Number.isFinite(date.getTime())) return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+  return String(raw);
 }

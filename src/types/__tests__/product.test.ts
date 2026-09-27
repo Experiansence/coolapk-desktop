@@ -84,4 +84,14 @@ describe('rating chart series extraction', () => {
     });
     expect(series).toHaveLength(1);
   });
+
+  it('skips empty periods and sorts by real date', () => {
+    const series = extractRatingChartSeries({ ratingChart: { x: [
+      { startDate: 1767312000, score: 9.1, count: 3 },
+      { startDate: 1767225600, score: 0, count: 0 },
+      { startDate: 1767139200, score: 8.8, count: 2 },
+    ] } });
+    expect(series.map((point) => point.score)).toEqual([8.8, 9.1]);
+    expect(series[0].label).toMatch(/^2025-12-3/);
+  });
 });
