@@ -5602,9 +5602,16 @@ impl CoolapkClient {
         )
     }
 
-    pub async fn list_messages(&self, page: u32) -> Result<Value, String> {
+    pub async fn list_messages(&self, page: u32, first_item: &str, last_item: &str) -> Result<Value, String> {
+        let mut query = vec![("page", page.to_string())];
+        if !first_item.trim().is_empty() {
+            query.push(("firstItem", first_item.trim().to_string()));
+        }
+        if !last_item.trim().is_empty() {
+            query.push(("lastItem", last_item.trim().to_string()));
+        }
         wrap_api_data(
-            self.api_get("/v6/message/list", &[("page", page.to_string())])
+            self.api_get("/v6/message/list", &query)
                 .await?,
         )
     }

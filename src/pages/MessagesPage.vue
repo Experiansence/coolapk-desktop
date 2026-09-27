@@ -12,7 +12,7 @@
         <h2>私信</h2>
       </div>
       
-      <div class="session-list" v-if="sessions.length">
+      <div class="session-list" v-if="sessions.length" @scroll="handleSessionScroll">
         <div 
           v-for="session in sessions" 
           :key="session.ukey || session.id" 
@@ -34,6 +34,13 @@
           </div>
           <span v-if="getSessionUnreadCount(session) > 0" class="session-unread-badge" aria-label="未读消息数">{{ getSessionUnreadLabel(session) }}</span>
         </div>
+        <div v-if="loadingMoreSessions" class="session-pagination-status">加载更多会话...</div>
+        <button v-else-if="sessionsMoreError" class="session-pagination-action" type="button" @click="loadMoreSessions">
+          加载失败，点击重试
+        </button>
+        <button v-else-if="hasMoreSessions" class="session-pagination-action" type="button" @click="loadMoreSessions">
+          加载更多会话
+        </button>
       </div>
       
       <div class="session-list-status" v-else-if="isNotLoggedIn">
@@ -378,6 +385,10 @@ const navigateToUser = (uid?: string | number) => {
 
 const sessions = ref<any[]>([]);
 const loadingSessions = ref(false);
+const loadingMoreSessions = ref(false);
+const hasMoreSessions = ref(true);
+const sessionsMoreError = ref('');
+let sessionsNextPage = 2;
 const sessionsError = ref('');
 const currentSession = ref<any>(null);
 const mobileChatActive = ref(false);
@@ -863,20 +874,31 @@ function sessionsCacheKey() {
   return `coolapk_message_sessions_${currentUserUid.value || 'guest'}`;
 }
 
+function sessionsPaginationCacheKey() {
+  return `coolapk_message_sessions_pagination_${currentUserUid.value || 'guest'}`;
+}
+
 function restoreSessionsCache() {
   try {
     const cached = sessionStorage.getItem(sessionsCacheKey());
     if (!cached) return;
     const parsed = JSON.parse(cached);
-    if (Array.isArray(parsed)) sessions.value = parsed.map(normalizeSessionUnreadState);
+    if (Array.isArray(parsed)) {
+      sessions.value = parsed.map(normalizeSessionUnreadState);
+      const pagination = JSON.parse(sessionStorage.getItem(sessionsPaginationCacheKey()) || 'null');
+      sessionsNextPage = Number.isInteger(pagination?.nextPage) && pagination.nextPage >= 2 ? pagination.nextPage : 2;
+      hasMoreSessions.value = typeof pagination?.hasMore === 'boolean' ? pagination.hasMore : parsed.length > 0;
+    }
   } catch {
     sessionStorage.removeItem(sessionsCacheKey());
+    sessionStorage.removeItem(sessionsPaginationCacheKey());
   }
 }
 
 function persistSessionsCache() {
   try {
     sessionStorage.setItem(sessionsCacheKey(), JSON.stringify(sessions.value));
+    sessionStorage.setItem(sessionsPaginationCacheKey(), JSON.stringify({ nextPage: sessionsNextPage, hasMore: hasMoreSessions.value }));
   } catch {
     // 会话缓存写入失败时继续使用内存数据，不影响私信功能。
   }
@@ -1316,6 +1338,8 @@ const loadSessions = async () => {
   if (!authStore.isLoggedIn) {
     loadingSessions.value = false;
     sessions.value = [];
+    hasMoreSessions.value = false;
+    sessionsNextPage = 2;
     currentSession.value = null;
     mobileChatActive.value = false;
     return;
@@ -1338,6 +1362,9 @@ const loadSessions = async () => {
         getSelfMessageUnreadCount(rawServerSessions, currentUserUid.value),
       );
       const serverSessions: any[] = rawServerSessions.map(normalizeSessionUnreadState);
+      const hadSessions = sessions.value.length > 0;
+      if (!hadSessions) hasMoreSessions.value = serverSessions.length > 0;
+      const mergedSessions = mergeSessionsByKey(serverSessions, sessions.value);
 
       // 检查当前是否有正在活跃打开的临时未建联会话（例如一键反馈）
       const isCurrentTemp = Boolean(currentSession.value?.isNewConversation);
@@ -1350,16 +1377,16 @@ const loadSessions = async () => {
           const serverMatch = serverSessions.find((s) => String(getSessionPartnerUid(s)) === partnerUid);
           if (serverMatch) {
             if (isCurrentTemp) currentSession.value = serverMatch;
-            sessions.value = serverSessions;
+            sessions.value = mergedSessions;
           } else {
-            sessions.value = [activeTemp, ...serverSessions.filter((s) => s.id !== activeTemp.id)];
+            sessions.value = [activeTemp, ...mergedSessions.filter((s) => !isSameSession(s, activeTemp))];
           }
         } else {
-          sessions.value = serverSessions;
+          sessions.value = mergedSessions;
         }
       } else {
-        // 无指定临时会话时，完全按照真实最新时间排序的列表呈现
-        sessions.value = serverSessions;
+        // 轮询只刷新第一页；已加载的旧会话继续保留在其后。
+        sessions.value = mergedSessions;
       }
 
       // 当前聊天已打开时，即使轮询接口暂时返回旧的未读值，也保持当前会话的即时已读状态。
@@ -1382,6 +1409,55 @@ const loadSessions = async () => {
     loadingSessions.value = false;
   }
 };
+
+function mergeSessionsByKey(newer: any[], older: any[]): any[] {
+  const seen = new Set<string>();
+  return [...newer, ...older].filter((session) => {
+    const key = String(session?.ukey || session?.id || getSessionPartnerUid(session) || '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function loadMoreSessions() {
+  if (!authStore.isLoggedIn || loadingSessions.value || loadingMoreSessions.value || !hasMoreSessions.value) return;
+  const lastItem = String([...sessions.value].reverse().find((session) => !session.isNewConversation)?.ukey || '');
+  if (!lastItem) {
+    hasMoreSessions.value = false;
+    return;
+  }
+  loadingMoreSessions.value = true;
+  sessionsMoreError.value = '';
+  try {
+    const res = await withTimeout(
+      CoolapkTauriAPI.listMessages(sessionsNextPage, '', lastItem),
+      15_000,
+      '更多会话请求超时，请重试',
+    );
+    if (!Array.isArray(res?.data)) throw new Error('会话列表返回格式不正确');
+    const incoming = res.data.map(normalizeSessionUnreadState);
+    const previousCount = sessions.value.length;
+    const merged = mergeSessionsByKey(sessions.value, incoming);
+    const nextLastItem = String([...merged].reverse().find((session) => !session.isNewConversation)?.ukey || '');
+    sessions.value = merged;
+    if (!incoming.length || merged.length === previousCount || nextLastItem === lastItem) {
+      hasMoreSessions.value = false;
+    } else {
+      sessionsNextPage += 1;
+    }
+    persistSessionsCache();
+  } catch (error) {
+    sessionsMoreError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    loadingMoreSessions.value = false;
+  }
+}
+
+function handleSessionScroll(event: Event) {
+  const list = event.target as HTMLElement;
+  if (list.scrollTop + list.clientHeight >= list.scrollHeight - 100) void loadMoreSessions();
+}
 
 function stopMessagePolling() {
   messagePollingActive = false;
@@ -2045,6 +2121,21 @@ onUnmounted(() => {
 .session-list {
   flex: 1;
   overflow-y: auto;
+}
+
+.session-pagination-status,
+.session-pagination-action {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.session-pagination-action {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .session-list-status .main-header h3 {

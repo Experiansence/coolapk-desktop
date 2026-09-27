@@ -1319,8 +1319,8 @@ pub async fn get_notifications(
 }
 
 #[tauri::command]
-pub async fn list_messages(state: State<'_, AppState>, page: u32) -> Result<Value, String> {
-    state.client.list_messages(page).await
+pub async fn list_messages(state: State<'_, AppState>, page: u32, first_item: String, last_item: String) -> Result<Value, String> {
+    state.client.list_messages(page, &first_item, &last_item).await
 }
 
 #[tauri::command]

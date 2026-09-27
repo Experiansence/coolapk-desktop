@@ -663,8 +663,8 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_notifications', { notificationType, page }, { retry: true });
   }
 
-  static async listMessages(page: number = 1) {
-    return await invokeNative('list_messages', { page });
+  static async listMessages(page: number = 1, firstItem: string = '', lastItem: string = '') {
+    return await invokeNative('list_messages', { page, firstItem, lastItem });
   }
 
   static async getRecentChatUsers(page: number = 1) {

@@ -87,6 +87,7 @@ describe('MessagesPage 粘贴图片发送功能', () => {
       isNewConversation: true,
     };
 
+    sessionStorage.removeItem('coolapk_message_sessions_pagination_10001');
     sessionStorage.setItem('coolapk_message_sessions_10001', JSON.stringify([testSession]));
     mocks.listMessages.mockResolvedValue({ data: [testSession] });
     mocks.listChatHistory.mockResolvedValue({ data: [] });
@@ -592,6 +593,33 @@ describe('MessagesPage 粘贴图片发送功能', () => {
 
     expect(sendEvent.defaultPrevented).toBe(true);
     expect(mocks.sendPrivateMessage).toHaveBeenCalledWith('20002', '测试消息');
+  });
+
+  it('滚动加载更早会话，并在刷新第一页后保留旧会话', async () => {
+    const makeSession = (uid: number) => ({
+      ukey: `10001_${uid}`,
+      id: `10001_${uid}`,
+      messageUid: uid,
+      messageUsername: `酷友${uid}`,
+      message: `消息${uid}`,
+      dateline: uid,
+    });
+    const firstPage = [makeSession(20002), makeSession(20003)];
+    const older = makeSession(20004);
+    sessionStorage.setItem('coolapk_message_sessions_10001', JSON.stringify(firstPage));
+    mocks.listMessages.mockImplementation(async (page: number) => ({ data: page === 1 ? firstPage : page === 2 ? [older] : [] }));
+
+    const w = await mountMessagesPage();
+    await w.find('.session-pagination-action').trigger('click');
+    await flushPromises();
+
+    expect(mocks.listMessages).toHaveBeenCalledWith(2, '', '10001_20003');
+    expect(w.findAll('.session-item')).toHaveLength(3);
+
+    mocks.listMessages.mockImplementation(async (page: number) => ({ data: page === 1 ? [firstPage[0]] : [] }));
+    window.dispatchEvent(new Event('coolapk-message-count-increased'));
+    await flushPromises();
+    expect(w.findAll('.session-item')).toHaveLength(3);
   });
 
   it('向上滚动时按 APK 游标加载更早消息并保持消息顺序', async () => {
