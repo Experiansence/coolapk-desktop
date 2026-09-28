@@ -139,7 +139,7 @@ jobs:
             portableTarget: aarch64-pc-windows-msvc
           - name: Linux x64
             platform: ubuntu-22.04
-            args: --bundles appimage,deb,rpm
+            args: --bundles deb,rpm
             rustTargets: ''
           - name: macOS Apple Silicon
             platform: macos-latest
@@ -218,6 +218,33 @@ jobs:
           prerelease: false
           generateReleaseNotes: true
           args: ${{ matrix.args }}
+
+      - name: 安装 AppImage 重打包工具
+        if: ${{ runner.os == 'Linux' }}
+        run: sudo apt-get install -y squashfs-tools
+
+      - name: 构建并修复 Linux AppImage 权限
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          npm run tauri -- build --bundles appimage
+          appimage="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage"
+          bash scripts/fix-appimage-permissions.sh "$appimage"
+
+      - name: 上传 Linux AppImage 工作流产物
+        if: ${{ runner.os == 'Linux' && !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-x64-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: 发布 Linux AppImage
+        if: ${{ runner.os == 'Linux' && startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" src-tauri/target/release/bundle/appimage/*.AppImage --repo "$GITHUB_REPOSITORY"
 
       - name: 准备 Windows 单文件便携版
         if: ${{ runner.os == 'Windows' }}
