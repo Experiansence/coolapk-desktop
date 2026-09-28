@@ -1,5 +1,5 @@
 <template>
-  <div class="discover-page">
+  <div :class="['discover-page', { 'is-cool-picture': isCoolPicturePage }]">
     <div class="discover-main-column">
       <div class="discover-toolbar-row">
         <FeedTabs v-if="tabs.length" :active-key="selectedKey" :tabs="feedTabs" :show-manage="false" @update:active-key="selectTab" />
@@ -35,11 +35,12 @@
         </div>
 
         <!-- 发现内容数据流 -->
-        <section v-else :class="['discover-content', { 'has-goods-grid': isGoodsPage, 'has-dyh-grid': isDyhPage }]">
+        <section v-else :class="['discover-content', { 'has-goods-grid': isGoodsPage, 'has-dyh-grid': isDyhPage, 'is-cool-picture': isCoolPicturePage }]">
           <DiscoveryEntityCard
             v-for="(entity, index) in currentState.items"
             :key="getEntityKey(entity, index)"
             :entity="entity"
+            :plain-topic-labels="isCoolPicturePage"
             @open="openEntity"
           />
           <div v-if="currentState.loading" class="loading-more"><LoadingState text="正在加载更多..." /></div>
@@ -66,10 +67,12 @@ import {
   decodeDiscoveryRouteSegment,
   getEntityKey,
   isGoodsEntity,
+  normalizeDiscoveryPageUrl,
   parseDiscoveryPage,
   parseDiscoverySelectedKey,
   parseDiscoveryTabs,
   resolveDiscoveryRoute,
+  resolveDiscoveryTopicRoute,
 } from '../utils/discovery';
 
 interface PageState extends DiscoveryPageResult {
@@ -111,6 +114,7 @@ try {
 }
 
 const selectedTab = computed(() => tabs.value.find((tab) => tab.key === selectedKey.value));
+const isCoolPicturePage = computed(() => selectedTab.value?.pageName === 'V11_FIND_COOLPIC' || selectedTab.value?.url === 'V11_FIND_COOLPIC' || selectedTab.value?.title?.trim() === '酷图');
 const currentState = computed<PageState>(() => {
   if (!selectedKey.value || !states[selectedKey.value]) return emptyState(false);
   return states[selectedKey.value];
@@ -171,6 +175,12 @@ async function loadConfig() {
     if (!selectedKey.value && tabs.value.length) {
       selectedKey.value = tabs.value[0].key;
     }
+    // 旧版保存的话题选中项不再作为发现页内容加载，恢复到可在页内浏览的频道。
+    if (selectedTab.value && resolveDiscoveryTopicRoute(selectedTab.value.url || selectedTab.value.pageName || selectedTab.value.key)) {
+      const inPageTab = tabs.value.find((tab) => tab.title.trim() === '生活' && !resolveDiscoveryTopicRoute(tab.url || tab.pageName || tab.key)) || tabs.value.find((tab) => !resolveDiscoveryTopicRoute(tab.url || tab.pageName || tab.key));
+      if (inPageTab) selectedKey.value = inPageTab.key;
+    }
+    if (selectedKey.value) localStorage.setItem(selectedTabStorageKey, selectedKey.value);
     void loadSelected(false);
   }
 }
@@ -204,7 +214,7 @@ async function loadSelected(reset = false) {
     const response = tab.nativeKind === 'dyh'
       ? await CoolapkTauriAPI.getDyhList(state.page)
       : await CoolapkTauriAPI.getDiscoveryPageData({
-        url: tab.url || tab.pageName || tab.key,
+        url: normalizeDiscoveryPageUrl(tab.url || tab.pageName || tab.key),
         title: tab.title,
         subTitle: tab.subTitle,
         page: state.page,
@@ -230,10 +240,15 @@ async function loadSelected(reset = false) {
 }
 
 function selectTab(key: string) {
+  const tab = tabs.value.find((item) => item.key === key);
+  if (!tab) return;
+  const topicRoute = resolveDiscoveryTopicRoute(tab.url || tab.pageName || tab.key);
+  if (topicRoute) {
+    navigateNative(topicRoute, tab.title);
+    return;
+  }
   selectedKey.value = key;
   localStorage.setItem(selectedTabStorageKey, key);
-  const tab = selectedTab.value;
-  if (!tab) return;
   if (tab.openNewActivity && tab.nativeKind !== 'dyh') {
     openTab(tab);
     return;
@@ -273,18 +288,8 @@ function openEntity(entity: DiscoveryEntity) {
 }
 
 function navigateDataList(target: string, title: string) {
-  const existing = tabs.value.find((tab) => tab.url === target || tab.pageName === target);
-  if (existing) {
-    selectedKey.value = existing.key;
-    void loadSelected(false);
-    return;
-  }
-  const key = `runtime:${target}`;
-  if (!tabs.value.some((tab) => tab.key === key)) {
-    tabs.value.push({ key, title: title || '内容', url: target, visible: true, order: tabs.value.length, raw: { title, url: target } });
-  }
-  selectedKey.value = key;
-  void loadSelected(true);
+  // 点击发现卡片时使用应用级页面标签，不向发现频道栏追加临时标签。
+  void router.push({ path: '/page', query: { url: normalizeDiscoveryPageUrl(target), title: title || '内容', renderer: 'discovery' } });
 }
 
 function navigateNative(target: string, title: string) {
@@ -293,13 +298,13 @@ function navigateNative(target: string, title: string) {
   const feed = clean.match(/^\/feed\/(\d+)/);
   const app = clean.match(/^\/apk\/([^/?#]+)/);
   const product = clean.match(/^\/product\/(\d+)/);
-  const topic = clean.match(/^\/topic\/([^/?#]+)/);
+  const topic = clean.match(/^\/topic\/([^/?#]+)(?:\?([^#]*))?/);
   const dyh = clean.match(/^\/dyh\/(\d+)/);
   if (user) void router.push(`/user/${user[1]}`);
   else if (feed) void router.push(`/feed/${feed[1]}`);
   else if (app) void router.push(`/app/${encodeURIComponent(decodeDiscoveryRouteSegment(app[1]))}`);
   else if (product) void router.push(`/product/${product[1]}`);
-  else if (topic) void router.push(`/topic/${encodeURIComponent(decodeDiscoveryRouteSegment(topic[1]))}`);
+  else if (topic) void router.push(`/topic/${encodeURIComponent(decodeDiscoveryRouteSegment(topic[1]))}${topic[2] ? `?${topic[2]}` : ''}`);
   else if (dyh) void router.push(`/dyh/${dyh[1]}`);
   else navigateDataList(target, title);
 }
@@ -340,6 +345,19 @@ onMounted(() => { void loadConfig(); });
 .config-error span { flex: 1 1 100%; }
 .state-container { max-width: none; width: 100%; margin: 30px 0 0; min-height: 360px; display: flex; justify-content: center; align-items: center; }
 .discover-content { max-width: none; width: 100%; margin: 0; display: grid; gap: 16px; }
+.discover-content.is-cool-picture, .is-cool-picture .discover-scroll-container > :deep(.discovery-skeleton) { box-sizing: border-box; width: 100%; padding-inline: 0; }
+.discover-content.is-cool-picture { gap: 14px; }
+/* 酷图页使用独立圆角卡片，末行卡片也伸展填满可用宽度。 */
+.discover-content.is-cool-picture :deep(.discovery-entity-group.is-picture-topic-grid) { overflow: visible; border: 0; background: transparent; }
+.discover-content.is-cool-picture :deep(.discovery-entity-group.is-picture-topic-grid .discovery-group-items) { display: flex; flex-wrap: wrap; gap: 12px; padding: 0; }
+.discover-content.is-cool-picture :deep(.discovery-entity-group.is-picture-topic-grid .discovery-group-items > *) { flex: 1 1 220px; min-width: 0; }
+.discover-content.is-cool-picture :deep(.discovery-entity-group.is-picture-topic-grid .topic-card.mode-card) { box-sizing: border-box; min-height: 144px; justify-content: center; }
+.discover-content.is-cool-picture :deep(.discovery-icon-grid) { padding-bottom: 0; border: 0; background: transparent; }
+.discover-content.is-cool-picture :deep(.discovery-icon-grid-items.is-category-grid) { display: flex; flex-wrap: wrap; gap: 12px; padding: 0; }
+.discover-content.is-cool-picture :deep(.discovery-icon-grid-item.is-category-item) { flex: 1 1 150px; min-width: 0; min-height: 112px; gap: 8px; padding: 12px 8px; border: 1px solid var(--border-light, rgba(0, 0, 0, .08)); border-radius: var(--radius-card, 16px); background: var(--surface); }
+.discover-content.is-cool-picture :deep(.discovery-icon-grid-item.is-category-item:hover) { border-color: var(--brand-primary); background: var(--surface-hover); box-shadow: 0 6px 18px rgba(0, 0, 0, .06); }
+.discover-content.is-cool-picture :deep(.discovery-icon-grid-item.is-category-item .discovery-icon-inner) { width: 48px; height: 48px; }
+.discover-content.is-cool-picture :deep(.discovery-icon-grid-item.is-category-item .discovery-icon-grid-image img) { width: 48px; height: 48px; max-width: 48px; max-height: 48px; }
 .discover-content.has-goods-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; }
 .discover-content.has-dyh-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .loading-more, .no-more { padding: 16px; text-align: center; color: var(--text-tertiary); font-size: 13px; }

@@ -86,7 +86,7 @@ export function describePageTab(route: TabRoute): PageTabDescriptor {
   let title = staticPages[name]?.[0] || queryTitle || '页面';
   let icon = staticPages[name]?.[1] || 'far fa-file-lines';
 
-  if (name === 'Topic') [title, icon] = [`# ${param || '话题'}`, 'fas fa-hashtag'];
+  if (name === 'Topic') [title, icon] = [param.trim().startsWith('#') && param.trim().endsWith('#') ? param.trim().slice(1, -1).trim() || '话题' : param.trim() || '话题', 'fas fa-hashtag'];
   else if (name === 'FeedDetail') [title, icon] = [`动态 ${param}`, 'far fa-comment-alt'];
   else if (name === 'QuestionDetail') [title, icon] = [`问题 ${param}`, 'far fa-circle-question'];
   else if (name === 'User') [title, icon] = [param === 'me' ? '个人主页' : `用户 ${param}`, 'far fa-user'];

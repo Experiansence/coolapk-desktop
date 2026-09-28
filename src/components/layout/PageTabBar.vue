@@ -5,7 +5,7 @@
         v-for="tab in tabsStore.tabs"
         :key="tab.id"
         class="page-tab"
-        :title="tab.title"
+        :title="visibleTitle(tab)"
         role="button"
         :aria-current="tab.id === tabsStore.activeId ? 'page' : undefined"
         tabindex="0"
@@ -19,14 +19,14 @@
         :class="{ active: tab.id === tabsStore.activeId, dragging: tab.id === draggedId, 'drop-before': dropTarget?.id === tab.id && !dropTarget.after, 'drop-after': dropTarget?.id === tab.id && dropTarget.after }"
       >
         <i :class="[tab.icon, 'page-tab-icon']"></i>
-        <span class="page-tab-title">{{ tab.title }}</span>
+        <span class="page-tab-title">{{ visibleTitle(tab) }}</span>
         <i v-if="tab.pinned && tab.id !== 'home'" class="fas fa-thumbtack page-tab-status" title="已固定"></i>
         <i v-else-if="tab.favorite" class="fas fa-star page-tab-status" title="已收藏"></i>
         <button
           v-if="tab.closable"
           type="button"
           class="page-tab-close"
-          :aria-label="`关闭 ${tab.title}`"
+          :aria-label="`关闭 ${visibleTitle(tab)}`"
           title="关闭标签页"
           @pointerdown.stop
           @click.stop="closeTab(tab.id)"
@@ -44,7 +44,7 @@
       <div class="page-tab-menu-heading">已打开</div>
       <button v-for="tab in tabsStore.tabs" :key="tab.id" type="button" :class="{ active: tab.id === tabsStore.activeId }" @click="openTabFromList(tab.id)">
         <i :class="tab.icon"></i>
-        <span>{{ tab.title }}</span>
+        <span>{{ visibleTitle(tab) }}</span>
         <i v-if="tab.pinned && tab.id !== 'home'" class="fas fa-thumbtack"></i>
         <i v-if="tab.id === tabsStore.activeId" class="fas fa-check"></i>
       </button>
@@ -52,8 +52,8 @@
         <div class="page-tab-menu-divider"></div>
         <div class="page-tab-menu-heading">收藏的页面</div>
         <div v-for="page in tabsStore.favoritePages" :key="page.id" class="saved-page-row">
-          <button type="button" @click="openSavedPage(page.id)"><i :class="page.icon"></i><span>{{ page.title }}</span></button>
-          <button type="button" class="saved-page-remove" :aria-label="`取消收藏 ${page.title}`" title="取消收藏" @click="removeFavorite(page.id)"><i class="fas fa-star"></i></button>
+          <button type="button" @click="openSavedPage(page.id)"><i :class="page.icon"></i><span>{{ visibleTitle(page) }}</span></button>
+          <button type="button" class="saved-page-remove" :aria-label="`取消收藏 ${visibleTitle(page)}`" title="取消收藏" @click="removeFavorite(page.id)"><i class="fas fa-star"></i></button>
         </div>
       </template>
     </div>
@@ -88,6 +88,13 @@ const hasClosableTabsOnRight = computed(() => {
   const index = tabsStore.tabs.findIndex((tab) => tab.id === contextMenu.value?.id);
   return index >= 0 && tabsStore.tabs.slice(index + 1).some((tab) => tab.closable);
 });
+
+// 话题图标已表达类别，旧标签标题中的井号只在展示时清理。
+function visibleTitle(tab: { title: string; icon: string }): string {
+  if (tab.icon !== 'fas fa-hashtag') return tab.title;
+  const title = tab.title.trim().replace(/^#\s+/, '').trim();
+  return title.startsWith('#') && title.endsWith('#') ? title.slice(1, -1).trim() || '话题' : title || '话题';
+}
 
 function navigate(route: string | null) {
   if (route) void router.replace(route);

@@ -48,6 +48,7 @@
         v-for="(child, index) in entity.entities"
         :key="getEntityKey(child, index)"
         :entity="child"
+        :plain-topic-labels="plainTopicLabels"
         @open="$emit('open', $event)"
       />
     </div>
@@ -143,7 +144,7 @@
     </div>
   </div>
 
-  <section v-else-if="hasChildren" :class="['discovery-entity-group', { 'is-grid': isGrid, 'is-compact-grid': isCompactGrid, 'is-review-group': isReviewGroup }]">
+  <section v-else-if="hasChildren" :class="['discovery-entity-group', { 'is-grid': isGrid, 'is-compact-grid': isCompactGrid, 'is-review-group': isReviewGroup, 'is-picture-topic-grid': isPictureTopicGrid }]">
     <header v-if="title || subtitle" class="discovery-group-header">
       <div>
         <h3 v-if="title">{{ title }}</h3>
@@ -158,6 +159,7 @@
         :entity="child"
         :compact="isCompactGrid || isGrid"
         :product-layout="productLayout"
+        :plain-topic-labels="plainTopicLabels"
         @open="$emit('open', $event)"
       />
     </div>
@@ -174,6 +176,8 @@
   </article>
 
   <DigitalProductCard v-else-if="entityKind === 'product'" :product="entity" :layout="productLayout || (compact ? 'compact' : 'vertical')" @open="$emit('open', $event)" />
+
+  <TopicCard v-else-if="isPictureTopicLink" :topic="pictureTopic" layout-mode="card" @select="emitOpen" />
 
   <TopicCard v-else-if="entityKind === 'topic'" :topic="entity" layout-mode="card" @select="emitOpen" />
 
@@ -225,7 +229,7 @@
     <AppImage v-if="image" :src="image" fit="cover" image-class="discovery-generic-image" />
     <span v-else :class="['discovery-generic-icon', { 'is-derived': fallbackIcon !== 'fas fa-link' }]"><i :class="fallbackIcon"></i></span>
     <div class="discovery-generic-copy">
-      <strong>{{ title || '未命名内容' }}</strong>
+      <strong>{{ displayTitle || '未命名内容' }}</strong>
       <span v-if="text && text !== title">{{ text }}</span>
     </div>
     <i v-if="route" class="fas fa-chevron-right discovery-card-arrow"></i>
@@ -257,12 +261,15 @@ import { isLiveEntity } from '../../utils/live';
 
 defineOptions({ name: 'DiscoveryEntityCard' });
 
-const props = defineProps<{ entity: DiscoveryEntity; compact?: boolean; productLayout?: 'grid' | 'vertical' }>();
+const props = defineProps<{ entity: DiscoveryEntity; compact?: boolean; productLayout?: 'grid' | 'vertical'; plainTopicLabels?: boolean }>();
 const compact = computed(() => props.compact === true);
+const plainTopicLabels = computed(() => props.plainTopicLabels === true);
 const emit = defineEmits<{ (event: 'open', entity: DiscoveryEntity): void; (event: 'deleted', id: string | number): void }>();
 const authStore = useAuthStore();
 
 const title = computed(() => String(props.entity.title ?? props.entity.productGroupTitle ?? props.entity.product_group_title ?? props.entity.seriesTitle ?? props.entity.series_title ?? props.entity.productGoodsTitle ?? props.entity.product_goods_title ?? props.entity.goodsTitle ?? props.entity.goods_title ?? props.entity.name ?? props.entity.label ?? props.entity.buttonText ?? props.entity.button_text ?? props.entity.text ?? ''));
+// 酷图页的话题入口只显示名称，其他页面沿用服务端原始标题。
+const displayTitle = computed(() => plainTopicLabels.value && /^#.+#$/.test(title.value.trim()) ? title.value.trim().slice(1, -1).trim() : title.value);
 const subtitle = computed(() => String(props.entity.subTitle ?? props.entity.sub_title ?? props.entity.mallName ?? props.entity.mall_name ?? props.entity.mallTitle ?? props.entity.mall_title ?? props.entity.note ?? ''));
 const text = computed(() => getEntityText(props.entity));
 const price = computed(() => String(props.entity.price ?? props.entity.priceText ?? props.entity.goodsPrice ?? props.entity.goods_price ?? props.entity.productGoodsPrice ?? props.entity.product_goods_price ?? props.entity.goodsPromoPrice ?? props.entity.goods_promo_price ?? '').trim());
@@ -271,6 +278,8 @@ const image = computed(() => getEntityImage(props.entity));
 const fallbackIcon = computed(() => getEntityFallbackIcon(props.entity));
 const route = computed(() => resolveDiscoveryRoute(props.entity));
 const hasChildren = computed(() => Array.isArray(props.entity.entities) && props.entity.entities.length > 0);
+const isPictureTopicLink = computed(() => plainTopicLabels.value && !hasChildren.value && /^#.+#$/.test(title.value.trim()));
+const pictureTopic = computed(() => ({ ...props.entity, logo: image.value || props.entity.logo }));
 const isDigitalProductGroup = computed(() => hasChildren.value && props.entity.entities!.every((child) => isDigitalProduct(child)));
 const isFeed = computed(() => isFeedEntity(props.entity) && !hasChildren.value);
 const isLive = computed(() => isLiveEntity(props.entity));
@@ -328,6 +337,7 @@ const isCompactGrid = computed(() => isGrid.value && (
   || templateName.value.includes('linkgrid')
   || templateName.value.includes('topicgrid')
 ));
+const isPictureTopicGrid = computed(() => plainTopicLabels.value && hasChildren.value && props.entity.entities!.filter((child) => /^#.+#$/.test(String(child.title || '').trim())).length >= 2);
 const isSortGroup = computed(() => title.value.trim() === '排序规则' || templateName.value.includes('sort'));
 const activeSortIndex = ref(0);
 

@@ -17,7 +17,7 @@ describe('页面标签身份', () => {
 
     expect(getPageTabId(first)).toBe(getPageTabId(sameTopic));
     expect(getPageTabId(first)).not.toBe(getPageTabId(otherTopic));
-    expect(describePageTab(first)).toMatchObject({ title: '# 摄影', icon: 'fas fa-hashtag', closable: true });
+    expect(describePageTab(first)).toMatchObject({ title: '摄影', icon: 'fas fa-hashtag', closable: true });
   });
 
   it('服务端页面按目标地址区分，并使用路由标题', () => {

@@ -192,6 +192,26 @@ export function decodeDiscoveryRouteSegment(value: string): string {
   }
 }
 
+/** 将发现配置中的话题短路由改写为 dataList 可识别的话题动态地址。 */
+export function normalizeDiscoveryPageUrl(value: string): string {
+  const route = String(value || '').trim().replace(/^#/, '');
+  const match = route.match(/^\/?t\/([^/?#]+)(?:\?([^#]*))?$/i);
+  if (!match) return value;
+  const params = new URLSearchParams(match[2] || '');
+  params.set('tag', decodeDiscoveryRouteSegment(match[1]));
+  return `#/topic/tagFeedList?${params.toString()}`;
+}
+
+/** 话题短路由打开独立话题页，保留原地址的查询参数。 */
+export function resolveDiscoveryTopicRoute(value: string): string | null {
+  const route = String(value || '').trim().replace(/^#/, '');
+  const match = route.match(/^\/?t\/([^/?#]+)(?:\?([^#]*))?$/i);
+  if (!match) return null;
+  const tag = decodeDiscoveryRouteSegment(match[1]).trim();
+  if (!tag) return null;
+  return `/topic/${encodeURIComponent(tag)}${match[2] ? `?${match[2]}` : ''}`;
+}
+
 export function getEntityImage(entity: DiscoveryEntity): string {
   const extra = parseExtraData(entity);
   return firstString(
@@ -311,6 +331,8 @@ export function resolveDiscoveryRoute(entity: DiscoveryEntity): DiscoveryRoute |
   const target = isSecondHandProductEntity && secondHandTarget ? secondHandTarget : explicitTarget || secondHandTarget || (isProductEntity && (productId || entity.id || entity.entityId) ? `/product/${asString(productId ?? entity.id ?? entity.entityId)}` : '') || (isLiveEntity && liveId ? `/live/${liveId}` : '');
   if (!target) return null;
   if (/^https?:\/\//i.test(target)) return { kind: 'web', target, title: asString(entity.title) };
+  const topicRoute = resolveDiscoveryTopicRoute(target);
+  if (topicRoute) return { kind: 'native', target: topicRoute, title: asString(entity.title) };
   const apkDetail = target.match(/^\/?apk\/detail\?(?:[^#]*&)?packageName=([^&#]+)/i);
   if (apkDetail) {
     return { kind: 'native', target: `/apk/${decodeURIComponent(apkDetail[1])}`, title: asString(entity.title) };
@@ -347,7 +369,9 @@ export function resolveDiscoveryRoute(entity: DiscoveryEntity): DiscoveryRoute |
     return { kind: 'native', target: `/product/${asString(entity.productId ?? entity.product_id ?? entity.id ?? entity.entityId)}`, title: asString(entity.title) };
   }
   if (type.includes('topic') && (entity.tag || entity.title)) {
-    return { kind: 'native', target: `/topic/${encodeURIComponent(asString(entity.tag ?? entity.title))}`, title: asString(entity.title) };
+    const rawTag = asString(entity.tag ?? entity.title).trim();
+    const tag = rawTag.startsWith('#') && rawTag.endsWith('#') ? rawTag.slice(1, -1).trim() : rawTag;
+    return { kind: 'native', target: `/topic/${encodeURIComponent(tag)}`, title: asString(entity.title) };
   }
   if (type.includes('dyh') && (entity.dyhId || entity.dyh_id || entity.id)) {
     return { kind: 'native', target: `/dyh/${asString(entity.dyhId ?? entity.dyh_id ?? entity.id)}`, title: asString(entity.title) };
