@@ -2779,6 +2779,23 @@ fn get_app_origin(app: &tauri::AppHandle) -> String {
     "http://127.0.0.1:17520".to_string()
 }
 
+fn login_callback_kind(url: &reqwest::Url, app_origin: &str) -> Option<&'static str> {
+    if url.scheme() == "https"
+        && url.host_str() == Some("account.coolapk.com")
+        && url.path() == "/auth/callback"
+    {
+        return Some("official");
+    }
+    if url.as_str().starts_with(&format!("{app_origin}/"))
+        && url
+            .fragment()
+            .is_some_and(|fragment| fragment.split('?').next() == Some("/auth_callback"))
+    {
+        return Some("app-origin");
+    }
+    None
+}
+
 /// 从回跳 URL 中提取 ck 参数（完整 cookie 字符串），例如
 /// `http://127.0.0.1:17520/#/auth_callback?ck=uid%3D...%3BSESSID%3D...`
 fn extract_callback_param(url: &str, key: &str) -> Option<String> {
@@ -3028,14 +3045,33 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     "#
     .replace("__APP_ORIGIN__", &app_origin);
 
+    // 授权回调通常会立即 302 到 forward 页面，定时读取 win.url() 可能完全看不到它。
+    // 在 WebView 导航发生时同步捕获回调 URL，再交给异步任务兑换授权码。
+    let captured_callback_url = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+    let navigation_callback_url = captured_callback_url.clone();
+    let navigation_app_origin = app_origin.clone();
     let login_window = tauri::WebviewWindowBuilder::new(
         &app,
         "login_window",
         tauri::WebviewUrl::External(login_url),
     )
     .title("酷安官方授权登录")
-    .user_agent(LOGIN_WEBVIEW_USER_AGENT)
-    .inner_size(440.0, 620.0);
+    .inner_size(440.0, 620.0)
+    .on_navigation(move |url| {
+        if login_callback_kind(url, &navigation_app_origin).is_some()
+            && extract_access_code_from_url(url.as_str()).is_some()
+        {
+            if let Ok(mut captured) = navigation_callback_url.lock() {
+                *captured = Some(url.to_string());
+            }
+            log::info!("login.callback_navigation_captured");
+            // 与官方 APK LoginFragment.shouldOverrideUrlLoading 一致：
+            // 授权回调由客户端消费，不再放行到官网宣传落地页。
+            return false;
+        }
+        true
+    })
+    .user_agent(LOGIN_WEBVIEW_USER_AGENT);
     #[cfg(target_os = "android")]
     let login_window = login_window.activity_name("LoginActivity");
     #[cfg(desktop)]
@@ -3060,41 +3096,44 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
                 if let Ok(url) = win.url() {
                     let url_str = url.as_str();
                     let app_origin = get_app_origin(&app_handle);
+                    let captured_callback = captured_callback_url
+                        .lock()
+                        .ok()
+                        .and_then(|captured| captured.clone());
+                    let parsed_captured_callback = captured_callback
+                        .as_deref()
+                        .and_then(|value| reqwest::Url::parse(value).ok());
+                    let callback_url = parsed_captured_callback.as_ref().unwrap_or(&url);
+                    let callback_url_str = callback_url.as_str();
+                    let callback_kind = login_callback_kind(callback_url, &app_origin);
 
                     if last_monitor_url.as_deref() != Some(url_str) {
                         log::info!("login.navigation_changed");
                         last_monitor_url = Some(url_str.to_string());
                     }
 
-                    let is_account_callback = url.scheme() == "https"
-                        && url.host_str() == Some("account.coolapk.com")
-                        && url.path() == "/auth/callback";
-                    let is_app_callback = url_str.starts_with(&format!("{}/", app_origin))
-                        && url.fragment().is_some_and(|fragment| {
-                            fragment.split('?').next() == Some("/auth_callback")
-                        });
                     // 授权码只兑换一次；Cookie 校验失败时允许短暂重试，等待服务端会话生效。
-                    if !is_account_callback && !is_app_callback {
+                    if callback_kind.is_none() {
                         processed_callback_url = None;
                         callback_attempts = 0;
                         last_callback_attempt = None;
                     }
-                    if is_account_callback || is_app_callback {
-                        if processed_callback_url.as_deref() != Some(url_str) {
-                            processed_callback_url = Some(url_str.to_string());
+                    if callback_kind.is_some() {
+                        if processed_callback_url.as_deref() != Some(callback_url_str) {
+                            processed_callback_url = Some(callback_url_str.to_string());
                             callback_attempts = 0;
                             last_callback_attempt = None;
                         }
                     }
-                    if (is_account_callback || is_app_callback)
+                    if callback_kind.is_some()
                         && callback_attempts < 4
                         && last_callback_attempt.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(2))
                     {
                         callback_attempts += 1;
                         last_callback_attempt = Some(std::time::Instant::now());
                         log::info!("login.callback_attempt number={callback_attempts}");
-                        let callback_code = extract_access_code_from_url(url_str);
-                        let callback_cookie = extract_ck_from_url(url_str);
+                        let callback_code = extract_access_code_from_url(callback_url_str);
+                        let callback_cookie = extract_ck_from_url(callback_url_str);
                         let webview_cookie = match get_login_webview_cookie(&win).await {
                             Ok(cookie) => {
                                 log::info!(
@@ -3113,7 +3152,7 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
                             merge_cookie_headers(callback_cookie.as_deref(), webview_cookie.as_deref());
                         log::info!(
                             "login.callback kind={} has_access_code={} callback_has_cookie={} webview_has_cookie={} has_cookie={} cookie_has_session={}",
-                            if is_account_callback { "official" } else { "app-origin" },
+                            callback_kind.unwrap_or("unknown"),
                             callback_code.is_some(),
                             callback_cookie.as_ref().is_some_and(|value| !value.trim().is_empty()),
                             webview_cookie.as_ref().is_some_and(|value| !value.trim().is_empty()),
@@ -3220,7 +3259,10 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod login_callback_tests {
-    use super::{extract_access_code_from_url, extract_callback_param, extract_ck_from_url, login_failure_kind, LOGIN_WEBVIEW_USER_AGENT};
+    use super::{
+        extract_access_code_from_url, extract_callback_param, extract_ck_from_url,
+        login_callback_kind, login_failure_kind, LOGIN_WEBVIEW_USER_AGENT,
+    };
 
     #[test]
     fn login_webview_ua_keeps_desktop_mouse_events() {
@@ -3249,6 +3291,33 @@ mod login_callback_tests {
     fn rejects_non_access_token_callback() {
         let url = "https://account.coolapk.com/auth/callback?ac=login&code=server-code";
         assert_eq!(extract_access_code_from_url(url), None);
+    }
+
+    #[test]
+    fn classifies_transient_login_callbacks() {
+        let official = reqwest::Url::parse(
+            "https://account.coolapk.com/auth/callback?ac=access_token&code=server-code",
+        )
+        .unwrap();
+        assert_eq!(
+            login_callback_kind(&official, "http://127.0.0.1:17520"),
+            Some("official")
+        );
+
+        let app = reqwest::Url::parse(
+            "http://127.0.0.1:17520/#/auth_callback?ac=access_token&code=server-code",
+        )
+        .unwrap();
+        assert_eq!(
+            login_callback_kind(&app, "http://127.0.0.1:17520"),
+            Some("app-origin")
+        );
+
+        let landing = reqwest::Url::parse("https://www.coolapk.com/").unwrap();
+        assert_eq!(
+            login_callback_kind(&landing, "http://127.0.0.1:17520"),
+            None
+        );
     }
 
     #[test]

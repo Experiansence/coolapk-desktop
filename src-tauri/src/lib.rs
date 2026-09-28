@@ -199,6 +199,7 @@ struct WindowState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(desktop)]
 struct ScreenRect {
     x: i32,
     y: i32,
@@ -334,6 +335,7 @@ fn cached_window_state() -> Option<WindowState> {
         .filter(|state| state.w >= MIN_WINDOW_W && state.h >= MIN_WINDOW_H)
 }
 
+#[cfg(desktop)]
 fn parse_saved_window_state(flags: &serde_json::Value) -> Option<WindowState> {
     let x: i32 = flags.get("x")?.as_i64()?.try_into().ok()?;
     let y: i32 = flags.get("y")?.as_i64()?.try_into().ok()?;
@@ -345,6 +347,7 @@ fn parse_saved_window_state(flags: &serde_json::Value) -> Option<WindowState> {
     Some(WindowState { x, y, w, h })
 }
 
+#[cfg(desktop)]
 fn intersection_size(window: WindowState, screen: ScreenRect) -> (u32, u32) {
     let left = i64::from(window.x).max(i64::from(screen.x));
     let top = i64::from(window.y).max(i64::from(screen.y));
@@ -358,6 +361,7 @@ fn intersection_size(window: WindowState, screen: ScreenRect) -> (u32, u32) {
     )
 }
 
+#[cfg(desktop)]
 fn restore_window_rect(
     saved: WindowState,
     screens: &[ScreenRect],
