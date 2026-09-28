@@ -78,9 +78,17 @@
     <AppDialog :is-open="Boolean(downloadNotice)" title="正在下载更新" :width="460" @close="downloadNotice = null">
       <div v-if="downloadNotice" class="startup-update">
         <p class="startup-update-version">{{ appUpdateName }} {{ downloadNotice.version }}</p>
-        <p v-if="downloadNotice.releaseNotes" class="startup-update-notes">
-          <span class="startup-update-notes-label">更新日志：</span>{{ downloadNotice.releaseNotes }}
-        </p>
+        <div v-if="downloadNotice.releaseNotes" class="startup-update-notes-block">
+          <div class="startup-update-notes-header">
+            <i class="fas fa-sparkles text-brand"></i>
+            <span class="startup-update-notes-label">更新日志</span>
+          </div>
+          <div
+            class="startup-update-notes custom-scrollbar"
+            v-html="renderReleaseMarkdown(downloadNotice.releaseNotes)"
+            @click="handleAnchorClick"
+          ></div>
+        </div>
         <p class="startup-update-notes">已发现新版本，更新包正在后台下载。下载完成后会再次提示是否立即更新。</p>
         <p v-if="downloading" class="startup-update-notes">
           当前进度：{{ downloading.percent }}%（{{ formatBytes(downloading.downloaded) }} / {{ formatBytes(downloading.total) }}）
