@@ -3650,9 +3650,15 @@ impl CoolapkClient {
         }))
     }
 
-    pub async fn get_feed_detail(&self, feed_id: &str) -> Result<Value, String> {
-        let query = [("id", feed_id.to_string())];
+    pub async fn get_feed_detail(&self, feed_id: &str, post_token: Option<&str>, post_token_field: Option<&str>) -> Result<Value, String> {
+        let mut query = vec![("id", feed_id.to_string())];
+        if let Some(token) = post_token.filter(|value| !value.trim().is_empty()) {
+            // 验证令牌使用服务端指定的安全字段名，缺省时使用酷安标准字段。
+            let field = post_token_field.filter(|value| value.starts_with('_') && value.len() <= 64 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')).unwrap_or("_v2_post_token");
+            query.push((field, token.to_string()));
+        }
         let primary_error = match self.api_get("/v6/feed/detail", &query).await {
+            Ok(value) if matches!(application_failure(&value), Some((403, "captcha"))) => return Err(value.to_string()),
             Ok(value) => match wrap_api_data(value) {
                 Ok(detail) => return Ok(detail),
                 Err(error) => error,
@@ -3667,6 +3673,7 @@ impl CoolapkClient {
                 .public_api_get_from(api_origin, "/v6/feed/detail", &query)
                 .await
             {
+                Ok(value) if matches!(application_failure(&value), Some((403, "captcha"))) => return Err(value.to_string()),
                 Ok(value) => match wrap_api_data(value) {
                     Ok(detail) => return Ok(detail),
                     Err(error) => public_errors.push(format!("{api_origin}: {error}")),

@@ -17,6 +17,17 @@ describe('CoolapkTauriAPI 内容新页接口封装', () => {
     expect(invoke).toHaveBeenCalledWith('get_public_feed_detail', { feedId: '123' });
   });
 
+  it('详情接口触发验证码后带令牌重试一次', async () => {
+    (window as any).initNECaptcha = vi.fn((config) => {
+      config.onVerify?.(null, { validate: 'validated' });
+    });
+    vi.mocked(invoke).mockRejectedValueOnce(JSON.stringify({ code: 403, messageStatus: 'err_request_captcha_v2' })).mockResolvedValueOnce(okResponse({ message: '完整正文' }));
+
+    await expect(CoolapkTauriAPI.getFeedDetail('456')).resolves.toEqual(okResponse({ message: '完整正文' }));
+    expect(invoke).toHaveBeenNthCalledWith(1, 'get_feed_detail', { feedId: '456' });
+    expect(invoke).toHaveBeenNthCalledWith(2, 'get_feed_detail', { feedId: '456', postToken: 'NEC:414e5c9b:validated', postTokenField: '_v2_post_token' });
+  });
+
   it('酷友圈活动列表调用 get_event_list', async () => {
     await CoolapkTauriAPI.getEventList(3);
     expect(invoke).toHaveBeenCalledWith('get_event_list', { page: 3 });

@@ -4,6 +4,7 @@ import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../
 import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
 import { logDiagnostic } from '../utils/diagnosticLogger';
+import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
 
 async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}) {
   let rustError: unknown;
@@ -490,13 +491,26 @@ export class CoolapkTauriAPI {
   static async getFeedDetail(feedId: string) {
     let primaryResponse: any = null;
     let primaryError: unknown;
+    const requestDetail = (postToken?: string, postTokenField?: string) => invokeNative('get_feed_detail', postToken ? { feedId, postToken, postTokenField } : { feedId }, { retry: true, kind: 'feed' });
 
     try {
-      primaryResponse = await invokeNative('get_feed_detail', { feedId }, { retry: true, kind: 'feed' });
+      primaryResponse = await requestDetail();
       const primaryMessage = getFeedDetailMessage(primaryResponse?.data);
       if (primaryMessage && !hasFeedMoreSuffix(primaryMessage)) return primaryResponse;
     } catch (error) {
       primaryError = error;
+      const captchaParams = extractCaptchaParamsFromError(error);
+      if (captchaParams) {
+        // 用户完成验证后只重试一次原详情请求，避免反复弹出验证码。
+        const postToken = await verifyWithCaptcha(captchaParams.captchaId);
+        try {
+          primaryResponse = await requestDetail(postToken, captchaParams.captchaField);
+          const primaryMessage = getFeedDetailMessage(primaryResponse?.data);
+          if (primaryMessage && !hasFeedMoreSuffix(primaryMessage)) return primaryResponse;
+        } catch (retryError) {
+          primaryError = retryError;
+        }
+      }
     }
 
     // 动态详情接口偶尔会被验证码拦截，改用网页版 XHR 返回的完整 JSON 兜底。

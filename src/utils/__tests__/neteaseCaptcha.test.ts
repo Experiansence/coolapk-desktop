@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   DEFAULT_COOLAPK_CAPTCHA_ID,
+  extractCaptchaParamsFromError,
   loadNECaptchaScript,
   verifyWithCaptcha,
 } from '../neteaseCaptcha';
@@ -14,6 +15,11 @@ describe('neteaseCaptcha', () => {
 
   it('exports default coolapk captcha id', () => {
     expect(DEFAULT_COOLAPK_CAPTCHA_ID).toBe('414e5c9b866a03db03f860a1a9101672');
+  });
+
+  it('解析仅返回 403 的验证码响应，且不误判普通 403', () => {
+    expect(extractCaptchaParamsFromError(JSON.stringify({ code: 403, messageStatus: 'err_request_captcha_v2' }))).toEqual({ captchaId: DEFAULT_COOLAPK_CAPTCHA_ID, captchaField: '_v2_post_token' });
+    expect(extractCaptchaParamsFromError(JSON.stringify({ code: 403, message: '无权访问' }))).toBeNull();
   });
 
   it('loads the script tag into DOM', async () => {

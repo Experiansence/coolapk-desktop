@@ -64,6 +64,22 @@ export function extractCaptchaParamsFromResponse(data: any): { captchaId?: strin
   return null;
 }
 
+/** 从原生接口抛出的验证码响应中提取配置，兼容服务端只返回 code=403 的情况。 */
+export function extractCaptchaParamsFromError(error: unknown): { captchaId: string; captchaField: string } | null {
+  let response: any = error instanceof Error ? error.message : error;
+  if (typeof response === 'string') {
+    try { response = JSON.parse(response); } catch { return null; }
+  }
+  if (!response || typeof response !== 'object') return null;
+  const params = extractCaptchaParamsFromResponse(response);
+  if (params?.captchaId) return { captchaId: params.captchaId, captchaField: params.captchaField || '_v2_post_token' };
+  const reason = [response.messageStatus, response.message, response.error].filter((value) => typeof value === 'string').join(' ');
+  if (Number(response.code) === 403 && /(captcha|验证码)/i.test(reason)) {
+    return { captchaId: DEFAULT_COOLAPK_CAPTCHA_ID, captchaField: '_v2_post_token' };
+  }
+  return null;
+}
+
 let scriptLoadingPromise: Promise<void> | null = null;
 
 /**

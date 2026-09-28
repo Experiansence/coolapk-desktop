@@ -938,8 +938,8 @@ pub async fn get_home_tab_config(
 }
 
 #[tauri::command]
-pub async fn get_feed_detail(state: State<'_, AppState>, feed_id: String) -> Result<Value, String> {
-    state.client.get_feed_detail(&feed_id).await
+pub async fn get_feed_detail(state: State<'_, AppState>, feed_id: String, post_token: Option<String>, post_token_field: Option<String>) -> Result<Value, String> {
+    state.client.get_feed_detail(&feed_id, post_token.as_deref(), post_token_field.as_deref()).await
 }
 
 #[tauri::command]
