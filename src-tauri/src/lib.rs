@@ -979,7 +979,13 @@ pub fn run() {
             #[cfg(desktop)]
             {
             // 系统托盘图标：常驻后台、快捷恢复窗口与退出
-            if let Some(icon) = app.default_window_icon().cloned() {
+            // Linux 托盘库由运行环境动态加载；缺失时仍要让主窗口正常启动。
+            #[cfg(target_os = "linux")]
+            let tray_available = ["libayatana-appindicator3.so.1", "libappindicator3.so.1", "libayatana-appindicator3.so", "libappindicator3.so"].iter().any(|name| unsafe { libloading::Library::new(*name).is_ok() });
+            #[cfg(not(target_os = "linux"))]
+            let tray_available = true;
+            if !tray_available { log::warn!("runtime.tray_unavailable: 未找到可加载的 AppIndicator 库，跳过托盘初始化"); }
+            if let Some(icon) = app.default_window_icon().cloned().filter(|_| tray_available) {
                 use tauri::menu::{Menu, MenuItem};
                 use tauri::tray::TrayIconBuilder;
 
