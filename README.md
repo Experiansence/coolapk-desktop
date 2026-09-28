@@ -47,8 +47,6 @@
 
 ![界面预览 7](docs/screenshots/7.png)
 
-![界面预览 8](docs/screenshots/8.png)
-
 ## 功能
 
 - **首页信息流**：推荐、热榜、快讯、酷图、二手、数码、评测等频道一应俱全
@@ -214,6 +212,16 @@ docs/screenshots/            界面预览截图
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request。提交前请运行前端构建、Rust 测试，并确保测试数据不包含真实账号、Cookie、设备标识或私信内容。
+
+## Star 走势
+
+<a href="https://star-history.com/#daimiaopeng/coolapk-desktop&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date" />
+   <img alt="Star 走势趋势图" src="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date" />
+ </picture>
+</a>
 
 ## 许可证
 
