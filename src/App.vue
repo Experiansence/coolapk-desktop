@@ -17,7 +17,6 @@
     <SearchCommand />
     <LoginModal />
     <AppConfirmHost />
-    <BackToTop />
     <AppContextMenu />
     <ShuzilmDeviceGuideModal />
 
@@ -159,7 +158,6 @@ import SearchCommand from './components/overlays/SearchCommand.vue';
 import LoginModal from './components/overlays/LoginModal.vue';
 import ShuzilmDeviceGuideModal from './components/overlays/ShuzilmDeviceGuideModal.vue';
 import AppConfirmHost from './components/common/AppConfirmHost.vue';
-import BackToTop from './components/common/BackToTop.vue';
 import AppContextMenu from './components/common/AppContextMenu.vue';
 import AppDialog from './components/common/AppDialog.vue';
 import { useAuthStore } from './stores/auth';
