@@ -24,6 +24,8 @@
         class="publish-textarea custom-scrollbar"
         @input="handleEditorInput"
         @keydown="handleEditorKeydown"
+        @keyup="topicInsertOffset = editorOffset()"
+        @mouseup="topicInsertOffset = editorOffset()"
         @paste="handleEditorPaste"
         @copy="handleEditorCopy"
         @cut="handleEditorCut"
@@ -88,6 +90,11 @@
 
       <!-- 话题面板 -->
       <div v-if="showTopicPanel" class="topic-panel custom-scrollbar">
+        <div class="topic-create">
+          <input v-model="customTopic" type="text" maxlength="80" placeholder="输入自定义话题名称" aria-label="自定义话题名称" @keydown.enter.prevent="insertCustomTopic" />
+          <button type="button" :disabled="!customTopic.trim()" @mousedown.prevent @click="insertCustomTopic">插入话题</button>
+        </div>
+        <div class="topic-panel-label">热门话题</div>
         <div v-if="topicsLoading" class="panel-tip"><i class="fas fa-circle-notch fa-spin"></i> 正在获取热门话题...</div>
         <div v-else-if="topics.length === 0" class="panel-tip">暂无热门话题</div>
         <button
@@ -182,6 +189,9 @@ const errorMessage = ref('');
 const showEmojiPanel = ref(false);
 const { recentEmojis, addRecent } = useRecentEmojis();
 const showTopicPanel = ref(false);
+const customTopic = ref('');
+// 自定义话题输入框获得焦点后，仍按正文原来的光标位置插入话题。
+const topicInsertOffset = ref(0);
 const topics = ref<any[]>([]);
 const topicsLoading = ref(false);
 const previewMode = ref(false);
@@ -214,6 +224,7 @@ watch(() => appStore.isPublishOpen, async (open) => {
     previewMode.value = false;
     showEmojiPanel.value = false;
     showTopicPanel.value = false;
+    customTopic.value = '';
     editLoadError.value = '';
     if (appStore.editFeedTarget) {
       editLoading.value = true;
@@ -351,10 +362,11 @@ function handleEditorInput(event: InputEvent) {
   syncEditor();
 }
 
-function insertAtCursor(text: string) {
+function insertAtCursor(text: string, offset?: number) {
   const editor = messageInput.value;
   if (!editor) return;
   editor.focus();
+  if (offset !== undefined) setEditorOffset(offset);
   const selection = window.getSelection();
   const range = selection?.rangeCount && editor.contains(selection.anchorNode) ? selection.getRangeAt(0) : document.createRange();
   if (!editor.contains(range.startContainer)) { range.selectNodeContents(editor); range.collapse(false); }
@@ -402,15 +414,25 @@ function getTopicTitle(t: any): string {
   if (typeof t === 'string') return t;
   const raw = t.title || t.tag || t.name || t.entityTitle || t.topic_title || t.targetTitle || t.infoHtml || '';
   if (typeof raw === 'string') {
-    return raw.replace(/^#|#$/g, '').trim();
+    const title = raw.trim();
+    return title.startsWith('#') && title.endsWith('#') ? title.slice(1, -1).trim() : title;
   }
   return '';
 }
 
 function insertTopic(title: string) {
-  const clean = String(title || '').replace(/[#\[\]]/g, '').trim();
+  // 只去掉话题格式两侧的井号，保留 C# 等名称内部的井号。
+  const raw = String(title || '').trim();
+  const clean = raw.startsWith('#') && raw.endsWith('#') ? raw.slice(1, -1).trim() : raw.replace(/^#/, '').trim();
   if (!clean) return;
-  insertAtCursor(`#${clean}#`);
+  insertAtCursor(`#${clean}#`, topicInsertOffset.value);
+  topicInsertOffset.value = editorOffset();
+}
+
+function insertCustomTopic() {
+  if (!customTopic.value.trim()) return;
+  insertTopic(customTopic.value);
+  customTopic.value = '';
 }
 
 function insertAtMention() {
@@ -423,6 +445,7 @@ function toggleEmojiPanel() {
 }
 
 function toggleTopicPanel() {
+  if (!showTopicPanel.value) topicInsertOffset.value = editorOffset();
   showTopicPanel.value = !showTopicPanel.value;
   if (showTopicPanel.value) {
     showEmojiPanel.value = false;
@@ -822,6 +845,13 @@ async function handlePublish() {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+.topic-create { display: flex; width: 100%; gap: var(--space-2); }
+.topic-create input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-light); border-radius: var(--radius-control); background: var(--surface); color: var(--text-primary); outline: none; }
+.topic-create input:focus { border-color: var(--brand-primary); }
+.topic-create button { flex: 0 0 auto; padding: 8px 12px; border-radius: var(--radius-control); background: var(--brand-primary); color: #fff; cursor: pointer; }
+.topic-create button:disabled { opacity: .5; cursor: not-allowed; }
+.topic-panel-label { width: 100%; color: var(--text-secondary); font-size: var(--font-size-caption); }
 
 .panel-tip {
   width: 100%;
