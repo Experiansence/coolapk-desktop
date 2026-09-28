@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '..');
 const androidDir = join(root, 'src-tauri', 'gen', 'android');
+const androidIconSourceDir = join(root, 'src-tauri', 'android', 'res');
+const androidResourceDir = join(androidDir, 'app', 'src', 'main', 'res');
 const gradleProperties = join(androidDir, 'gradle.properties');
 const appBuildGradle = join(androidDir, 'app', 'build.gradle.kts');
 const androidManifest = join(androidDir, 'app', 'src', 'main', 'AndroidManifest.xml');
@@ -67,10 +69,34 @@ function runTauri(args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+function copyAndroidResources(sourceDir, destinationDir) {
+  mkdirSync(destinationDir, { recursive: true });
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = join(sourceDir, entry.name);
+    const destinationPath = join(destinationDir, entry.name);
+    if (entry.isDirectory()) copyAndroidResources(sourcePath, destinationPath);
+    else copyFileSync(sourcePath, destinationPath);
+  }
+}
+
+function setAndroidApplicationAttribute(manifest, attribute, value) {
+  const applicationTag = manifest.match(/<application\b[^>]*>/)?.[0];
+  if (!applicationTag) throw new Error('AndroidManifest.xml 缺少 application 节点');
+  const attributePattern = new RegExp(`\\s${attribute}="[^"]*"`);
+  const replacement = ` ${attribute}="${value}"`;
+  const updatedTag = attributePattern.test(applicationTag)
+    ? applicationTag.replace(attributePattern, replacement)
+    : applicationTag.replace(/>$/, `${replacement}>`);
+  return manifest.replace(applicationTag, updatedTag);
+}
+
 function ensureAndroidProject() {
   if (!existsSync(join(androidDir, 'gradlew.bat')) && !existsSync(join(androidDir, 'gradlew'))) {
     runTauri(['android', 'init', '--ci']);
   }
+
+  // Tauri 生成的 Android 工程是临时目录；每次构建都同步仓库内的启动器图标资源。
+  copyAndroidResources(androidIconSourceDir, androidResourceDir);
 
   const pathCheckSetting = 'android.overridePathCheck=true';
   const contents = existsSync(gradleProperties) ? readFileSync(gradleProperties, 'utf8') : '';
@@ -109,6 +135,8 @@ function ensureAndroidProject() {
 
   const loginActivityMarker = 'android:name=".LoginActivity"';
   let manifest = readFileSync(androidManifest, 'utf8');
+  manifest = setAndroidApplicationAttribute(manifest, 'android:icon', '@mipmap/ic_launcher');
+  manifest = setAndroidApplicationAttribute(manifest, 'android:roundIcon', '@mipmap/ic_launcher_round');
   const installPermission = '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />';
   if (!manifest.includes(installPermission)) {
     manifest = manifest.replace('</manifest>', `    ${installPermission}\n</manifest>`);
