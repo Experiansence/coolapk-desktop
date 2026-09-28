@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: mocks.invoke }));
 vi.mock('@tauri-apps/plugin-log', () => ({ info: mocks.info, warn: mocks.warn, error: mocks.error, debug: mocks.debug }));
 
-import { logDiagnostic, redactDiagnosticText, setVerboseDiagnosticLogging, summarizeDiagnosticError } from '../diagnosticLogger';
+import { installDiagnosticLogging, logDiagnostic, logDiagnosticLimited, redactDiagnosticText, setVerboseDiagnosticLogging, summarizeDiagnosticError } from '../diagnosticLogger';
 
 describe('diagnosticLogger', () => {
   beforeEach(() => { (window as any).__TAURI_INTERNALS__ = {}; });
@@ -55,5 +55,34 @@ describe('diagnosticLogger', () => {
     logDiagnostic('debug', 'api', 'request_ok');
     expect(mocks.debug).toHaveBeenCalledOnce();
     await setVerboseDiagnosticLogging(false);
+  });
+
+  it('deduplicates repeated low-frequency diagnostic events', () => {
+    const key = `test-dedupe-${Date.now()}`;
+    logDiagnosticLimited('warn', 'test', 'repeated', 'same failure', 60_000, key);
+    logDiagnosticLimited('warn', 'test', 'repeated', 'same failure', 60_000, key);
+    expect(mocks.warn).toHaveBeenCalledOnce();
+  });
+
+  it('records interactive clicks without persisting labels, values or URLs', () => {
+    installDiagnosticLogging();
+    const link = document.createElement('a');
+    link.className = 'feed-link private-标题';
+    link.href = 'https://example.com/private/path?token=secret';
+    link.textContent = '用户私密文字';
+    link.addEventListener('click', (event) => event.preventDefault());
+    document.body.appendChild(link);
+
+    link.click();
+
+    const message = String(mocks.info.mock.calls.at(-1)?.[0] || '');
+    expect(message).toContain('[frontend][interaction] click');
+    expect(message).toContain('element=a');
+    expect(message).toContain('class=feed-link');
+    expect(message).toContain('destination=external');
+    expect(message).not.toContain('用户私密文字');
+    expect(message).not.toContain('private/path');
+    expect(message).not.toContain('secret');
+    link.remove();
   });
 });

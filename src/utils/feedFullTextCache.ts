@@ -1,5 +1,6 @@
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { getFeedDetailMessage } from './feedContent';
+import { logDiagnostic, summarizeDiagnosticError } from './diagnosticLogger';
 
 const MAX_CONCURRENT_REQUESTS = 3;
 
@@ -48,17 +49,31 @@ export function loadFeedFullText(feedId: string | number): Promise<string> {
   if (!key) return Promise.reject(new Error('动态编号为空'));
 
   const cached = fullTextCache.get(key);
-  if (cached) return Promise.resolve(cached);
+  if (cached) {
+    logDiagnostic('info', 'feed_full_text', 'cache_hit', `feed_id=${key}`);
+    return Promise.resolve(cached);
+  }
 
   const pending = pendingRequests.get(key);
-  if (pending) return pending;
+  if (pending) {
+    logDiagnostic('info', 'feed_full_text', 'request_joined', `feed_id=${key}`);
+    return pending;
+  }
 
   const request = enqueueRequest(async () => {
-    const response: any = await CoolapkTauriAPI.getFeedDetail(key);
-    const message = getFeedDetailMessage(response?.data);
-    if (!message) throw new Error('动态详情没有返回完整正文');
-    fullTextCache.set(key, message);
-    return message;
+    const started = Date.now();
+    logDiagnostic('info', 'feed_full_text', 'request_started', `feed_id=${key}`);
+    try {
+      const response: any = await CoolapkTauriAPI.getFeedDetail(key);
+      const message = getFeedDetailMessage(response?.data);
+      if (!message) throw new Error('动态详情没有返回完整正文');
+      fullTextCache.set(key, message);
+      logDiagnostic('info', 'feed_full_text', 'request_succeeded', `feed_id=${key} elapsed_ms=${Date.now() - started} length=${message.length}`);
+      return message;
+    } catch (error) {
+      logDiagnostic('warn', 'feed_full_text', 'request_failed', `feed_id=${key} elapsed_ms=${Date.now() - started} reason=${summarizeDiagnosticError(error)}`);
+      throw error;
+    }
   });
   pendingRequests.set(key, request);
   void request.then(

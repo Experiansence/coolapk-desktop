@@ -3,7 +3,7 @@ import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
 import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
-import { logDiagnostic } from '../utils/diagnosticLogger';
+import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
 
 async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}) {
@@ -54,18 +54,34 @@ async function safeFetch(pythonEndpoint: string, tauriCmd: string, tauriArgs: an
 
 type NativeRequestOptions = { retry?: boolean; maxAttempts?: number; timeoutMs?: number; kind?: RequestKind };
 
+const SAFE_DIAGNOSTIC_ARG_KEYS = new Set([
+  'feedId', 'replyId', 'uid', 'page', 'firstItem', 'lastItem', 'listType', 'feedType',
+  'productId', 'collectionId', 'albumId', 'eventId', 'dyhId', 'nodeId', 'nodeType',
+  'searchType', 'sort', 'mode', 'type', 'entityId', 'entityType',
+]);
+
+function summarizeNativeRequestArgs(args: unknown): string {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
+  return Object.entries(args as Record<string, unknown>)
+    .filter(([key, value]) => SAFE_DIAGNOSTIC_ARG_KEYS.has(key) && ['string', 'number', 'boolean'].includes(typeof value))
+    .map(([key, value]) => `${key}=${String(value).slice(0, 80)}`)
+    .join(' ')
+    .slice(0, 500);
+}
+
 async function invokeNative(tauriCmd: string, tauriArgs: any = {}, options: NativeRequestOptions = {}) {
   const started = Date.now();
+  const context = summarizeNativeRequestArgs(tauriArgs);
   try {
     const result = await requestWithPolicy(tauriCmd, async () => {
       const response = await invoke(tauriCmd, tauriArgs);
       if (response && (response as any).code === 200) return response as any;
       throw new Error((response as any)?.message || `${tauriCmd} 返回格式不正确`);
     }, options);
-    logDiagnostic('debug', 'api', 'request_ok', `${tauriCmd} elapsed_ms=${Date.now() - started}`);
+    logDiagnostic('debug', 'api', 'request_ok', `${tauriCmd}${context ? ` ${context}` : ''} elapsed_ms=${Date.now() - started}`);
     return result;
   } catch (error) {
-    logDiagnostic('warn', 'api', 'request_failed', `${tauriCmd} elapsed_ms=${Date.now() - started}`);
+    logDiagnostic('warn', 'api', 'request_failed', `${tauriCmd}${context ? ` ${context}` : ''} elapsed_ms=${Date.now() - started} reason=${summarizeDiagnosticError(error)}`);
     throw error;
   }
 }

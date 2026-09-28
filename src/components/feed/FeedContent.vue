@@ -36,6 +36,7 @@ import { handleAnchorClick } from '../../utils/anchorClick';
 import { useSettingsStore } from '../../stores/settings';
 import { hasFeedMoreSuffix, stripFeedMoreSuffix } from '../../utils/feedContent';
 import { loadFeedFullText } from '../../utils/feedFullTextCache';
+import { logDiagnostic } from '../../utils/diagnosticLogger';
 
 const props = defineProps<{
   feedId?: string | number;
@@ -109,6 +110,7 @@ function onBodyClick(e: Event) {
 }
 
 async function handleExpand() {
+  logDiagnostic('info', 'feed_content', 'expand_requested', `feed_id=${String(props.feedId || '')} remote=${needsRemoteFullText.value}`);
   isExpanded.value = true;
   expandError.value = false;
   if (!needsRemoteFullText.value || !props.feedId || fullMessage.value || expanding.value) return;

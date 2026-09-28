@@ -65,6 +65,7 @@ import StartupSettingsPage from '../pages/settings/StartupSettingsPage.vue';
 import DeviceSettingsPage from '../pages/settings/DeviceSettingsPage.vue';
 import DiagnosticsSettingsPage from '../pages/settings/DiagnosticsSettingsPage.vue';
 import { restoreRouteScrollPosition, saveRouteScrollPosition } from '../utils/routeScroll';
+import { logDiagnostic } from '../utils/diagnosticLogger';
 
 import AuthCallbackView from '../pages/AuthCallbackView.vue';
 
@@ -169,6 +170,9 @@ router.beforeEach((_to, from) => {
   saveRouteScrollPosition(from.fullPath);
 });
 
-router.afterEach((to) => {
+router.afterEach((to, from) => {
+  const page = String(to.name || to.matched.map((record) => record.path).join('>') || 'unnamed');
+  const previousPage = String(from.name || from.matched.map((record) => record.path).join('>') || 'startup');
+  logDiagnostic('info', 'navigation', 'route_changed', `from=${previousPage} to=${page}`);
   void restoreRouteScrollPosition(to.fullPath);
 });

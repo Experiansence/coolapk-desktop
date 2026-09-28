@@ -5,6 +5,10 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 let installed = false;
 let writing = false;
 let verbose = false;
+const recentEvents = new Map<string, number>();
+const CONSOLE_DEDUPLICATION_MS = 5_000;
+const CLICK_DEDUPLICATION_MS = 1_000;
+const MAX_RECENT_EVENTS = 500;
 
 function loggingAvailable(): boolean {
   return typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__);
@@ -48,6 +52,21 @@ function summarize(value: unknown): string {
   return '[object]';
 }
 
+function summarizeConsoleArguments(values: unknown[]): string {
+  return values
+    .map((value) => summarizeDiagnosticError(value))
+    .filter((value) => value && value !== 'unknown')
+    .join(' | ')
+    .slice(0, 800) || 'unknown';
+}
+
+function consoleDedupeKey(level: 'warn' | 'error', summary: string): string {
+  const stableSummary = summary
+    .replace(/\b\d{3,}\b/g, '#')
+    .replace(/\b[0-9a-f]{8,}\b/gi, '#');
+  return `console:${level}:${stableSummary}`;
+}
+
 /** Keep one source frame and a short, redacted message; never serialize rejection objects. */
 export function summarizeDiagnosticError(value: unknown): string {
   if (typeof value === 'string') return redactDiagnosticText(value).slice(0, 800);
@@ -68,9 +87,91 @@ export function logDiagnostic(level: LogLevel, module: string, event: string, de
   }
 }
 
+/** Persist repeated events at most once per interval so background retries cannot flood the log. */
+export function logDiagnosticLimited(
+  level: LogLevel,
+  module: string,
+  event: string,
+  detail?: unknown,
+  intervalMs = CONSOLE_DEDUPLICATION_MS,
+  dedupeKey = `${module}:${event}:${detail === undefined ? '' : summarize(detail)}`,
+): void {
+  const now = Date.now();
+  const previous = recentEvents.get(dedupeKey) || 0;
+  if (now - previous < intervalMs) return;
+  recentEvents.set(dedupeKey, now);
+  if (recentEvents.size > MAX_RECENT_EVENTS) {
+    const oldest = recentEvents.keys().next().value;
+    if (oldest) recentEvents.delete(oldest);
+  }
+  logDiagnostic(level, module, event, detail);
+}
+
+function installConsoleDiagnosticBridge(): void {
+  for (const level of ['warn', 'error'] as const) {
+    const original = console[level].bind(console);
+    console[level] = (...values: unknown[]) => {
+      try {
+        const summary = summarizeConsoleArguments(values);
+        logDiagnosticLimited(level, 'console', level, summary, CONSOLE_DEDUPLICATION_MS, consoleDedupeKey(level, summary));
+      } catch {
+        // Diagnostics must never interfere with the original console call.
+      }
+      original(...values);
+    };
+  }
+}
+
+function safeElementToken(value: string | null | undefined): string {
+  const token = String(value || '').trim();
+  return /^[a-zA-Z0-9_-]{1,64}$/.test(token) ? token : '';
+}
+
+function describeClickTarget(element: HTMLElement): string {
+  const tag = element.tagName.toLowerCase();
+  const id = safeElementToken(element.id);
+  const action = safeElementToken(element.dataset.diagnosticAction);
+  const role = safeElementToken(element.getAttribute('role'));
+  const type = element instanceof HTMLInputElement || element instanceof HTMLButtonElement
+    ? safeElementToken(element.type)
+    : '';
+  const classes = Array.from(element.classList)
+    .map((name) => safeElementToken(name))
+    .filter(Boolean)
+    .slice(0, 3)
+    .join('.');
+  let destination = '';
+  if (element instanceof HTMLAnchorElement) {
+    const href = element.getAttribute('href') || '';
+    destination = href.startsWith('#') ? 'hash' : href.startsWith('/') ? 'internal' : /^https?:\/\//i.test(href) ? 'external' : 'other';
+  }
+  return [
+    `element=${tag}`,
+    action ? `action=${action}` : '',
+    id ? `id=${id}` : '',
+    classes ? `class=${classes}` : '',
+    role ? `role=${role}` : '',
+    type ? `type=${type}` : '',
+    destination ? `destination=${destination}` : '',
+  ].filter(Boolean).join(' ');
+}
+
+function installClickDiagnosticBridge(): void {
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('button, a, input, select, [role="button"], [data-diagnostic-action]')
+      : null;
+    if (!target) return;
+    const detail = describeClickTarget(target);
+    logDiagnosticLimited('info', 'interaction', 'click', detail, CLICK_DEDUPLICATION_MS, `interaction:click:${detail}`);
+  }, { capture: true });
+}
+
 /** Initialize logging once. Only named events are persisted; console objects may contain private data. */
 export function installDiagnosticLogging(): void {
   if (installed || !loggingAvailable()) return;
   installed = true;
+  installConsoleDiagnosticBridge();
+  installClickDiagnosticBridge();
   logDiagnostic('info', 'app', 'startup');
 }
