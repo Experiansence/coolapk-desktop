@@ -81,7 +81,7 @@ const routeTitles: Record<string, string> = {
   '/my-albums': '我的专辑',
   '/my-votes': '我的投票',
   '/history': '浏览历史',
-  '/following': '我关注的',
+  '/following': '关注',
   '/reviews': '评测',
   '/secondhand': '二手市场',
   '/secondhand/brands': '二手品牌',
