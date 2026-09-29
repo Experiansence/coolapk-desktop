@@ -69,6 +69,7 @@ describe('settings store', () => {
     expect(store.settings.navVisibility?.downloads).toBe(true);
     expect(store.settings.rememberWindowState).toBe(true);
     expect(store.settings.showPageTabBar).toBe(true);
+    expect(store.settings.disableAutoMobileMode).toBe(false);
     expect(store.settings.myRecentPinned).toBe(false);
     expect(store.settings.messageEnterBehavior).toBe(defaults.messageEnterBehavior);
   });
@@ -92,6 +93,7 @@ describe('settings store', () => {
       favoriteCollectionSortMode: 'item-count-desc',
       myRecentPinned: true,
       showPageTabBar: false,
+      disableAutoMobileMode: true,
       messageEnterBehavior: 'newline',
     });
     expect(normalized.theme).toBe('system');
@@ -114,6 +116,7 @@ describe('settings store', () => {
     expect(normalized.favoriteCollectionSortDirection).toBe('desc');
     expect(normalized.myRecentPinned).toBe(true);
     expect(normalized.showPageTabBar).toBe(false);
+    expect(normalized.disableAutoMobileMode).toBe(true);
     expect(normalized.messageEnterBehavior).toBe('newline');
     expect(normalizeSettings({ rememberWindowState: false }).rememberWindowState).toBe(false);
   });

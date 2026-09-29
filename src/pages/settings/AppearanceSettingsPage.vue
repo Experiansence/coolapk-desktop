@@ -160,6 +160,17 @@
     </div>
 
     <div v-if="!isAndroidTauri" class="setting-group">
+      <h4 class="group-title">窗口响应式布局</h4>
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">禁止窄窗口自动切换手机模式</span>
+          <span class="row-sub">窗口宽度缩小（&lt; 720px）时保持桌面端顶栏与侧边栏，不自动切换为手机端导航栏</span>
+        </div>
+        <AppSwitch v-model="settingsStore.settings.disableAutoMobileMode" />
+      </div>
+    </div>
+
+    <div v-if="!isAndroidTauri" class="setting-group">
       <h4 class="group-title">首页右侧栏</h4>
       <p class="group-sub">分别控制首页右侧的热榜和热门话题卡片，关闭后不再请求对应数据</p>
 

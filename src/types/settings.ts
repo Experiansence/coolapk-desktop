@@ -127,6 +127,8 @@ export interface AppSettings {
   zoomManuallySet: boolean;
   sidebarCollapsed: boolean;
   showPageTabBar: boolean;
+  /** 窗口宽度缩小（< 720px）时不自动切换为移动端模式（保留桌面端顶栏、侧边栏和标签页） */
+  disableAutoMobileMode: boolean;
   myRecentPinned: boolean;
   moreExpanded: boolean;
   reduceMotion: boolean;

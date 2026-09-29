@@ -121,6 +121,14 @@
         <AppSwitch v-model="settingsStore.settings.rememberWindowState" />
       </div>
 
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">禁止窄窗口自动切换手机模式</span>
+          <span class="row-sub">窗口宽度缩小（&lt; 720px）时保持桌面端顶栏与侧边栏，不自动切换为手机端导航栏</span>
+        </div>
+        <AppSwitch v-model="settingsStore.settings.disableAutoMobileMode" />
+      </div>
+
       <p class="tray-tip">
         <i class="fas fa-info-circle"></i>
         应用支持单实例运行：重复启动时会自动聚焦已有窗口，不会打开多个实例。

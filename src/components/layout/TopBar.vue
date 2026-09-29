@@ -1472,6 +1472,29 @@ function handleUserClick() {
   }
 }
 
+@media (max-width: 720px) {
+  .search-input-wrapper {
+    flex: 0 0 36px;
+    min-width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .top-bar-right {
+    margin-right: var(--space-1);
+    margin-left: 2px;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 560px) {
+  .theme-toggle-icon-btn,
+  .message-wrapper,
+  .publish-action {
+    display: none;
+  }
+}
+
 .user-profile-wrapper {
   position: relative;
   display: flex;

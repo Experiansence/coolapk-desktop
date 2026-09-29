@@ -1,15 +1,23 @@
 <template>
-  <div class="app-shell" :class="{ 'has-mobile-window-controls': showWindowControls, 'is-android': isAndroidApp }">
+  <div
+    class="app-shell"
+    :class="{
+      'has-mobile-window-controls': showWindowControls,
+      'is-android': isAndroidApp,
+      'prevent-mobile-layout': isMobileLayoutDisabled,
+    }"
+  >
     <NetworkStatusBanner />
     <TopBar />
     <MobileTopBar
+      v-if="!isMobileLayoutDisabled"
       :navigation-open="mobileNavigationOpen"
       :mac-overlay="usesMacOverlay"
       @toggle-navigation="toggleMobileNavigation"
     />
     <div class="app-body">
       <MainSidebar
-        :mobile-open="mobileNavigationOpen"
+        :mobile-open="isMobileLayoutDisabled ? false : mobileNavigationOpen"
         :mobile-window-controls="showWindowControls"
         @close-mobile="closeMobileNavigation"
       />
@@ -20,12 +28,12 @@
         </main>
       </div>
     </div>
-    <MobileBottomNav />
+    <MobileBottomNav v-if="!isMobileLayoutDisabled" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { isTauri } from '@tauri-apps/api/core';
 import { useRoute, useRouter } from 'vue-router';
 import TopBar from './TopBar.vue';
@@ -45,6 +53,9 @@ const settingsStore = useSettingsStore();
 const mobileNavigationOpen = ref(false);
 const isAndroidApp = isTauri() && /android/i.test(navigator.userAgent);
 const { showWindowControls, usesMacOverlay } = useDesktopWindow();
+const isMobileLayoutDisabled = computed(() => {
+  return !isAndroidApp && Boolean(settingsStore.settings.disableAutoMobileMode);
+});
 
 function toggleMobileNavigation() {
   mobileNavigationOpen.value = !mobileNavigationOpen.value;
@@ -115,34 +126,34 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
 }
 
 @media (max-width: 720px) {
-  .app-shell :deep(.top-bar),
-  .app-shell :deep(.page-tab-bar) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.top-bar),
+  .app-shell:not(.prevent-mobile-layout) :deep(.page-tab-bar) {
     display: none !important;
   }
 
   /* 无系统标题栏的桌面平台在窄窗口仍需要最小化、最大化和关闭按钮。 */
-  .app-shell.has-mobile-window-controls :deep(.top-bar.has-window-controls) {
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.top-bar.has-window-controls) {
     display: flex !important;
     flex: 0 0 var(--mobile-window-controls-height);
     height: var(--mobile-window-controls-height);
     min-height: var(--mobile-window-controls-height);
   }
 
-  .app-shell.has-mobile-window-controls :deep(.top-bar.has-window-controls > .titlebar-sidebar-offset),
-  .app-shell.has-mobile-window-controls :deep(.top-bar.has-window-controls > .top-bar-center),
-  .app-shell.has-mobile-window-controls :deep(.top-bar.has-window-controls > .top-bar-right) {
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.top-bar.has-window-controls > .titlebar-sidebar-offset),
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.top-bar.has-window-controls > .top-bar-center),
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.top-bar.has-window-controls > .top-bar-right) {
     display: none !important;
   }
 
-  .app-shell.has-mobile-window-controls :deep(.top-bar.has-window-controls > .window-controls) {
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.top-bar.has-window-controls > .window-controls) {
     height: var(--mobile-window-controls-height);
   }
 
-  .app-shell.has-mobile-window-controls :deep(.network-status-banner) {
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.network-status-banner) {
     top: calc(var(--mobile-window-controls-height) + var(--mobile-topbar-height));
   }
 
-  .app-shell :deep(.main-sidebar) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar) {
     display: flex !important;
     position: fixed;
     top: calc(var(--mobile-topbar-height) + 8px);
@@ -162,18 +173,18 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     opacity: 0;
   }
 
-  .app-shell.has-mobile-window-controls :deep(.main-sidebar.has-window-controls) {
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.main-sidebar.has-window-controls) {
     top: calc(var(--mobile-window-controls-height) + var(--mobile-topbar-height) + 8px);
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open) {
     transform: translate(-50%, 0);
     visibility: visible;
     pointer-events: auto;
     opacity: 1;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .mobile-navigation-header) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .mobile-navigation-header) {
     display: flex;
     flex: 0 0 auto;
     align-items: baseline;
@@ -182,17 +193,17 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     color: var(--text-primary);
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .mobile-navigation-header strong) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .mobile-navigation-header strong) {
     font-size: 16px;
     font-weight: 700;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .mobile-navigation-header span) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .mobile-navigation-header span) {
     color: var(--text-tertiary);
     font-size: 12px;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .sidebar-nav) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .sidebar-nav) {
     display: grid !important;
     flex: 1 1 auto;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -204,11 +215,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     overflow-y: auto;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-group) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-group) {
     display: contents;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-item) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-item) {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -223,7 +234,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     font-size: 12px;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-label) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-label) {
     display: inline !important;
     max-width: 100%;
     overflow: hidden;
@@ -231,17 +242,17 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     white-space: nowrap;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-item.is-active::before) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-item.is-active::before) {
     display: none;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-icon) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-icon) {
     width: auto;
     margin: 0 !important;
     font-size: 18px;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-divider) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-divider) {
     display: block;
     grid-column: 1 / -1;
     width: auto;
@@ -249,12 +260,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     margin: 2px 0;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .sidebar-footer) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .sidebar-footer) {
     display: flex !important;
     flex: 0 0 auto;
   }
 
-  .app-shell :deep(.main-sidebar.is-mobile-open .nav-badge) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-badge) {
     position: absolute;
     top: 3px;
     right: 6px;
@@ -262,7 +273,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     margin: 0;
   }
 
-  .app-shell :deep(.sidebar-floating-toggle-btn) {
+  .app-shell:not(.prevent-mobile-layout) :deep(.sidebar-floating-toggle-btn) {
     display: none;
   }
 
