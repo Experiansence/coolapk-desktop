@@ -47,7 +47,7 @@ use coolapk::commands::{
     get_user_cookie, get_user_feeds, get_user_follow_nodes, get_user_forum_follow_list, get_user_like_list, get_user_album_list, get_user_profile, get_user_rating_list,
     get_user_qr_image, get_user_space, get_public_user_space, get_public_user_profile, get_user_tab_data, get_user_remark_list, get_vote_comments, create_user_vote, get_update_distribution, install_update, like_collection, like_feed, like_reply, list_accounts,
     list_chat_history, delete_message_chat, list_messages, get_recent_chat_users, login_as, login_by_account, login_by_mobile,
-    open_cache_directory, open_image_in_system_viewer, open_login_webview, open_url, persist_current_account, quit_app,
+    open_cache_directory, open_image_in_system_viewer, open_login_webview, open_url, persist_current_account, quit_app, sync_login_webview,
     read_message, remove_account, remove_from_black_list, remove_from_ignore_list, reply_feed,
     comment_apk,
     cancel_follower, special_follow_user, update_user_remark,
@@ -779,6 +779,7 @@ pub fn run() {
     let state = AppState {
         client,
         downloads: DownloadManager::new(),
+        login_session: std::sync::Mutex::new(None),
     };
 
     let builder = tauri::Builder::default()
@@ -1231,6 +1232,7 @@ pub fn run() {
             open_url,
             fetch_external_page,
             open_login_webview,
+            sync_login_webview,
             close_login_window,
             get_following_feeds,
             get_follow_user_list,

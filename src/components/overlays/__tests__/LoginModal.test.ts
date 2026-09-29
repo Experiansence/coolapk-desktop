@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../../../stores/auth';
 import LoginModal from '../LoginModal.vue';
+import { CoolapkTauriAPI } from '../../../api/coolapk';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn().mockResolvedValue(vi.fn())
@@ -13,6 +14,58 @@ describe('LoginModal account actions', () => {
     vi.restoreAllMocks();
     localStorage.clear();
     setActivePinia(createPinia());
+  });
+
+  it('imports native webview credentials before checking the client login status', async () => {
+    const store = useAuthStore();
+    store.isLoginModalOpen = true;
+    let imported = false;
+    const sync = vi.spyOn(CoolapkTauriAPI, 'syncLoginWebview').mockImplementation(async () => {
+      imported = true;
+      return true;
+    });
+    vi.spyOn(CoolapkTauriAPI, 'closeLoginWebview').mockResolvedValue(true);
+    const check = vi.spyOn(store, 'checkStatus').mockImplementation(async () => imported);
+    const wrapper = mount(LoginModal, {
+      global: { stubs: { Teleport: true, Transition: false } }
+    });
+    await wrapper.get('.btn-hero-sync').trigger('click');
+    await flushPromises();
+    expect(sync).toHaveBeenCalledOnce();
+    expect(check).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain('酷安账号凭据同步成功');
+    wrapper.unmount();
+  });
+
+  it('keeps the modal open when the official verification has not yielded credentials', async () => {
+    const store = useAuthStore();
+    store.isLoginModalOpen = true;
+    vi.spyOn(CoolapkTauriAPI, 'syncLoginWebview').mockResolvedValue(false);
+    vi.spyOn(store, 'checkStatus').mockResolvedValue(false);
+    const wrapper = mount(LoginModal, {
+      global: { stubs: { Teleport: true, Transition: false } }
+    });
+    await wrapper.get('.btn-hero-sync').trigger('click');
+    await flushPromises();
+    expect(store.isLoginModalOpen).toBe(true);
+    expect(wrapper.text()).toContain('陌生设备短信验证');
+    wrapper.unmount();
+  });
+
+  it('shows a native synchronization error instead of treating it as successful login', async () => {
+    const store = useAuthStore();
+    store.isLoginModalOpen = true;
+    vi.spyOn(CoolapkTauriAPI, 'syncLoginWebview').mockRejectedValue('无法读取登录窗口凭据');
+    const check = vi.spyOn(store, 'checkStatus');
+    const wrapper = mount(LoginModal, {
+      global: { stubs: { Teleport: true, Transition: false } }
+    });
+    await wrapper.get('.btn-hero-sync').trigger('click');
+    await flushPromises();
+    expect(store.isLoginModalOpen).toBe(true);
+    expect(wrapper.text()).toContain('无法读取登录窗口凭据');
+    expect(check).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it('closes the modal after logout instead of switching to the saved-account panel', async () => {

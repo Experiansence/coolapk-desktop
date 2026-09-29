@@ -299,6 +299,7 @@ async function handleCheckWebLogin(showFailure = true): Promise<boolean> {
     errorMessage.value = '';
   }
   try {
+    await CoolapkTauriAPI.syncLoginWebview();
     const isLoggedIn = await authStore.checkStatus();
     logDiagnostic('info', 'login', 'status_check_finished', `logged_in=${isLoggedIn}`);
     if (isLoggedIn) {
@@ -309,7 +310,7 @@ async function handleCheckWebLogin(showFailure = true): Promise<boolean> {
       debugStatus.value = 'checkStatus=false';
       showAdvanced.value = true;
       activeTab.value = 'cookie';
-      errorMessage.value = '未检测到成功登录会话。若您已在窗口中完成登录，请点击上方的“已在窗口完成登录？点击同步凭据”；或在下方备用选项直接粘贴 Cookie 登录。';
+      errorMessage.value = '尚未同步到有效登录凭据。请先在官方登录窗口完成全部验证（包括陌生设备短信验证），再重试同步；也可使用下方备用 Cookie 登录。';
     }
     return false;
   } catch (e: any) {

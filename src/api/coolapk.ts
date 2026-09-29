@@ -1431,6 +1431,10 @@ export class CoolapkTauriAPI {
     }
   }
 
+  static async syncLoginWebview() {
+    return await invoke<boolean>('sync_login_webview');
+  }
+
   static async saveCookieSecurely(cookieStr: string) {
     await invoke('save_cookie_securely', { cookieStr });
   }

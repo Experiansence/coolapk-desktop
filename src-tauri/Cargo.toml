@@ -53,6 +53,11 @@ windows = { version = "0.61", features = ["Data_Xml_Dom", "UI_Notifications", "W
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSHTTPCookie"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.7"
 
