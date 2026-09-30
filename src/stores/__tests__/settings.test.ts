@@ -48,6 +48,7 @@ describe('settings store', () => {
     favoriteCollectionViewMode: 'large',
     favoriteCollectionSortMode: 'default',
     favoriteCollectionSortDirection: 'asc',
+    topicHubShowCommentsByDefault: true,
   };
 
   it('loads default settings when localStorage is empty', () => {
@@ -64,6 +65,7 @@ describe('settings store', () => {
     expect(store.settings.favoriteCollectionViewMode).toBe(defaults.favoriteCollectionViewMode);
     expect(store.settings.favoriteCollectionSortMode).toBe(defaults.favoriteCollectionSortMode);
     expect(store.settings.favoriteCollectionSortDirection).toBe(defaults.favoriteCollectionSortDirection);
+    expect(store.settings.topicHubShowCommentsByDefault).toBe(defaults.topicHubShowCommentsByDefault);
     expect(store.settings.navVisibility?.albums).toBe(true);
     expect(store.settings.navVisibility?.pictures).toBe(true);
     expect(store.settings.navVisibility?.downloads).toBe(true);
@@ -94,6 +96,7 @@ describe('settings store', () => {
       myRecentPinned: true,
       showPageTabBar: false,
       disableAutoMobileMode: true,
+      topicHubShowCommentsByDefault: false,
       messageEnterBehavior: 'newline',
     });
     expect(normalized.theme).toBe('system');
@@ -117,6 +120,7 @@ describe('settings store', () => {
     expect(normalized.myRecentPinned).toBe(true);
     expect(normalized.showPageTabBar).toBe(false);
     expect(normalized.disableAutoMobileMode).toBe(true);
+    expect(normalized.topicHubShowCommentsByDefault).toBe(false);
     expect(normalized.messageEnterBehavior).toBe('newline');
     expect(normalizeSettings({ rememberWindowState: false }).rememberWindowState).toBe(false);
   });

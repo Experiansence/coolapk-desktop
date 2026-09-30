@@ -150,6 +150,8 @@ export interface AppSettings {
   /** 普通评论与话题讨论分别使用的默认排序。 */
   commentDefaultSortMode: CommentSortPreference;
   topicDiscussionDefaultSortMode: TopicDiscussionSortPreference;
+  /** 打开话题分屏时是否默认显示右侧评论栏。 */
+  topicHubShowCommentsByDefault: boolean;
   downloadPath: string;
   maxConcurrentDownloads: number;
   autoCleanCache: boolean;

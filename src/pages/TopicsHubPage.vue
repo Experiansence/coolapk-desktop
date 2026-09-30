@@ -274,9 +274,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, onActivated, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
+import { useSettingsStore } from '../stores/settings';
 import { useTopicHubStore, type CategoryItem } from '../stores/topicHub';
 import TopicCard from '../components/topic/TopicCard.vue';
 import TopicPage from './TopicPage.vue';
@@ -286,6 +287,7 @@ import EmptyState from '../components/common/EmptyState.vue';
 
 const route = useRoute();
 const router = useRouter();
+const settingsStore = useSettingsStore();
 const topicHubStore = useTopicHubStore();
 const topicEntryUrl = '/page?url=V11_VERTICAL_TOPIC';
 
@@ -306,9 +308,10 @@ const activeFeed = computed(() => topicHubStore.activeFeed);
 
 const isCategoryPickerOpen = ref(false);
 const isMobileSubtopicPickerOpen = ref(false);
-const isRightAsideUserClosed = ref(false);
+const isRightAsideUserClosed = ref(!settingsStore.settings.topicHubShowCommentsByDefault);
 const isLeftSidebarCollapsed = ref(false);
 const isSidebarHovered = ref(false);
+watch(() => settingsStore.settings.topicHubShowCommentsByDefault, (show) => { isRightAsideUserClosed.value = !show; }, { immediate: true });
 
 // 宽度调节状态（支持持久化）
 const DEFAULT_LEFT_WIDTH = 300;
@@ -938,6 +941,8 @@ onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown);
   document.addEventListener('click', handleClickOutside);
 });
+
+onActivated(() => { isRightAsideUserClosed.value = !settingsStore.settings.topicHubShowCommentsByDefault; });
 
 onUnmounted(() => {
   isUnmounted = true;

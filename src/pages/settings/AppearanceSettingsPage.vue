@@ -191,6 +191,19 @@
       </div>
     </div>
 
+    <div class="setting-group">
+      <h4 class="group-title">话题分屏</h4>
+      <p class="group-sub">设置宽屏打开话题时，右侧评论栏的默认状态；空间不足时仍会按窗口宽度自动隐藏</p>
+
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">默认显示右侧评论</span>
+          <span class="row-sub">开启后进入话题分屏时默认展开评论栏，也可在话题页临时收起或展开</span>
+        </div>
+        <AppSwitch v-model="settingsStore.settings.topicHubShowCommentsByDefault" />
+      </div>
+    </div>
+
     <!-- 页面栏目显隐设置区域 -->
     <div class="setting-group">
       <h4 class="group-title">{{ isAndroidTauri ? '快捷入口栏目显隐设置' : '侧边栏页面栏目显隐设置' }}</h4>

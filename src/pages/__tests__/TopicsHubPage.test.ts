@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
 import TopicsHubPage from '../TopicsHubPage.vue';
+import { useSettingsStore } from '../../stores/settings';
 import { useTopicHubStore } from '../../stores/topicHub';
 
 const mocks = vi.hoisted(() => ({
@@ -105,6 +106,51 @@ describe('TopicsHubPage 三栏/双栏/单栏响应式与过渡', () => {
     // 点击返回大网格
     await wrapper.find('.btn-back-grid').trigger('click');
     expect(store.viewMode).toBe('grid');
+  });
+
+  it('设置默认关闭右侧评论时隐藏评论栏，并允许在当前页面手动展开', async () => {
+    const previousInnerWidth = window.innerWidth;
+    const previousRightWidth = localStorage.getItem('coolapk_topic_hub_right_width');
+    useSettingsStore().settings.topicHubShowCommentsByDefault = false;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+    mocks.getTopicHubData.mockResolvedValue({ tabs: [], data: [{ id: 't1', title: '小米13Pro', follower_num: 3200 }] });
+    let mountedWrapper: ReturnType<typeof mount> | null = null;
+
+    try {
+      const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/topics', component: TopicsHubPage }] });
+      await router.push('/topics');
+      await router.isReady();
+      const wrapper = mountedWrapper = mount(TopicsHubPage, {
+        global: {
+          plugins: [router],
+          stubs: {
+            TopicPage: { props: ['tagParam', 'embedded', 'activeFeedId', 'disableInlineComments'], template: '<div class="topic-page-stub">{{ tagParam }}</div>' },
+            TopicFeedCommentAside: { props: ['feed'], template: '<div class="topic-feed-comment-aside-stub"></div>' },
+            LoadingState: true,
+            EmptyState: true,
+            AppImage: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      const pageRoot = wrapper.find('.topics-page').element as HTMLElement;
+      Object.defineProperty(pageRoot, 'clientWidth', { configurable: true, value: 1230 });
+      window.dispatchEvent(new Event('resize'));
+      await nextTick();
+      await wrapper.find('.topic-card').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('.split-right-wrapper').exists()).toBe(false);
+      expect(wrapper.find('.floating-expand-aside-btn').exists()).toBe(true);
+      await wrapper.find('.floating-expand-aside-btn').trigger('click');
+      expect(wrapper.find('.split-right-wrapper').exists()).toBe(true);
+    } finally {
+      mountedWrapper?.unmount();
+      if (previousRightWidth === null) localStorage.removeItem('coolapk_topic_hub_right_width');
+      else localStorage.setItem('coolapk_topic_hub_right_width', previousRightWidth);
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousInnerWidth });
+    }
   });
 
   it('右栏宽度超过可用空间时自动收缩，避免评论被窗口裁切', async () => {
