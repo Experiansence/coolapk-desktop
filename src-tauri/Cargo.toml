@@ -45,6 +45,9 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-stronghold = "2"
 notify-rust = "4.18"
+# 关闭 WKWebView 对 requestAnimationFrame 的半刷新率钳制（144Hz 屏上 rAF 被限到 72），
+# 通过 WebKit 私有 _features API 切换 PreferPageRenderingUpdatesNear60FPSEnabled；非 macOS 为 no-op
+tauri-plugin-macos-fps = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

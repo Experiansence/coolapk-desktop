@@ -810,6 +810,8 @@ pub fn run() {
             // 重复启动时聚焦已有实例的主窗口；深链事件由插件转发给前端。
             show_main_window(app);
         }))
+        // 解锁 WKWebView 对 rAF 的半刷新率钳制（144Hz 屏 72→144），失败时仅告警降级
+        .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
