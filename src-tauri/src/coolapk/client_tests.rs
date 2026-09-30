@@ -1031,6 +1031,151 @@ async fn test_login_cookie_persistence_flow() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 未通过服务端校验的暂存 Cookie 不应在账户库留下空凭据幽灵账号：
+/// set_user_cookie 会触发 sync_device_code → account_device_code，
+/// 旧实现会为未知 uid 写入 { cookie: "" } 条目，导致“已保存账户”里的账号点登录报“该账户凭据为空”。
+#[tokio::test]
+async fn test_staged_cookie_does_not_create_credential_less_account() {
+    use std::path::PathBuf;
+
+    let dir = std::env::temp_dir().join(format!(
+        "coolapk_desktop_phantom_account_test_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let accounts_file: PathBuf = dir.join("accounts.json");
+
+    let client = CoolapkClient::new();
+    client.persist_cookie_to(dir.join("session_cookie.txt"));
+
+    // 模拟 iOS 登录链路：校验前先暂存 WebView Cookie（服务端校验随后失败）
+    client
+        .set_user_cookie("SESSID=staged-only; uid=4441808".to_string())
+        .unwrap();
+
+    // 设备码仍应可用，但不得产生任何账户条目
+    assert!(
+        client.effective_custom_device_id().is_none(),
+        "该用例不应带自定义设备 ID"
+    );
+    let accounts = client.load_accounts();
+    assert!(
+        accounts.is_empty(),
+        "暂存 Cookie 不得写入账户库，实际得到 {accounts:?}"
+    );
+    let exists = accounts_file.exists();
+    if exists {
+        let root: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&accounts_file).unwrap()).unwrap();
+        assert_eq!(
+            root["accounts"].as_array().map(|a| a.len()),
+            Some(0),
+            "账户库不应含空凭据条目"
+        );
+    }
+
+    // 正常保存账户后，设备码仍写入该账户记录（原有行为保留）
+    client
+        .save_account("4441808", "酷友", "", "SESSID=real-session; uid=4441808")
+        .await
+        .unwrap();
+    let accounts = client.load_accounts();
+    assert_eq!(accounts.len(), 1, "真实登录应恰好写入一个账户");
+    assert_eq!(accounts[0]["uid"].as_str(), Some("4441808"));
+    assert!(
+        !accounts[0]["cookie"].as_str().unwrap_or("").is_empty(),
+        "已保存账户必须带有效凭据"
+    );
+    assert!(
+        accounts[0]["deviceCode"].as_str().is_some_and(|c| !c.is_empty()),
+        "账户存在时仍应记录设备码"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// HTTP 客户端必须能成功初始化 TLS 后端：
+/// 捕获 rustls 多 provider 冲突、use_preconfigured_tls 版本不匹配、
+/// 以及 Apple 平台系统信任库配置失败等问题。
+#[test]
+fn test_http_client_builder_initializes_tls_backend() {
+    let client = http_client_builder().build();
+    assert!(
+        client.is_ok(),
+        "HTTP 客户端应能初始化 TLS 后端：{:?}",
+        client.err()
+    );
+
+    // 带默认头与重定向策略的组合也必须可用（登录/API 主客户端走这条路径）
+    let configured = http_client_builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build();
+    assert!(
+        configured.is_ok(),
+        "带重定向策略的客户端应能初始化：{:?}",
+        configured.err()
+    );
+}
+
+/// 传输失败原因链用于定位真因（DNS / 证书 / 代理），且不得泄露请求 URL。
+#[test]
+fn test_transport_cause_chain_reports_root_source() {
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct Root;
+    #[derive(Debug)]
+    struct Middle(Root);
+    #[derive(Debug)]
+    struct Outer(Middle);
+
+    impl fmt::Display for Root {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "invalid peer certificate: UnknownIssuer")
+        }
+    }
+    impl fmt::Display for Middle {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "tls handshake failed")
+        }
+    }
+    impl fmt::Display for Outer {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "error sending request")
+        }
+    }
+    impl Error for Root {}
+    impl Error for Middle {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+    impl Error for Outer {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    let chain = error_cause_chain(&Outer(Middle(Root)));
+    assert!(
+        chain.contains("UnknownIssuer"),
+        "应透出最深层根因：{chain}"
+    );
+    assert!(
+        chain.contains(" <- "),
+        "多层 source 应以箭头连接：{chain}"
+    );
+    assert!(
+        !chain.contains("http") && !chain.contains("coolapk"),
+        "原因链不应包含 URL：{chain}"
+    );
+
+    // 无 source 时返回固定占位，避免日志出现空字段
+    assert_eq!(error_cause_chain(&Root), "none");
+}
+
 /// 网页外壳噪音剔除 + 正文提取：酷安 /feed/ 分享页只有导航/页脚/扫码提示，
 /// 提取后不应残留导航与页脚链接
 #[test]

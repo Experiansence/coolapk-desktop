@@ -1,3 +1,4 @@
+use crate::coolapk::client::http_client_builder;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde_json::{Value, json};
@@ -38,7 +39,7 @@ pub async fn upload(signature: &str, video: &[u8], name: &str, cover: &[u8], dur
     if video.len() < 12 || &video[4..8] != b"ftyp" || cover.len() < 3 || cover[..3] != [0xff, 0xd8, 0xff] || duration == 0 { return Err("视频或封面无效".to_string()); }
     if video.len() > 256 * 1024 * 1024 { return Err("请选择不超过 256 MB 的视频".to_string()); }
     let kind = if video.get(8..12) == Some(b"qt  ") { "mov" } else { "mp4" };
-    let client = Client::builder().timeout(Duration::from_secs(600)).build().map_err(|error| error.to_string())?;
+    let client = http_client_builder().timeout(Duration::from_secs(600)).build().map_err(|error| error.to_string())?;
     let report_id = format!("coolapk-desktop-{}", chrono::Utc::now().timestamp_millis());
     let prepared = vod_request(&client, "ApplyUploadUGC", &json!({ "signature": signature, "videoName": name, "videoType": kind, "videoSize": video.len(), "coverName": "cover.jpg", "coverType": "jpg", "coverSize": cover.len(), "clientReportId": report_id, "clientVersion": "9.1.10566" })).await?;
     put_object(&client, &prepared, field(&prepared["video"], "storagePath")?, video, if kind == "mov" { "video/quicktime" } else { "video/mp4" }).await?;
