@@ -184,8 +184,18 @@ describe('完整发帖流程', () => {
     expect(wrapper.find('button[aria-label="图片前移"]').exists()).toBe(false);
     expect(wrapper.find('button[aria-label="图片后移"]').exists()).toBe(false);
     expect(wrapper.findAll('select[aria-label="实况上传方式"]')).toHaveLength(1);
-    await wrapper.findAll('.media-item')[0].trigger('dragstart'); await wrapper.findAll('.media-item')[1].trigger('drop');
+    const slots = [{ left: 0, right: 100, top: 0, bottom: 100 }, { left: 120, right: 220, top: 0, bottom: 100 }];
+    wrapper.findAll('.media-item').forEach((item, index) => Object.defineProperty(item.element, 'getBoundingClientRect', { configurable: true, value: () => slots[index] }));
+    const dispatchPointer = (target: HTMLElement | Document, type: string, values: Record<string, number>) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.entries(values).forEach(([key, value]) => Object.defineProperty(event, key, { value }));
+      target.dispatchEvent(event);
+    };
+    dispatchPointer(wrapper.findAll('.media-thumb')[0].element as HTMLElement, 'pointerdown', { pointerId: 1, button: 0, clientX: 50, clientY: 50 });
+    dispatchPointer(document, 'pointermove', { pointerId: 1, clientX: 170, clientY: 50 });
+    await flushPromises();
     expect(wrapper.findAllComponents({ name: 'AppImage' })[0].attributes('src')).toBe('第二张');
+    dispatchPointer(document, 'pointerup', { pointerId: 1 });
     await wrapper.findAll('button').find(button => button.text() === '立即发布')!.trigger('click'); await flushPromises();
     expect(wrapper.text()).toContain('实况照片缺少原始动态文件'); expect(CoolapkTauriAPI.createFeed).not.toHaveBeenCalled();
     await wrapper.get('select[aria-label="实况上传方式"]').setValue('still');

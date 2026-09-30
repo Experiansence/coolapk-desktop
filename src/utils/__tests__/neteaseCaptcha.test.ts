@@ -84,9 +84,10 @@ describe('neteaseCaptcha', () => {
   });
 
   it('resolves formatted token on successful validation', async () => {
+    const verify = vi.fn();
     (window as any).initNECaptcha = vi.fn((config, onLoad) => {
       const mockInstance = {
-        popup: vi.fn(),
+        verify,
         refresh: vi.fn(),
         destroy: vi.fn(),
       };
@@ -100,12 +101,14 @@ describe('neteaseCaptcha', () => {
 
     const token = await verifyWithCaptcha('414e5c9b866a03db03f860a1a9101672');
     expect(token).toBe('NEC:414e5c9b:mock_validate_hash_12345');
+    expect(verify).toHaveBeenCalledOnce();
+    expect(window.initNECaptcha).toHaveBeenCalledWith(expect.objectContaining({ mode: 'popup', apiVersion: 2 }), expect.any(Function), expect.any(Function));
   });
 
   it('rejects on user cancellation or verify error', async () => {
     (window as any).initNECaptcha = vi.fn((config, onLoad) => {
       const mockInstance = {
-        popup: vi.fn(),
+        verify: vi.fn(),
         refresh: vi.fn(),
         destroy: vi.fn(),
       };
