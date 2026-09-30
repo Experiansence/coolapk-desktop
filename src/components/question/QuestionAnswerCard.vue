@@ -198,7 +198,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useAppStore } from '../../stores/app';
 import { getErrorMessage } from '../../utils/errors';
 import { extractFeedImageInputs, type FeedImageInput } from '../../utils/livePhoto';
-import { registerOpenComments, touchActiveComments } from '../../utils/activeCommentTracker';
+import { registerOpenComments, touchActiveComments, isCommentHostVisible } from '../../utils/activeCommentTracker';
 import { normalizeCoolapkNativeRoute, normalizeCoolapkPageRoute, normalizeCoolapkRoute } from '../../utils/coolapkRoute';
 import { renderCoolapkRichText } from '../../utils/richText';
 import { preloadUserProfile } from '../../utils/userProfilePreloader';
@@ -675,6 +675,7 @@ function openLikeList() { interactionMode.value = 'likes'; }
 function openForwardList() { interactionMode.value = 'forwards'; }
 function closeInteractionDialog(show: boolean) { if (!show) interactionMode.value = null; }
 
+const cardRef = ref<HTMLElement | null>(null);
 const showComments = ref(false);
 const comments = ref<any[]>([]);
 const commentsLoading = ref(false);
@@ -786,7 +787,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       activeCommentsUnregister?.();
-      activeCommentsUnregister = registerOpenComments(props.answer.id, handleCollapseComments);
+      activeCommentsUnregister = registerOpenComments(props.answer.id, handleCollapseComments, () => isCommentHostVisible(cardRef.value));
     } else {
       activeCommentsUnregister?.();
       activeCommentsUnregister = null;

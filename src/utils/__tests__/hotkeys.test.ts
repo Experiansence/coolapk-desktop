@@ -77,4 +77,15 @@ describe('registerGlobalHotkeys', () => {
     expect(collapseFn).toHaveBeenCalledTimes(1);
     expect(commentTracker.hasActiveComments()).toBe(false);
   });
+
+  it('连续两次 Esc 不会收起屏幕外先前展开的评论', () => {
+    const oldCollapse = vi.fn();
+    const currentCollapse = vi.fn();
+    commentTracker.registerOpenComments('old-feed', oldCollapse, () => false);
+    commentTracker.registerOpenComments('current-feed', currentCollapse, () => true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(currentCollapse).toHaveBeenCalledOnce();
+    expect(oldCollapse).not.toHaveBeenCalled();
+  });
 });

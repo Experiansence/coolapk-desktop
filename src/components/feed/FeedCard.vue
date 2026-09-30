@@ -299,7 +299,7 @@ import {
 import { useAppStore } from '../../stores/app';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
-import { registerOpenComments, touchActiveComments } from '../../utils/activeCommentTracker';
+import { registerOpenComments, touchActiveComments, isCommentHostVisible } from '../../utils/activeCommentTracker';
 import { showToast } from '../../utils/toast';
 import { requestConfirmation } from '../../utils/confirm';
 import { getErrorMessage } from '../../utils/errors';
@@ -1167,7 +1167,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       activeCommentsUnregister?.();
-      activeCommentsUnregister = registerOpenComments(props.feed.id, handleCollapseComments);
+      activeCommentsUnregister = registerOpenComments(props.feed.id, handleCollapseComments, () => isCommentHostVisible(cardRef.value));
       if (!props.detailMode) {
         bindScrollListener();
         void nextTick(updateFloatingCollapse);
