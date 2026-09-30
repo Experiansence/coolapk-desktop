@@ -105,6 +105,15 @@ img.coolapk-emoji,
   gap: 10px;
   z-index: 99999;
   pointer-events: none;
+  /* 长文案不再横向溢出屏幕。 */
+  max-width: calc(100vw - 24px);
+}
+
+/* 触摸端顶栏更高（安全区 + 52px），提示条要落在它下方。 */
+@media (pointer: coarse) {
+  .app-toast-container {
+    top: calc(var(--mobile-topbar-height, 52px) + env(safe-area-inset-top, 0px) + 8px);
+  }
 }
 
 .app-toast {
@@ -112,6 +121,9 @@ img.coolapk-emoji,
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  /* 手机上过长的提示必须换行，不能左右被裁掉。 */
+  max-width: 100%;
+  box-sizing: border-box;
   background: rgba(16, 185, 129, 0.95);
   color: #ffffff;
   padding: 9px 20px;
@@ -132,7 +144,8 @@ img.coolapk-emoji,
 
 .app-toast .toast-text {
   line-height: 1.4;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .app-toast-action {

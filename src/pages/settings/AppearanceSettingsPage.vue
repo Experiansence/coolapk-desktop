@@ -159,7 +159,7 @@
       </div>
     </div>
 
-    <div v-if="!isAndroidTauri" class="setting-group">
+    <div v-if="showDesktopLayoutSwitch" class="setting-group">
       <h4 class="group-title">窗口响应式布局</h4>
       <div class="setting-row">
         <div class="row-info">
@@ -261,11 +261,14 @@ import AppSwitch from '../../components/common/AppSwitch.vue';
 import { moreNavs } from '../../config/navigation';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
 import { showToast } from '../../utils/toast';
+import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
 const fontPickerOpening = ref(false);
 const isAndroidTauri = isTauri() && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+// 该开关是桌面端语义（窄窗口是否保留桌面外壳）；手机上窗口永远是窄的，开关会毁掉移动外壳，直接不展示。
+const showDesktopLayoutSwitch = !isTouchMobilePlatform();
 const selectedFontLabel = computed(() => settingsStore.settings.fontFamily || '系统默认');
 
 const accentColors: { key: AccentColor; label: string; color: string }[] = [

@@ -693,7 +693,10 @@ function handleLogout() {
 @media (max-width: 720px) {
   .mobile-sidebar-backdrop {
     position: fixed;
-    inset: var(--mobile-topbar-height) 0 var(--mobile-bottom-nav-height);
+    /* 顶栏/底栏会因为安全区变高，遮罩按真实高度让位。 */
+    inset: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px))
+      0
+      calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
     z-index: 1000;
     display: block;
     padding: 0;

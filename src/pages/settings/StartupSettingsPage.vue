@@ -121,7 +121,7 @@
         <AppSwitch v-model="settingsStore.settings.rememberWindowState" />
       </div>
 
-      <div class="setting-row">
+      <div v-if="showDesktopLayoutSwitch" class="setting-row">
         <div class="row-info">
           <span class="row-label">禁止窄窗口自动切换手机模式</span>
           <span class="row-sub">窗口宽度缩小（&lt; 720px）时保持桌面端顶栏与侧边栏，不自动切换为手机端导航栏</span>
@@ -141,8 +141,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
+import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
+// 桌面端语义的开关：手机上窗口永远窄，开了只会把移动外壳关掉，因此不展示。
+const showDesktopLayoutSwitch = !isTouchMobilePlatform();
 const autostartError = ref(false);
 
 const closeBehavior = computed({

@@ -57,7 +57,13 @@ const rightItems = computed(() => [
 
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/';
-  if (path.startsWith('/user/')) return route.path.startsWith('/user/');
+  if (path.startsWith('/user/')) {
+    // 「我的」只在本人主页高亮，访问他人主页时不能把这一格点亮。
+    const ownUid = String(authStore.user?.uid || '').trim();
+    if (!ownUid) return false;
+    const ownPath = `/user/${encodeURIComponent(ownUid)}`;
+    return route.path === ownPath || route.path.startsWith(`${ownPath}/`);
+  }
   return route.path === path || route.path.startsWith(`${path}/`);
 }
 
@@ -86,7 +92,7 @@ function activate(path: string) {
     flex: 0 0 auto;
     align-items: start;
     min-height: var(--mobile-bottom-nav-height);
-    padding: 6px 6px env(safe-area-inset-bottom);
+    padding: 6px max(6px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(6px, env(safe-area-inset-left));
     border-top: 1px solid var(--border-light);
     background: color-mix(in srgb, var(--surface) 97%, transparent);
     backdrop-filter: blur(16px);

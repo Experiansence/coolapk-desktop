@@ -18,6 +18,7 @@ vi.mock('vue-router', async (importOriginal) => {
 });
 
 import MobileBottomNav from '../MobileBottomNav.vue';
+import { useAuthStore } from '../../../stores/auth';
 import {
   HOME_TAB_REFRESH_EVENT,
   HOME_TAB_SCROLL_TOP_EVENT,
@@ -90,5 +91,25 @@ describe('MobileBottomNav 首页手势', () => {
     expect(routerMock.push).toHaveBeenCalledWith('/discover');
     expect(scrollTopSpy).not.toHaveBeenCalled();
     expect(refreshSpy).not.toHaveBeenCalled();
+  });
+
+  it('本人主页高亮「我的」，他人主页不高亮', async () => {
+    useAuthStore().user = { uid: '12345', username: '自己' } as never;
+
+    routerMock.currentRoute.value.path = '/user/12345';
+    expect(navButton(mountNav(), '我的').classes()).toContain('active');
+
+    routerMock.currentRoute.value.path = '/user/99999';
+    expect(navButton(mountNav(), '我的').classes()).not.toContain('active');
+  });
+
+  it('未登录时访问任何用户主页都不高亮「我的」', async () => {
+    routerMock.currentRoute.value.path = '/user/99999';
+
+    const wrapper = mountNav();
+    const profileButton = wrapper.findAll('.mobile-nav-item').find((item) => item.text().includes('我的'));
+
+    // 未登录时「我的」指向 /more，不会误命中 /user/ 路径。
+    expect(profileButton?.classes()).not.toContain('active');
   });
 });
