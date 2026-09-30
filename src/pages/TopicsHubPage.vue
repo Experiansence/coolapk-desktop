@@ -297,6 +297,8 @@ const page = ref(1);
 const noMore = ref(false);
 const firstItemCursor = ref('');
 const lastItemCursor = ref('');
+// 切换栏目时递增版本号，丢弃旧栏目请求，防止预取结果混入当前列表。
+let topicRequestGeneration = 0;
 
 const viewMode = computed(() => topicHubStore.viewMode);
 const activeTopicTag = computed(() => topicHubStore.activeTopicTag);
@@ -727,6 +729,7 @@ function handleFeedSelected(feed: any) {
 
 // 栏目切换
 function switchCategory(cat: CategoryItem) {
+  const requestGeneration = ++topicRequestGeneration;
   activeCategoryUrl.value = cat.url;
   topicHubStore.setCategories(categories.value, cat.url);
   page.value = 1;
@@ -734,7 +737,8 @@ function switchCategory(cat: CategoryItem) {
   firstItemCursor.value = '';
   lastItemCursor.value = '';
   rawTopicItems.value = [];
-  fetchTopicData(cat.url, false);
+  topicHubStore.setTopicItems([]);
+  void fetchTopicData(cat.url, false, false, requestGeneration);
 }
 
 function toggleCategoryPicker() {
@@ -756,13 +760,16 @@ function handleSidebarScroll(e: Event) {
   }
 }
 
-async function fetchTopicData(url: string = topicEntryUrl, isLoadMore = false, allowNestedLoad = false) {
-  if (loading.value && !allowNestedLoad) return;
+async function fetchTopicData(url: string = topicEntryUrl, isLoadMore = false, allowNestedLoad = false, requestGeneration?: number) {
+  if (loading.value && !allowNestedLoad && requestGeneration === undefined) return;
+  const currentGeneration = requestGeneration ?? (allowNestedLoad ? topicRequestGeneration : ++topicRequestGeneration);
+  if (currentGeneration !== topicRequestGeneration) return;
   loading.value = true;
 
   try {
     const currentPage = isLoadMore ? page.value : 1;
     const res = await CoolapkTauriAPI.getTopicHubData(url, currentPage, isLoadMore ? firstItemCursor.value : '', isLoadMore ? lastItemCursor.value : '');
+    if (currentGeneration !== topicRequestGeneration) return;
     if (!isLoadMore && Array.isArray(res?.tabs) && res.tabs.length > 0) {
       const nextCategories = normalizeCategoryList(res.tabs);
       const serverSelectedUrl = normalizeCategoryText(res?.selectedUrl);
@@ -773,7 +780,7 @@ async function fetchTopicData(url: string = topicEntryUrl, isLoadMore = false, a
         if (defaultUrl) {
           activeCategoryUrl.value = defaultUrl;
           if (defaultUrl !== serverSelectedUrl && defaultUrl !== topicEntryUrl) {
-            return fetchTopicData(defaultUrl, false, true);
+            return await fetchTopicData(defaultUrl, false, true, currentGeneration);
           }
         }
       }
@@ -828,14 +835,13 @@ async function fetchTopicData(url: string = topicEntryUrl, isLoadMore = false, a
       // 🚀 流水线极速预取（Pipeline Pre-load）：
       // 若初次加载后卡片较少（宽屏下少于 60 个且还有更多），0 延迟立即流水线拉取下一页，极速填满视口
       if (page.value <= 4 && !noMore.value && rawTopicItems.value.length > 0 && rawTopicItems.value.length < 80) {
-        loading.value = false;
-        return fetchTopicData(url, true, true);
+        return await fetchTopicData(url, true, true, currentGeneration);
       }
     }
   } catch (err) {
-    console.warn('获取话题数据失败:', err);
+    if (currentGeneration === topicRequestGeneration) console.warn('获取话题数据失败:', err);
   } finally {
-    loading.value = false;
+    if (currentGeneration === topicRequestGeneration) loading.value = false;
   }
 }
 
