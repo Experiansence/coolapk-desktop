@@ -39,16 +39,17 @@
         </div>
 
         <!-- 左右导航 -->
-        <button v-if="currentIndex > 0" class="nav-arrow nav-prev" @click="prev">
+        <button v-if="currentIndex > 0" class="nav-arrow nav-prev" @click="slideTo(-1)">
           <i class="fas fa-chevron-left"></i>
         </button>
 
-        <button v-if="currentIndex < totalCount - 1" class="nav-arrow nav-next" @click="next">
+        <button v-if="currentIndex < totalCount - 1" class="nav-arrow nav-next" @click="slideTo(1)">
           <i class="fas fa-chevron-right"></i>
         </button>
 
         <!-- 主图片显示区 -->
         <div
+          ref="stageRef"
           class="image-stage"
           @dblclick="handleDoubleClick"
           @mousedown="startDrag"
@@ -68,7 +69,7 @@
             alt="Viewer Image"
             class="viewer-img"
             :style="mediaTransformStyle"
-            :class="{ 'is-touch-dragging': touchDragging }"
+            :class="{ 'is-touch-dragging': touchDragging || mediaTransition === 'none', 'is-sliding': mediaTransition === 'smooth' }"
             @dragstart.prevent
           />
           <video
@@ -92,6 +93,17 @@
             <i class="fas fa-spinner fa-spin"></i>
             <span>正在载入高清大图...</span>
           </div>
+          <!-- 切图过渡：旧画面留在这层继续滑出，避免换图瞬间变成硬切。 -->
+          <img
+            v-if="slideGhost"
+            :src="slideGhost.src"
+            class="viewer-ghost"
+            :class="{ 'is-sliding': mediaTransition === 'smooth' }"
+            :style="ghostTransformStyle"
+            alt=""
+            aria-hidden="true"
+            @dragstart.prevent
+          />
         </div>
 
         <!-- 底部一体化灵动毛玻璃控制岛 -->
@@ -178,6 +190,27 @@ const swipeOffsetY = ref(0);
 const touchDragging = ref(false);
 const savingOriginal = ref(false);
 
+const stageRef = ref<HTMLElement | null>(null);
+/**
+ * 切图过渡状态：
+ * 'none' = 初始摆放（关闭过渡），'smooth' = 正在缓动，null = 默认 50ms 跟手过渡。
+ */
+const mediaTransition = ref<'none' | 'smooth' | null>(null);
+/** 程序化切图位移；手指跟手的位移仍然走 swipeOffsetX。 */
+const slideOffsetX = ref(0);
+
+interface SlideGhost {
+  src: string;
+  offsetX: number;
+  scale: number;
+  rotation: number;
+}
+
+/** 正在滑出的旧画面，与 SLIDE_DURATION_MS / CSS 里的过渡时长一起决定滑出动画。 */
+const slideGhost = ref<SlideGhost | null>(null);
+const SLIDE_DURATION_MS = 280;
+let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+
 const displaySrc = ref<string>('');
 let resolveSequence = 0;
 
@@ -206,9 +239,16 @@ const currentItem = computed(() => imageItems.value[currentIndex.value] || null)
 const totalCount = computed(() => imageItems.value.length);
 const rawUrl = computed(() => currentItem.value?.sourceUrl || '');
 const mediaTransformStyle = computed(() => ({
-  transform: `translate(${translateX.value + swipeOffsetX.value}px, ${translateY.value + swipeOffsetY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
+  transform: `translate(${translateX.value + swipeOffsetX.value + slideOffsetX.value}px, ${translateY.value + swipeOffsetY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
   cursor: isDragging.value ? 'grabbing' : 'grab',
 }));
+
+/** 幽灵层自带离场时的缩放/旋转：换图那一帧主图的 transform 已经被重置。 */
+const ghostTransformStyle = computed(() => {
+  const ghost = slideGhost.value;
+  if (!ghost) return {};
+  return { transform: `translate(${ghost.offsetX}px, 0) scale(${ghost.scale}) rotate(${ghost.rotation}deg)` };
+});
 
 function itemCoverUrl(item: FeedImageItem): string {
   return item.coverUrl || item.sourceUrl;
@@ -497,6 +537,7 @@ async function toggleLiveSound() {
 }
 
 watch(viewerData, (val) => {
+  settleTransitionNow();
   if (val) {
     currentIndex.value = Math.min(Math.max(val.currentIndex, 0), Math.max(imageItems.value.length - 1, 0));
     originalLoadedMap.value = {};
@@ -641,6 +682,94 @@ function next() {
   }
 }
 
+function slideDistance(): number {
+  const width = stageRef.value?.clientWidth ?? 0;
+  return width > 0 ? width : Math.max(window.innerWidth || 0, 320);
+}
+
+function clearTransitionTimer() {
+  if (transitionTimer !== null) {
+    clearTimeout(transitionTimer);
+    transitionTimer = null;
+  }
+}
+
+/** 过渡结束后复位：清掉幽灵层，恢复默认过渡时长。 */
+function endTransitionLater() {
+  clearTransitionTimer();
+  transitionTimer = setTimeout(() => {
+    transitionTimer = null;
+    mediaTransition.value = null;
+    slideGhost.value = null;
+  }, SLIDE_DURATION_MS + 40);
+}
+
+/** 立即结束进行中的切图/回弹过渡（新手势、关闭、卸载时调用）。 */
+function settleTransitionNow() {
+  clearTransitionTimer();
+  mediaTransition.value = null;
+  slideGhost.value = null;
+  slideOffsetX.value = 0;
+}
+
+/**
+ * 手势结束时把跟手位移归零：同一帧内切到缓动，让画面滑回原位而不是 50ms 硬切。
+ */
+function restoreSwipeOffsets() {
+  const hadOffset = swipeOffsetX.value !== 0 || swipeOffsetY.value !== 0;
+  touchDragging.value = false;
+  if (!hadOffset) {
+    swipeOffsetX.value = 0;
+    swipeOffsetY.value = 0;
+    return;
+  }
+  mediaTransition.value = 'smooth';
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+  endTransitionLater();
+}
+
+/**
+ * 带过渡地切换图片：
+ * 1) 同一帧内以「无过渡」把新画面摆到手指另一侧的屏幕外，避免闪一帧居中画面；
+ * 2) 旧画面交给幽灵层，从手指当前位置继续滑出；
+ * 3) 下一帧打开缓动，两层同时滑动到终点。
+ * 换图本身仍是同步的，计数与画面同一帧生效。
+ */
+function slideTo(direction: 1 | -1, fromOffsetX = 0): boolean {
+  const atEdge = direction === 1
+    ? currentIndex.value >= totalCount.value - 1
+    : currentIndex.value <= 0;
+  if (atEdge) return false;
+
+  const distance = slideDistance();
+  const ghostSrc = displaySrc.value;
+  clearTransitionTimer();
+  slideGhost.value = ghostSrc
+    ? { src: ghostSrc, offsetX: fromOffsetX, scale: scale.value, rotation: rotation.value }
+    : null;
+  // 跟手位移交接给过渡位移：新画面从手指另一侧的屏幕外滑入。
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+  touchDragging.value = false;
+  mediaTransition.value = 'none';
+  slideOffsetX.value = direction * distance;
+
+  if (direction === 1) next();
+  else prev();
+
+  void nextTick(() => {
+    // 读一次布局强制样式刷新，确保缓动从上一帧的位置开始，而不是滑向屏幕外。
+    if (stageRef.value) void stageRef.value.offsetWidth;
+    mediaTransition.value = 'smooth';
+    slideOffsetX.value = 0;
+    const ghost = slideGhost.value;
+    if (ghost) slideGhost.value = { ...ghost, offsetX: -direction * distance };
+    endTransitionLater();
+  });
+  return true;
+}
+
 function zoomIn() {
   scale.value = Math.min(Number((scale.value + 0.25).toFixed(2)), 4);
 }
@@ -733,6 +862,8 @@ function touchDistance(a: Touch, b: Touch): number {
 }
 
 function onTouchStart(e: TouchEvent) {
+  // 新手势打断上一段切图过渡，避免两层动画同时跑。
+  settleTransitionNow();
   touchMoved = false;
   touchPanMode = false;
   swipeOffsetX.value = 0;
@@ -820,18 +951,21 @@ function onTouchMove(e: TouchEvent) {
 function endTouchGesture(commitSwipe: boolean) {
   const offsetX = swipeOffsetX.value;
   const offsetY = swipeOffsetY.value;
-  swipeOffsetX.value = 0;
-  swipeOffsetY.value = 0;
-  touchDragging.value = false;
+  const wasPinching = pinchActive;
+  const wasTouchActive = touchActive;
+  const panned = touchPanMode;
+  pinchActive = false;
+  touchActive = false;
+  touchPanMode = false;
 
-  if (pinchActive) {
-    pinchActive = false;
+  if (wasPinching) {
+    restoreSwipeOffsets();
     return;
   }
-  if (!touchActive) return;
-  touchActive = false;
-  const panned = touchPanMode;
-  touchPanMode = false;
+  if (!wasTouchActive) {
+    restoreSwipeOffsets();
+    return;
+  }
 
   // 纯点按：双击缩放，单击交给 click 逻辑处理（点背景关闭）。
   // 注意放在平移判断之前：放大状态下单击同样不能移动图片，必须仍然允许双击还原。
@@ -846,25 +980,31 @@ function endTouchGesture(commitSwipe: boolean) {
     } else {
       lastTapAt = now;
     }
+    restoreSwipeOffsets();
     return;
   }
 
   if (panned) {
     isDragging.value = false;
     suppressBackdropTapUntil = Date.now() + BACKDROP_TAP_GUARD_MS;
+    restoreSwipeOffsets();
     return;
   }
   // 滑动结束后 WebKit 仍可能补发一次 click，避免被当成"点背景"直接关闭。
   suppressBackdropTapUntil = Date.now() + BACKDROP_TAP_GUARD_MS;
 
-  // 下滑关闭：位移足够直接关闭，否则回弹。
+  // 下滑关闭：画面留在手指松开的位置随遮罩一起淡出，不再弹回中心。
   if (commitSwipe && offsetY >= SWIPE_CLOSE_DISTANCE) {
+    touchDragging.value = false;
     close();
     return;
   }
-  if (!commitSwipe || Math.abs(offsetX) < SWIPE_SWITCH_DISTANCE) return;
-  if (offsetX < 0) next();
-  else prev();
+  if (commitSwipe && Math.abs(offsetX) >= SWIPE_SWITCH_DISTANCE) {
+    slideTo(offsetX < 0 ? 1 : -1, offsetX);
+    return;
+  }
+  // 位移不够：缓动回弹。
+  restoreSwipeOffsets();
 }
 
 function onTouchEnd(e: TouchEvent) {
@@ -921,12 +1061,15 @@ async function saveOriginal() {
 function handleKeydown(e: KeyboardEvent) {
   if (!viewerData.value) return;
   if (e.key === 'Escape') close();
-  if (e.key === 'ArrowLeft') prev();
-  if (e.key === 'ArrowRight') next();
+  if (e.key === 'ArrowLeft') slideTo(-1);
+  if (e.key === 'ArrowRight') slideTo(1);
 }
 
 onMounted(() => window.addEventListener('keydown', handleKeydown));
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+  clearTransitionTimer();
+});
 </script>
 
 <style scoped>
@@ -1093,6 +1236,28 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 /* 触摸拖动期间取消过渡，保证位移严格跟手。 */
 .viewer-img.is-touch-dragging {
   transition: none;
+}
+
+/* 切图/回弹过渡：时长必须与脚本里的 SLIDE_DURATION_MS 保持一致。 */
+.viewer-img.is-sliding,
+.viewer-ghost.is-sliding {
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 切图时继续滑出的旧画面；盒子与 .viewer-img 对齐，盖在新图之上。 */
+.viewer-ghost {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: 90vw;
+  max-height: 88vh;
+  margin: auto;
+  object-fit: contain;
+  display: block;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .viewer-live-video {
@@ -1307,6 +1472,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   .live-badge-rings span,
   .viewer-live-video {
     animation: none;
+    transition: none;
+  }
+
+  .viewer-img.is-sliding,
+  .viewer-ghost.is-sliding {
     transition: none;
   }
 }

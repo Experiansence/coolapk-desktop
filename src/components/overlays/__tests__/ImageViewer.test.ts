@@ -103,6 +103,60 @@ describe('图片查看器触摸手势', () => {
     wrapper.unmount();
   });
 
+  it('滑动切图时旧画面滑出、新画面滑入，而不是硬切', async () => {
+    const { wrapper, stage } = await mountViewer(3, 0);
+
+    await swipe(stage, point(300, 400), point(180, 405));
+
+    expect(counter(wrapper)).toBe('2 / 3');
+    const ghost = wrapper.get('.viewer-ghost');
+    // 幽灵层承接上一张，朝左侧继续滑出。
+    expect(ghost.attributes('src')).toBe(dataOf('https://img.example/0.jpg'));
+    expect(ghost.attributes('style')).toMatch(/translate\(-\d+px/);
+    expect(ghost.classes()).toContain('is-sliding');
+    // 新画面从右侧滑入，最终停在居中位置。
+    const img = wrapper.get('.viewer-img');
+    expect(img.classes()).toContain('is-sliding');
+    expect(img.attributes('style')).toContain('translate(0px, 0px)');
+    wrapper.unmount();
+  });
+
+  it('点击左右导航切图同样走过渡', async () => {
+    const { wrapper } = await mountViewer(3, 1);
+
+    await wrapper.get('.nav-next').trigger('click');
+    await flushPromises();
+
+    expect(counter(wrapper)).toBe('3 / 3');
+    expect(wrapper.get('.viewer-ghost').attributes('src')).toBe(dataOf('https://img.example/1.jpg'));
+    wrapper.unmount();
+  });
+
+  it('位移不足阈值回弹时也走过渡，不再硬切', async () => {
+    const { wrapper, stage } = await mountViewer(3, 0);
+
+    await swipe(stage, point(300, 400), point(272, 400));
+
+    expect(counter(wrapper)).toBe('1 / 3');
+    expect(wrapper.get('.viewer-img').classes()).toContain('is-sliding');
+    expect(wrapper.get('.viewer-img').attributes('style')).toContain('translate(0px, 0px)');
+    wrapper.unmount();
+  });
+
+  it('新手势会打断进行中的切图过渡', async () => {
+    const { wrapper, stage } = await mountViewer(3, 0);
+
+    await swipe(stage, point(300, 400), point(180, 405));
+    expect(wrapper.find('.viewer-ghost').exists()).toBe(true);
+
+    dispatchTouch(stage, 'touchstart', [point(500, 400)]);
+    await flushPromises();
+
+    expect(wrapper.find('.viewer-ghost').exists()).toBe(false);
+    expect(wrapper.get('.viewer-img').classes()).not.toContain('is-sliding');
+    wrapper.unmount();
+  });
+
   it('上滑既不切图也不关闭', async () => {
     const { wrapper, store, stage } = await mountViewer(3, 0);
 
