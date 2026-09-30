@@ -89,6 +89,8 @@
       </div>
 
       <PublishTargetPicker v-if="!isEditMode" v-model="publishTarget" />
+      <!-- 官方仅自己可见使用 publish_status=1，不能直接把 -1 写到请求表单。 -->
+      <label v-if="!isEditMode" class="publish-visibility">谁可以看 <select v-model="visibleStatus" :disabled="submitting"><option :value="1">所有人</option><option :value="-1">仅自己</option></select></label>
       <PublishProductOptions v-if="!isEditMode && publishTarget?.type === 'product_phone'" :target="publishTarget" v-model="productOptions" />
       <PublishTopicRecommendations :node-type="publishTarget?.type === 'tag' ? '3' : publishTarget?.type === 'apk' ? '1' : publishTarget?.type === 'product_phone' ? '7' : '0'" :node-name="publishTarget?.title || ''" :uid="currentDraftAccount()" :text="message" :cursor="topicInsertOffset" :refresh="topicRefresh" @select="insertRecommendedTopic" />
 
@@ -178,6 +180,7 @@ const MAX_IMAGES = 9;
 const message = ref('');
 const publishTarget = ref<PublishTarget | null>(null);
 const productOptions = ref<PublishOptions>({});
+const visibleStatus = ref<1 | -1>(1);
 watch(publishTarget, () => { productOptions.value = {}; });
 const images = ref<{ file?: File; preview: string; url?: string }[]>([]);
 const uploadingImages = ref(false);
@@ -221,6 +224,7 @@ watch(() => appStore.isPublishOpen, async (open) => {
     restoringDraft = true;
     message.value = '';
     publishTarget.value = null;
+    visibleStatus.value = 1;
     images.value = [];
     uploadingImages.value = false;
     errorMessage.value = '';
@@ -575,7 +579,7 @@ async function handlePublish() {
 
       const executeCreate = async (postToken?: string) => {
         if (appStore.editFeedTarget) return await CoolapkTauriAPI.updateFeed(String(appStore.editFeedTarget.id), buildFinalMessage(), pic, postToken);
-        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', ...productOptions.value });
+        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', visibleStatus: visibleStatus.value, ...productOptions.value });
       };
 
       let res: any;
@@ -663,6 +667,9 @@ async function handlePublish() {
 </script>
 
 <style scoped>
+.publish-visibility { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-size-sub); }
+.publish-visibility select { padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
+
 .publish-container {
   display: flex;
   flex-direction: column;

@@ -15,11 +15,13 @@ pub struct PublishOptions {
     pub target_id: Option<String>,
     pub sub_type_id: Option<String>,
     pub sub_data: Option<String>,
+    pub visible_status: Option<i32>,
 }
 
 fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
     let target_type = options.target_type.as_deref().unwrap_or("");
     let target_id = options.target_id.as_deref().unwrap_or("");
+    if options.visible_status.is_some_and(|status| status != 1 && status != -1) { return Err("动态可见范围无效".to_string()); }
     if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
     if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
     let sub_type = options.sub_type_id.as_deref().unwrap_or("");
@@ -48,6 +50,7 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
         match *key {
             "targetType" => *value = target_type.to_string(),
             "targetId" => *value = target_id.to_string(),
+            "publish_status" if options.visible_status.is_some() => *value = if options.visible_status == Some(-1) { "1" } else { "0" }.to_string(),
             "type" if target_type == "apk" => *value = "comment".to_string(),
             _ => {},
         }

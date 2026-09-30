@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn test_publish_visibility_maps_to_publish_status() {
+    for (visible, expected) in [(1, "0"), (-1, "1")] {
+        let options: PublishOptions = serde_json::from_value(json!({"visibleStatus":visible})).unwrap();
+        let mut form = build_create_feed_form("正文", None, None);
+        apply_publish_options(&mut form, &options).unwrap();
+        assert!(form.contains(&("publish_status", expected.to_string())));
+        assert!(form.contains(&("status", "1".to_string())));
+    }
+    let options: PublishOptions = serde_json::from_value(json!({"visibleStatus":0})).unwrap();
+    assert!(apply_publish_options(&mut build_create_feed_form("正文", None, None), &options).is_err());
+}
+
+#[test]
 fn test_publish_product_subdata_validation() {
     for (sub_type, data) in [("1", "8.5"), ("2", "{\"antutu_score\":1200000}"), ("5", "4"), ("6", "{\"final_price\":2999,\"config_id\":123,\"config_name\":\"标准版\"}")] {
         let options: PublishOptions = serde_json::from_value(json!({"targetType":"product_phone","targetId":"321","subTypeId":sub_type,"subData":data})).unwrap();

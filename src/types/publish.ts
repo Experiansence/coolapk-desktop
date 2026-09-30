@@ -14,4 +14,5 @@ export interface PublishOptions {
   targetId?: string;
   subTypeId?: string;
   subData?: string;
+  visibleStatus?: 1 | -1;
 }
