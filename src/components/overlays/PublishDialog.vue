@@ -88,6 +88,8 @@
         </div>
       </div>
 
+      <PublishTopicRecommendations :uid="currentDraftAccount()" :text="message" :cursor="topicInsertOffset" :refresh="topicRefresh" @select="insertRecommendedTopic" />
+
       <!-- 话题选择器保留正文光标，选择后替换正在输入的井号片段。 -->
       <PublishTopicPicker v-if="showTopicPanel" :uid="currentDraftAccount()" :initial-query="topicQuery" @select="selectPublishTopic" />
 
@@ -154,6 +156,7 @@ import { clearPublishDraft, loadPublishDraft, savePublishDraft } from '../../uti
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
 import PublishTopicPicker from './PublishTopicPicker.vue';
+import PublishTopicRecommendations from './PublishTopicRecommendations.vue';
 import type { PublishTopic } from '../../utils/publishTopics';
 import AppDialog from '../common/AppDialog.vue';
 import AppButton from '../common/AppButton.vue';
@@ -173,6 +176,7 @@ const showEmojiPanel = ref(false);
 const { recentEmojis, addRecent } = useRecentEmojis();
 const showTopicPanel = ref(false);
 const topicQuery = ref('');
+const topicRefresh = ref(0);
 const topicTriggerStart = ref<number | null>(null);
 // 自定义话题输入框获得焦点后，仍按正文原来的光标位置插入话题。
 const topicInsertOffset = ref(0);
@@ -401,7 +405,13 @@ function insertEmoji(name: string) {
   insertAtCursor(`[${name}]`);
 }
 
+function insertRecommendedTopic(title: string) {
+  insertAtCursor(`#${title}# `);
+  topicInsertOffset.value = editorOffset();
+}
+
 function selectPublishTopic(topic: PublishTopic) {
+  topicRefresh.value++;
   const start = topicTriggerStart.value;
   if (start !== null) {
     const end = topicInsertOffset.value;
