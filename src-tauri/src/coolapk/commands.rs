@@ -1003,7 +1003,6 @@ pub async fn get_product_versions(state: State<'_, AppState>, product_id: String
     state.client.get_product_versions(&product_id).await
 }
 
-
 #[tauri::command]
 pub async fn get_product_detail_by_name(
     state: State<'_, AppState>,
@@ -1521,15 +1520,19 @@ pub async fn upload_image(
     content_type: String,
     dir: String,
     to_uid: Option<String>,
+    live_video_bytes: Option<Vec<u8>>,
+    hdr: Option<u32>,
 ) -> Result<Value, String> {
     state
         .client
-        .upload_image(
+        .upload_image_with_live(
             &image_bytes,
             &file_name,
             &content_type,
             &dir,
             to_uid.as_deref(),
+            live_video_bytes.as_deref(),
+            hdr.unwrap_or(0),
         )
         .await
 }

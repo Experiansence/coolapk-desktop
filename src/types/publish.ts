@@ -15,4 +15,5 @@ export interface PublishOptions {
   subTypeId?: string;
   subData?: string;
   visibleStatus?: 1 | -1;
+  largeCover?: boolean;
 }

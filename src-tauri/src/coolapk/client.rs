@@ -16,6 +16,7 @@ pub struct PublishOptions {
     pub sub_type_id: Option<String>,
     pub sub_data: Option<String>,
     pub visible_status: Option<i32>,
+    pub large_cover: Option<bool>,
 }
 
 fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
@@ -51,11 +52,25 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
             "targetType" => *value = target_type.to_string(),
             "targetId" => *value = target_id.to_string(),
             "publish_status" if options.visible_status.is_some() => *value = if options.visible_status == Some(-1) { "1" } else { "0" }.to_string(),
+            "is_html_article" if options.large_cover.is_some() => *value = if options.large_cover == Some(true) { "2" } else { "0" }.to_string(),
             "type" if target_type == "apk" => *value = "comment".to_string(),
             _ => {},
         }
     }
     Ok(())
+}
+
+/// 按官方 OSS 清单登记实况关系，视频名使用内容摘要避免同名覆盖。
+fn build_publish_upload_files(image: &[u8], name: &str, live_video: Option<&[u8]>, hdr: u32) -> (String, Option<String>) {
+    use md5::{Digest, Md5};
+    let video_name = live_video.map(|video| format!("{:x}.mp4", Md5::digest(video)));
+    let mut files = vec![json!({ "name": name, "resolution": image_resolution(image), "md5": format!("{:x}", Md5::digest(image)), "hdr": hdr })];
+    if let (Some(video), Some(name)) = (live_video, video_name.as_ref()) {
+        files[0]["livePhotoVideo"] = json!(name);
+        files[0]["livePhoto"] = json!(1);
+        files.push(json!({ "name": name, "md5": format!("{:x}", Md5::digest(video)) }));
+    }
+    (Value::Array(files).to_string(), video_name)
 }
 
 /// 接口路径需求：记录服务端配置中声明的写接口风控要求。
@@ -5895,6 +5910,15 @@ impl CoolapkClient {
         dir: &str,
         to_uid: Option<&str>,
     ) -> Result<Value, String> {
+        self.upload_image_with_live(image_bytes, file_name, content_type, dir, to_uid, None, 0).await
+    }
+
+    /// 实况照片按官方文件清单同时登记封面和视频，HDR 标记由调用方传入。
+    pub async fn upload_image_with_live(&self, image_bytes: &[u8], file_name: &str, content_type: &str, dir: &str, to_uid: Option<&str>, live_video: Option<&[u8]>, hdr: u32) -> Result<Value, String> {
+        if ![0, 1].contains(&hdr) { return Err("HDR 标记无效".to_string()); }
+        if let Some(video) = live_video {
+            if video.len() < 12 || &video[4..8] != b"ftyp" { return Err("实况视频必须是标准 MP4 文件".to_string()); }
+        }
         let my_uid = self
             .user_cookie
             .read()
@@ -5915,20 +5939,7 @@ impl CoolapkClient {
             None => my_uid,
         };
 
-        // 1. 计算文件 MD5 并请求上传凭证
-        let md5_hex = {
-            use md5::{Digest, Md5};
-            let mut hasher = Md5::new();
-            hasher.update(image_bytes);
-            format!("{:x}", hasher.finalize())
-        };
-        let resolution = image_resolution(image_bytes);
-        let file_list = json!([{
-            "name": file_name,
-            "resolution": resolution,
-            "md5": md5_hex
-        }])
-        .to_string();
+        let (file_list, video_name) = build_publish_upload_files(image_bytes, file_name, live_video, hdr);
 
         // 发动态/评论配图用 image/feed，私信图片用 message/message
         let upload_bucket = if dir == "feed" { "image" } else { dir }.to_string();
@@ -6040,24 +6051,27 @@ impl CoolapkClient {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        // 视频无需图片回调；先上传成功才返回实况封面，避免静默退化为静态图片。
+        if let (Some(video), Some(name)) = (live_video, video_name.as_ref()) {
+            let info = data.get("fileInfo").and_then(Value::as_array).and_then(|files| files.iter().find(|file| file.get("name").and_then(Value::as_str) == Some(name.as_str()))).ok_or("服务端未返回实况视频凭证")?;
+            if !info.get("url").and_then(Value::as_str).is_some_and(|url| !url.is_empty()) {
+                let key = info.get("uploadFileName").and_then(Value::as_str).filter(|key| !key.is_empty()).ok_or("实况视频上传路径缺失")?;
+                self.put_live_photo_video(video, key, prepare_info).await?;
+            }
+        }
+
+        // 相同 MD5 的文件可能由服务端直接返回已有地址，官方客户端会跳过直传。
+        if let Some(url) = existing_file_url {
+            return Ok(json!({ "code": 200, "data": url }));
+        }
+
         if upload_file_name.is_empty()
             || bucket.is_empty()
             || end_point.is_empty()
             || access_key_id.is_empty()
             || access_key_secret.is_empty()
         {
-            return Err(format!(
-                "上传凭证不完整: {:?}",
-                prepare_json
-                    .get("data")
-                    .map(|d| d.to_string())
-                    .unwrap_or_default()
-            ));
-        }
-
-        // 相同 MD5 的文件可能由服务端直接返回已有地址，官方客户端会跳过直传。
-        if let Some(url) = existing_file_url {
-            return Ok(json!({ "code": 200, "data": url }));
+            return Err("上传凭证不完整".to_string());
         }
 
         // 2. 直传 OSS（PUT Object，OSS V1 签名）
@@ -6129,6 +6143,32 @@ impl CoolapkClient {
             return Ok(json!({ "code": 200, "data": image_url }));
         }
         Err(format!("OSS 直传响应异常: {}", &oss_body))
+    }
+
+    /// 视频使用与封面同一组 OSS 凭证，签名中不包含图片专用回调。
+    async fn put_live_photo_video(&self, bytes: &[u8], key: &str, credentials: &Value) -> Result<(), String> {
+        use base64::Engine;
+        use md5::{Digest, Md5};
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        let field = |name: &str| credentials.get(name).and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or_else(|| format!("上传凭证缺少 {name}"));
+        let bucket = field("bucket")?;
+        let endpoint = field("endPoint")?;
+        let id = field("accessKeyId")?;
+        let secret = field("accessKeySecret")?;
+        let token = field("securityToken")?;
+        let now = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        let digest = BASE64.encode(Md5::digest(bytes));
+        let resource = format!("/{bucket}/{key}");
+        let canonical = format!("PUT\n{digest}\nvideo/mp4\n{now}\nx-oss-security-token:{token}\n{resource}");
+        let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes()).map_err(|error| error.to_string())?;
+        mac.update(canonical.as_bytes());
+        let signature = BASE64.encode(mac.finalize().into_bytes());
+        let host = endpoint.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
+        let url = format!("https://{bucket}.{host}/{key}");
+        let response = self.client.put(url).header("Authorization", format!("OSS {id}:{signature}")).header("Content-MD5", digest).header("Content-Type", "video/mp4").header("Date", now).header("x-oss-security-token", token).body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?;
+        if !response.status().is_success() { return Err(format!("实况视频上传失败（HTTP {}）", response.status())); }
+        Ok(())
     }
 
     /// 用户黑名单（需登录）

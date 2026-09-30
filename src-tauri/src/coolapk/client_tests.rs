@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn test_publish_live_photo_upload_files() {
+    let (files, video_name) = build_publish_upload_files(b"cover", "photo.jpg", Some(b"video"), 1);
+    let entries: Value = serde_json::from_str(&files).unwrap();
+    assert_eq!(entries.as_array().unwrap().len(), 2);
+    assert_eq!(entries[0]["livePhoto"], 1);
+    assert_eq!(entries[0]["hdr"], 1);
+    assert_eq!(entries[0]["livePhotoVideo"], entries[1]["name"]);
+    assert_eq!(entries[1]["name"].as_str(), video_name.as_deref());
+    let (static_files, name) = build_publish_upload_files(b"cover", "photo.jpg", None, 0);
+    let entries: Value = serde_json::from_str(&static_files).unwrap();
+    assert_eq!(entries.as_array().unwrap().len(), 1);
+    assert!(entries[0].get("livePhoto").is_none());
+    assert!(name.is_none());
+    let options: PublishOptions = serde_json::from_value(json!({"largeCover":true})).unwrap();
+    let mut form = build_create_feed_form("正文", None, None);
+    apply_publish_options(&mut form, &options).unwrap();
+    assert!(form.contains(&("is_html_article", "2".to_string())));
+}
+
+#[test]
 fn test_publish_visibility_maps_to_publish_status() {
     for (visible, expected) in [(1, "0"), (-1, "1")] {
         let options: PublishOptions = serde_json::from_value(json!({"visibleStatus":visible})).unwrap();

@@ -3,12 +3,13 @@
     :is-open="appStore.isPublishOpen && !shuzilmGuideState.visible"
     :title="isEditMode ? '重新编辑动态' : '发布新动态'"
     :width="720"
-    @close="appStore.closePublish"
+    @close="closePublish"
   >
     <div class="publish-container">
       <div v-if="editLoading" class="panel-tip">正在读取可编辑动态...</div>
       <div v-else-if="editLoadError" class="error-tip"><i class="fas fa-exclamation-circle"></i> {{ editLoadError }}</div>
       <template v-else>
+      <fieldset :disabled="submitting" class="publish-fields">
       <div v-if="previewMode" class="preview-box custom-scrollbar">
         <div class="preview-content" v-html="previewHtml"></div>
         <div v-if="!message.trim()" class="preview-empty">输入内容后此处显示预览效果</div>
@@ -16,7 +17,7 @@
       <div
         v-else
         ref="messageInput"
-        contenteditable="true"
+        :contenteditable="!submitting"
         role="textbox"
         aria-label="动态内容"
         aria-multiline="true"
@@ -33,9 +34,17 @@
       ></div>
 
       <div class="publish-media-preview" v-if="images.length > 0">
-        <div v-for="(img, i) in images" :key="i" class="media-thumb">
-          <AppImage :src="img.preview" alt="动态图片" image-class="media-thumb-image" />
-          <button class="remove-img" :disabled="submitting" @click="removeImage(i)"><i class="fas fa-times"></i></button>
+        <div v-for="(img, i) in images" :key="img.preview + i" class="media-item" :draggable="!submitting" @dragstart="dragImageIndex = i" @dragover.prevent @drop.prevent="reorderImage(dragImageIndex, i)" @dragend="dragImageIndex = -1">
+          <div class="media-thumb">
+            <AppImage :src="img.preview" alt="动态图片" image-class="media-thumb-image" />
+            <button class="remove-img" :disabled="submitting" aria-label="移除图片" @click="removeImage(i)"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="media-controls">
+            <button type="button" :disabled="submitting || i === 0" aria-label="图片前移" @click="reorderImage(i, i - 1)">←</button>
+            <button type="button" :disabled="submitting || i === images.length - 1" aria-label="图片后移" @click="reorderImage(i, i + 1)">→</button>
+            <button type="button" :disabled="submitting || !img.file" @click="attachLiveVideo(i)">实况</button>
+          </div>
+          <label v-if="img.liveVideo"><input type="checkbox" v-model="img.liveEnabled" :disabled="submitting" @change="img.url = undefined" />实况开启</label>
         </div>
         <div v-if="uploadingImages" class="upload-tip">
           <i class="fas fa-circle-notch fa-spin"></i> 正在上传图片 {{ uploadedCount }}/{{ images.filter((image) => !!image.file).length }}...
@@ -50,6 +59,9 @@
         style="display: none"
         @change="handleImageSelected"
       />
+
+      <input ref="liveInputRef" type="file" accept="video/mp4,.mp4" style="display: none" @change="handleLiveVideoSelected" />
+      <label v-if="!isEditMode && images.length && !['3', '4'].includes(productOptions.subTypeId || '')" class="publish-visibility"><input type="checkbox" v-model="largeCover" :disabled="submitting" />大图模式</label>
 
       <!-- 表情面板 (参考微信：最近使用 + 所有表情) -->
       <div v-if="showEmojiPanel" class="emoji-panel custom-scrollbar">
@@ -131,14 +143,15 @@
       <div v-if="errorMessage" class="error-tip">
         <i class="fas fa-exclamation-circle"></i> {{ errorMessage }}
       </div>
+      </fieldset>
       </template>
     </div>
 
     <template #footer>
-      <AppButton variant="ghost" @click="appStore.closePublish">取消</AppButton>
+      <AppButton variant="ghost" :disabled="submitting" @click="closePublish">取消</AppButton>
       <AppButton
         variant="primary"
-        :disabled="editLoading || !!editLoadError || (!message.trim() && images.length === 0) || submitting"
+        :disabled="editLoading || !!editLoadError || processingMedia || (!message.trim() && images.length === 0) || submitting"
         :loading="submitting"
         @click="handlePublish"
       >
@@ -166,6 +179,7 @@ import PublishTargetPicker from './PublishTargetPicker.vue';
 import type { PublishTarget, PublishOptions } from '../../types/publish';
 import PublishProductOptions from './PublishProductOptions.vue';
 import { validateProductPublish } from '../../utils/publishProduct';
+import { preparePublishImage, validateLiveVideo, movePublishImage, type PublishImage } from '../../utils/publishMedia';
 import PublishMentionPicker, { type MentionUser } from './PublishMentionPicker.vue';
 import PublishTopicRecommendations from './PublishTopicRecommendations.vue';
 import type { PublishTopic } from '../../utils/publishTopics';
@@ -182,7 +196,12 @@ const publishTarget = ref<PublishTarget | null>(null);
 const productOptions = ref<PublishOptions>({});
 const visibleStatus = ref<1 | -1>(1);
 watch(publishTarget, () => { productOptions.value = {}; });
-const images = ref<{ file?: File; preview: string; url?: string }[]>([]);
+const images = ref<PublishImage[]>([]);
+const largeCover = ref(false);
+const processingMedia = ref(false);
+const dragImageIndex = ref(-1);
+const liveInputRef = ref<HTMLInputElement | null>(null);
+let liveImageIndex = -1;
 const uploadingImages = ref(false);
 const uploadedCount = ref(0);
 const submitting = ref(false);
@@ -208,6 +227,8 @@ const imageInputRef = ref<HTMLInputElement | null>(null);
 let restoringDraft = false;
 let openRevision = 0;
 
+function closePublish() { if (!submitting.value) appStore.closePublish(); }
+
 function currentDraftAccount(): string {
   return String(authStore.user?.uid || 'guest');
 }
@@ -225,6 +246,7 @@ watch(() => appStore.isPublishOpen, async (open) => {
     message.value = '';
     publishTarget.value = null;
     visibleStatus.value = 1;
+    largeCover.value = false;
     images.value = [];
     uploadingImages.value = false;
     errorMessage.value = '';
@@ -497,23 +519,40 @@ function triggerImageUpload() {
   imageInputRef.value?.click();
 }
 
-function handleImageSelected(e: Event) {
+async function handleImageSelected(e: Event) {
   const target = e.target as HTMLInputElement;
   const files = target.files ? Array.from(target.files) : [];
   target.value = '';
-  if (files.length === 0) return;
+  if (!files.length || submitting.value || processingMedia.value) return;
+  const revision = openRevision;
+  processingMedia.value = true;
   errorMessage.value = '';
   const remain = MAX_IMAGES - images.value.length;
-  if (files.length > remain) {
-    errorMessage.value = `最多只能添加 ${MAX_IMAGES} 张图片`;
-  }
-  files.slice(0, remain).forEach((file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      images.value.push({ file, preview: String(reader.result) });
-    };
-    reader.readAsDataURL(file);
-  });
+  if (files.length > remain) errorMessage.value = `最多只能添加 ${MAX_IMAGES} 张图片`;
+  // 顺序读取保证选择顺序，某张图片出错时保留其他可用图片。
+  try { for (const file of files.slice(0, remain)) {
+    try { const image = await preparePublishImage(file); if (revision === openRevision && appStore.isPublishOpen && images.value.length < MAX_IMAGES) images.value.push(image); }
+    catch (failure) { errorMessage.value = `${file.name}：${failure instanceof Error ? failure.message : String(failure)}`; }
+  } } finally { processingMedia.value = false; }
+}
+
+function reorderImage(from: number, to: number) {
+  if (!submitting.value) images.value = movePublishImage(images.value, from, to);
+}
+function attachLiveVideo(index: number) { liveImageIndex = index; liveInputRef.value?.click(); }
+async function handleLiveVideoSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  const image = images.value[liveImageIndex];
+  if (!file || !image || submitting.value) return;
+  try {
+    await validateLiveVideo(file);
+    if (!images.value.includes(image) || submitting.value) return;
+    image.liveVideo = file;
+    image.liveEnabled = true;
+    image.url = undefined;
+  } catch (failure) { errorMessage.value = failure instanceof Error ? failure.message : String(failure); }
 }
 
 function resolveUploadedUrl(data: any): string {
@@ -548,7 +587,7 @@ function buildFinalMessage(): string {
 }
 
 async function handlePublish() {
-  if ((!message.value.trim() && images.value.length === 0) || submitting.value || editLoading.value || editLoadError.value) return;
+  if ((!message.value.trim() && images.value.length === 0) || submitting.value || processingMedia.value || editLoading.value || editLoadError.value) return;
 
   if (!isEditMode.value) {
     const validation = validateProductPublish(publishTarget.value, productOptions.value, images.value.length);
@@ -565,12 +604,14 @@ async function handlePublish() {
       if (images.value.length > 0) {
         const urls: string[] = [];
         for (const img of images.value) {
-          if (img.url && !img.file) { urls.push(img.url); continue; }
+          if (img.url) { urls.push(img.url); continue; }
           if (img.file) {
             const bytes = new Uint8Array(await img.file.arrayBuffer());
             const contentType = img.file.type || 'image/jpeg';
-            const res = await CoolapkTauriAPI.uploadImage(bytes, img.file.name, contentType, 'feed');
-            urls.push(resolveUploadedUrl(res?.data));
+            const video = img.liveEnabled && img.liveVideo ? new Uint8Array(await img.liveVideo.arrayBuffer()) : undefined;
+            const res = await CoolapkTauriAPI.uploadImage(bytes, img.file.name, contentType, 'feed', undefined, video, img.hdr || 0);
+            img.url = resolveUploadedUrl(res?.data);
+            urls.push(img.url);
             uploadedCount.value += 1;
           }
         }
@@ -579,7 +620,7 @@ async function handlePublish() {
 
       const executeCreate = async (postToken?: string) => {
         if (appStore.editFeedTarget) return await CoolapkTauriAPI.updateFeed(String(appStore.editFeedTarget.id), buildFinalMessage(), pic, postToken);
-        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', visibleStatus: visibleStatus.value, ...productOptions.value });
+        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', visibleStatus: visibleStatus.value, largeCover: largeCover.value && !['3', '4'].includes(productOptions.value.subTypeId || ''), ...productOptions.value });
       };
 
       let res: any;
@@ -670,6 +711,8 @@ async function handlePublish() {
 .publish-visibility { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-size-sub); }
 .publish-visibility select { padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
 
+.publish-fields { display: contents; }
+
 .publish-container {
   display: flex;
   flex-direction: column;
@@ -726,6 +769,10 @@ async function handlePublish() {
   margin-top: var(--space-3);
   flex-wrap: wrap;
 }
+
+.media-item { width: 90px; display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-caption); }
+.media-controls { display: flex; gap: 6px; color: var(--brand-primary); }
+.media-controls button:disabled { opacity: .4; }
 
 .media-thumb {
   position: relative;

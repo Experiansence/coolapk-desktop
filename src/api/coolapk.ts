@@ -1142,8 +1142,8 @@ export class CoolapkTauriAPI {
     return await invokeNative('create_forward', args);
   }
 
-  static async uploadImage(imageBytes: Uint8Array, fileName: string, contentType: string, dir: string = 'feed', toUid?: string) {
-    return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid });
+  static async uploadImage(imageBytes: Uint8Array, fileName: string, contentType: string, dir: string = 'feed', toUid?: string, liveVideoBytes?: Uint8Array, hdr = 0) {
+    return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid, liveVideoBytes, hdr });
   }
 
   static async changeAvatar(imageBytes: Uint8Array, fileName: string, contentType: string) {
