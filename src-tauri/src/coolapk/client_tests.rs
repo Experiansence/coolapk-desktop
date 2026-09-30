@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn test_publish_product_subdata_validation() {
+    for (sub_type, data) in [("1", "8.5"), ("2", "{\"antutu_score\":1200000}"), ("5", "4"), ("6", "{\"final_price\":2999,\"config_id\":123,\"config_name\":\"标准版\"}")] {
+        let options: PublishOptions = serde_json::from_value(json!({"targetType":"product_phone","targetId":"321","subTypeId":sub_type,"subData":data})).unwrap();
+        let mut form = build_create_feed_form("正文", None, None);
+        apply_publish_options(&mut form, &options).unwrap();
+        assert!(form.contains(&("tsubid", sub_type.to_string())));
+        assert!(form.contains(&("tsubdata", data.to_string())));
+    }
+    for (sub_type, data) in [("1", "NaN"), ("2", "{}"), ("5", "6"), ("6", "{\"final_price\":100}"), ("3", "")] {
+        let options: PublishOptions = serde_json::from_value(json!({"targetType":"product_phone","targetId":"321","subTypeId":sub_type,"subData":data})).unwrap();
+        assert!(apply_publish_options(&mut build_create_feed_form("正文", None, None), &options).is_err());
+    }
+}
+
+#[test]
 fn test_publish_target_matches_apk_form() {
     let mut form = build_create_feed_form("正文", None, None);
     let options: PublishOptions = serde_json::from_value(json!({"targetType":"apk","targetId":"123"})).unwrap();

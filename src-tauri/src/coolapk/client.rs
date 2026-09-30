@@ -13,6 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct PublishOptions {
     pub target_type: Option<String>,
     pub target_id: Option<String>,
+    pub sub_type_id: Option<String>,
+    pub sub_data: Option<String>,
 }
 
 fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
@@ -20,6 +22,28 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
     let target_id = options.target_id.as_deref().unwrap_or("");
     if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
     if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
+    let sub_type = options.sub_type_id.as_deref().unwrap_or("");
+    let sub_data = options.sub_data.as_deref().unwrap_or("");
+    if !sub_type.is_empty() {
+        if target_type != "product_phone" || !["0", "1", "2", "3", "4", "5", "6"].contains(&sub_type) { return Err("产品子板块无效".to_string()); }
+        match sub_type {
+            "3" | "4" => { if !form.iter().any(|(key, value)| *key == "pic" && !value.trim().is_empty()) { return Err("上手或样张至少需要一张图片".to_string()); } },
+            "1" => { if !sub_data.parse::<f64>().is_ok_and(|hours| hours.is_finite() && hours > 0.0) { return Err("续航时长无效".to_string()); } },
+            "2" => {
+                let scores: Value = serde_json::from_str(sub_data).map_err(|_| "跑分数据无效".to_string())?;
+                let entries = scores.as_object().ok_or("跑分数据无效")?;
+                if entries.is_empty() || entries.iter().any(|(key, value)| !["antutu_score", "geek_bench_single_score", "geek_bench_multi_score", "3d_mark_score"].contains(&key.as_str()) || !value.as_f64().is_some_and(|score| score.is_finite() && score > 0.0)) { return Err("跑分数据无效".to_string()); }
+            },
+            "5" => { if !sub_data.parse::<u32>().is_ok_and(|level| (1..=5).contains(&level)) { return Err("反馈严重度无效".to_string()); } },
+            "6" => {
+                let price: Value = serde_json::from_str(sub_data).map_err(|_| "到手价数据无效".to_string())?;
+                if !price.get("final_price").and_then(Value::as_f64).is_some_and(|price| price.is_finite() && price > 0.0) || !price.get("config_id").and_then(Value::as_u64).is_some_and(|id| id > 0) || !price.get("config_name").and_then(Value::as_str).is_some_and(|name| !name.trim().is_empty()) { return Err("到手价需要价格及产品配置".to_string()); }
+            },
+            _ => {},
+        }
+        form.push(("tsubid", sub_type.to_string()));
+        form.push(("tsubdata", sub_data.to_string()));
+    }
     for (key, value) in form.iter_mut() {
         match *key {
             "targetType" => *value = target_type.to_string(),
@@ -5297,6 +5321,11 @@ impl CoolapkClient {
             self.api_get("/v6/product/detail", &[("name", name.to_string())])
                 .await?,
         )
+    }
+
+    /// 到手价使用官方版本配置列表，而非产品详情中的参数展示行。
+    pub async fn get_product_versions(&self, product_id: &str) -> Result<Value, String> {
+        wrap_api_data(self.api_get("/v6/product/getVersionList", &[("product_id", product_id.to_string())]).await?)
     }
 
     /// 加载个人页卡片配置

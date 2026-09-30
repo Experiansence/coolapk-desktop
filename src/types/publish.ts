@@ -3,7 +3,7 @@ export interface PublishTarget {
   id: string;
   title: string;
   logo?: string;
-  subTabs?: { id?: string; subTypeId?: string; title?: string; name?: string; subTabRule?: string }[];
+  subTabs?: { pageName: string; title: string; isSubtab?: number; subTabRule?: { min?: string; max?: string; antutuScore?: { min?: string; max?: string }; geekBenchSingleScore?: { min?: string; max?: string }; geekBenchMultiScore?: { min?: string; max?: string }; threeDMarkScore?: { min?: string; max?: string } } }[];
   configRows?: unknown[];
   isOwner?: number;
 }
@@ -12,4 +12,6 @@ export interface PublishTarget {
 export interface PublishOptions {
   targetType?: PublishTarget['type'] | '';
   targetId?: string;
+  subTypeId?: string;
+  subData?: string;
 }

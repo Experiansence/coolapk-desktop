@@ -89,6 +89,7 @@
       </div>
 
       <PublishTargetPicker v-if="!isEditMode" v-model="publishTarget" />
+      <PublishProductOptions v-if="!isEditMode && publishTarget?.type === 'product_phone'" :target="publishTarget" v-model="productOptions" />
       <PublishTopicRecommendations :node-type="publishTarget?.type === 'tag' ? '3' : publishTarget?.type === 'apk' ? '1' : publishTarget?.type === 'product_phone' ? '7' : '0'" :node-name="publishTarget?.title || ''" :uid="currentDraftAccount()" :text="message" :cursor="topicInsertOffset" :refresh="topicRefresh" @select="insertRecommendedTopic" />
 
       <!-- 话题选择器保留正文光标，选择后替换正在输入的井号片段。 -->
@@ -160,7 +161,9 @@ import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
 import PublishTopicPicker from './PublishTopicPicker.vue';
 import PublishTargetPicker from './PublishTargetPicker.vue';
-import type { PublishTarget } from '../../types/publish';
+import type { PublishTarget, PublishOptions } from '../../types/publish';
+import PublishProductOptions from './PublishProductOptions.vue';
+import { validateProductPublish } from '../../utils/publishProduct';
 import PublishMentionPicker, { type MentionUser } from './PublishMentionPicker.vue';
 import PublishTopicRecommendations from './PublishTopicRecommendations.vue';
 import type { PublishTopic } from '../../utils/publishTopics';
@@ -174,6 +177,8 @@ const authStore = useAuthStore();
 const MAX_IMAGES = 9;
 const message = ref('');
 const publishTarget = ref<PublishTarget | null>(null);
+const productOptions = ref<PublishOptions>({});
+watch(publishTarget, () => { productOptions.value = {}; });
 const images = ref<{ file?: File; preview: string; url?: string }[]>([]);
 const uploadingImages = ref(false);
 const uploadedCount = ref(0);
@@ -541,6 +546,11 @@ function buildFinalMessage(): string {
 async function handlePublish() {
   if ((!message.value.trim() && images.value.length === 0) || submitting.value || editLoading.value || editLoadError.value) return;
 
+  if (!isEditMode.value) {
+    const validation = validateProductPublish(publishTarget.value, productOptions.value, images.value.length);
+    if (validation) { errorMessage.value = validation; return; }
+  }
+
   const proceedPublish = async () => {
     submitting.value = true;
     uploadingImages.value = images.value.some((image) => !!image.file);
@@ -565,7 +575,7 @@ async function handlePublish() {
 
       const executeCreate = async (postToken?: string) => {
         if (appStore.editFeedTarget) return await CoolapkTauriAPI.updateFeed(String(appStore.editFeedTarget.id), buildFinalMessage(), pic, postToken);
-        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '' });
+        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', ...productOptions.value });
       };
 
       let res: any;

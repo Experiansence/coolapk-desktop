@@ -943,6 +943,12 @@ pub async fn search_publish_topics(state: State<'_, AppState>, query: String, pa
 }
 
 #[tauri::command]
+pub async fn get_product_versions(state: State<'_, AppState>, product_id: String) -> Result<Value, String> {
+    state.client.get_product_versions(&product_id).await
+}
+
+
+#[tauri::command]
 pub async fn get_product_detail_by_name(
     state: State<'_, AppState>,
     name: String,

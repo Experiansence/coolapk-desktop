@@ -178,6 +178,10 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_product_detail', { productId });
   }
 
+  static async getProductVersions(productId: string) {
+    return await invokeNative('get_product_versions', { productId });
+  }
+
   static async getProductFeeds(productId: string, feedType: string = 'feed', page: number = 1, listType: string = '') {
     return await invokeNative('get_product_feeds', { productId, feedType, listType, page });
   }
