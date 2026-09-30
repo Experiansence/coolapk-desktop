@@ -43,8 +43,21 @@ async function loadVersions() {
   } catch (failure) { if (request === revision) error.value = String(failure instanceof Error ? failure.message : failure); }
   finally { if (request === revision) loading.value = false; }
 }
-// 切换产品清空专属信息，避免把上一个产品的续航、分数和配置传到新产品。
-watch(() => props.target.id, () => { ++revision; subType.value = ''; hours.value = ''; level.value = ''; price.value = ''; configId.value = ''; versions.value = []; Object.keys(scores).forEach((key) => delete scores[key]); }, { immediate: true });
+// 恢复草稿时读取其子板块数据；切换产品由父组件清空选项。
+function restoreOptions() {
+  subType.value = props.modelValue.subTypeId || '';
+  hours.value = ''; level.value = ''; price.value = ''; configId.value = '';
+  Object.keys(scores).forEach((key) => delete scores[key]);
+  const data = props.modelValue.subData || '';
+  if (subType.value === '1') hours.value = data;
+  if (subType.value === '5') level.value = data;
+  try {
+    if (subType.value === '2') for (const [key, value] of Object.entries(JSON.parse(data))) scores[key] = String(value);
+    if (subType.value === '6') { const value = JSON.parse(data); price.value = String(value.final_price || ''); configId.value = String(value.config_id || ''); if (value.config_id && value.config_name && !versions.value.some((item) => String(item.id) === String(value.config_id))) versions.value.push({ id: value.config_id, title: value.config_name }); }
+  } catch { /* 不完整的数据由发布前检查提示，不擅自填充有效值。 */ }
+}
+watch(() => props.target.id, () => { ++revision; versions.value = []; restoreOptions(); }, { immediate: true });
+watch(() => props.modelValue, restoreOptions);
 watch(subType, (id) => { if (id === '6' && !versions.value.length) void loadVersions(); });
 watch([subType, hours, level, price, configId, scores], () => {
   let data = '';
@@ -52,7 +65,7 @@ watch([subType, hours, level, price, configId, scores], () => {
   if (subType.value === '2') data = JSON.stringify(Object.fromEntries(Object.entries(scores).filter(([, value]) => Number(value) > 0).map(([key, value]) => [key, Number(value)])));
   if (subType.value === '5') data = level.value;
   if (subType.value === '6') { const config = versions.value.find((item) => String(item.id) === configId.value); data = JSON.stringify({ final_price: Number(price.value), config_id: Number(configId.value), config_name: config?.title || '' }); }
-  emit('update:modelValue', { subTypeId: subType.value, subData: data });
+  if ((props.modelValue.subTypeId || '') !== subType.value || (props.modelValue.subData || '') !== data) emit('update:modelValue', { subTypeId: subType.value, subData: data });
 }, { deep: true });
 </script>
 <style scoped>

@@ -9,7 +9,12 @@
       <div v-if="editLoading" class="panel-tip">正在读取可编辑动态...</div>
       <div v-else-if="editLoadError" class="error-tip"><i class="fas fa-exclamation-circle"></i> {{ editLoadError }}</div>
       <template v-else>
-      <fieldset :disabled="submitting" class="publish-fields">
+      <fieldset :disabled="submitting || savingDraft" class="publish-fields">
+      <div v-if="!isEditMode" class="draft-tools"><button type="button" @click="showDrafts = !showDrafts">草稿箱（{{ draftList.length }}）</button><button type="button" @click="newDraft">新建草稿</button><span>{{ savingDraft ? '保存草稿中…' : '自动保存草稿' }}</span></div>
+      <div v-if="showDrafts && !isEditMode" class="draft-list">
+        <div v-for="draft in draftList" :key="draft.id"><button type="button" @click="switchDraft(draft)">{{ draft.title }} · {{ draft.state.images.length }} 张图片</button><button type="button" @click="removeDraft(draft.id)">删除</button></div>
+        <p v-if="!draftList.length">暂无草稿</p>
+      </div>
       <div v-if="previewMode" class="preview-box custom-scrollbar">
         <div class="preview-content" v-html="previewHtml"></div>
         <div v-if="!message.trim()" class="preview-empty">输入内容后此处显示预览效果</div>
@@ -163,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useAppStore } from '../../stores/app';
 import { useSettingsStore } from '../../stores/settings';
 import { useAuthStore } from '../../stores/auth';
@@ -172,7 +177,7 @@ import { renderCoolapkEmoji, EMOJI_MAP, getEmojiUrl } from '../../utils/coolapkE
 import { useRecentEmojis } from '../../utils/recentEmojis';
 import { renderCoolapkRichText } from '../../utils/richText';
 import { extractFeedImageInputs, normalizeFeedImageItems } from '../../utils/livePhoto';
-import { clearPublishDraft, loadPublishDraft, savePublishDraft } from '../../utils/publishDrafts';
+import { listFullPublishDrafts, saveFullPublishDraft, deleteFullPublishDraft, restoreFullPublishDraft, type FullPublishDraft, type PublishDraftState } from '../../utils/publishDrafts';
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
 import PublishTopicPicker from './PublishTopicPicker.vue';
@@ -199,7 +204,7 @@ const productOptions = ref<PublishOptions>({});
 const extraOptions = ref<PublishOptions>({ originalType: 0, extraUrl: '', dyhId: '' });
 const attachmentTitle = ref('');
 const visibleStatus = ref<1 | -1>(1);
-watch(publishTarget, () => { productOptions.value = {}; });
+watch(publishTarget, () => { if (!restoringDraft) productOptions.value = {}; });
 const images = ref<PublishImage[]>([]);
 const largeCover = ref(false);
 const processingMedia = ref(false);
@@ -230,8 +235,77 @@ const messageInput = ref<HTMLDivElement | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 let restoringDraft = false;
 let openRevision = 0;
+const draftId = ref('');
+const draftList = ref<FullPublishDraft[]>([]);
+const showDrafts = ref(false);
+const savingDraft = ref(false);
+let draftAccount = '';
+let sessionIsEdit = false;
+let draftTimer: ReturnType<typeof setTimeout> | undefined;
+let saveRevision = 0;
+onBeforeUnmount(() => { clearTimeout(draftTimer); ++openRevision; });
 
-function closePublish() { if (!submitting.value) appStore.closePublish(); }
+async function closePublish() {
+  if (submitting.value || processingMedia.value) return;
+  try { await persistCurrentDraft(); appStore.closePublish(); }
+  catch (failure) { errorMessage.value = `保存草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
+
+function draftSnapshot(): PublishDraftState {
+  return { text: message.value, images: images.value.map((image) => ({ ...image })), target: publishTarget.value ? JSON.parse(JSON.stringify(publishTarget.value)) : null, productOptions: { ...productOptions.value }, visibleStatus: visibleStatus.value, largeCover: largeCover.value, extraOptions: { ...extraOptions.value }, attachmentTitle: attachmentTitle.value };
+}
+async function persistCurrentDraft() {
+  clearTimeout(draftTimer);
+  if (sessionIsEdit || !draftId.value || !draftAccount) return;
+  const request = ++saveRevision;
+  const uid = draftAccount;
+  const id = draftId.value;
+  const state = draftSnapshot();
+  savingDraft.value = true;
+  try {
+    if (state.text.trim() || state.images.length || state.target || state.extraOptions.extraUrl || state.extraOptions.dyhId) await saveFullPublishDraft(uid, id, state);
+    else await deleteFullPublishDraft(uid, id);
+    if (uid === draftAccount) draftList.value = await listFullPublishDrafts(uid);
+  } finally { if (request === saveRevision) savingDraft.value = false; }
+}
+async function applyDraftState(state: PublishDraftState, id: string) {
+  restoringDraft = true;
+  clearTimeout(draftTimer);
+  draftId.value = id;
+  message.value = state.text;
+  images.value = state.images;
+  publishTarget.value = state.target;
+  productOptions.value = state.productOptions;
+  visibleStatus.value = state.visibleStatus;
+  largeCover.value = state.largeCover;
+  extraOptions.value = state.extraOptions;
+  attachmentTitle.value = state.attachmentTitle;
+  showTopicPanel.value = false;
+  showMentionPanel.value = false;
+  previewMode.value = false;
+  await nextTick();
+  renderEditor();
+  restoringDraft = false;
+}
+async function switchDraft(draft: FullPublishDraft) {
+  try { await persistCurrentDraft(); await applyDraftState(restoreFullPublishDraft(draft), draft.id); showDrafts.value = false; }
+  catch (failure) { errorMessage.value = `读取草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
+async function newDraft() {
+  try {
+    await persistCurrentDraft();
+    await applyDraftState({ text: '', images: [], target: null, productOptions: {}, visibleStatus: 1, largeCover: false, extraOptions: {}, attachmentTitle: '' }, crypto.randomUUID());
+    showDrafts.value = false;
+  } catch (failure) { errorMessage.value = `保存草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
+async function removeDraft(id: string) {
+  try {
+    clearTimeout(draftTimer);
+    await deleteFullPublishDraft(draftAccount, id);
+    if (id === draftId.value) await applyDraftState({ text: '', images: [], target: null, productOptions: {}, visibleStatus: 1, largeCover: false, extraOptions: {}, attachmentTitle: '' }, crypto.randomUUID());
+    draftList.value = await listFullPublishDrafts(draftAccount);
+  } catch (failure) { errorMessage.value = `删除草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
 
 function currentDraftAccount(): string {
   return String(authStore.user?.uid || 'guest');
@@ -247,6 +321,11 @@ watch(() => appStore.isPublishOpen, async (open) => {
   const revision = ++openRevision;
   if (open) {
     restoringDraft = true;
+    draftAccount = currentDraftAccount();
+    sessionIsEdit = isEditMode.value;
+    draftId.value = crypto.randomUUID();
+    showDrafts.value = false;
+    clearTimeout(draftTimer);
     message.value = '';
     publishTarget.value = null;
     visibleStatus.value = 1;
@@ -297,9 +376,11 @@ watch(() => appStore.isPublishOpen, async (open) => {
         if (revision === openRevision) editLoading.value = false;
       }
     } else {
-      const draft = await loadPublishDraft(currentDraftAccount());
-      if (revision !== openRevision || !appStore.isPublishOpen) return;
-      message.value = draft;
+      try {
+        draftList.value = await listFullPublishDrafts(draftAccount);
+        if (revision !== openRevision || !appStore.isPublishOpen) return;
+        if (draftList.value[0]) await applyDraftState(restoreFullPublishDraft(draftList.value[0]), draftList.value[0].id);
+      } catch (failure) { editLoadError.value = `草稿读取失败：${failure instanceof Error ? failure.message : String(failure)}`; }
     }
     await nextTick();
     renderEditor();
@@ -308,9 +389,11 @@ watch(() => appStore.isPublishOpen, async (open) => {
   }
 });
 
-watch(message, (value) => {
-  if (!restoringDraft && !isEditMode.value) void savePublishDraft(currentDraftAccount(), value);
-});
+watch([message, images, publishTarget, productOptions, visibleStatus, largeCover, extraOptions, attachmentTitle], () => {
+  if (restoringDraft || sessionIsEdit || !appStore.isPublishOpen) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => { void persistCurrentDraft().catch((failure) => { errorMessage.value = `保存草稿失败：${String(failure)}`; }); }, 600);
+}, { deep: true });
 
 watch(previewMode, async (preview) => {
   if (!preview) { await nextTick(); renderEditor(); }
@@ -677,7 +760,9 @@ async function handlePublish() {
           const updatedPictures = pic ? pic.split(',') : [];
           Object.assign(appStore.editFeedTarget, { message: buildFinalMessage(), messageRawInput: buildFinalMessage(), message_raw_output: buildFinalMessage(), pics: updatedPictures, picArr: updatedPictures, imageUriList: updatedPictures, pic, isModified: 1 });
         } else {
-          await clearPublishDraft(currentDraftAccount());
+          clearTimeout(draftTimer);
+          await deleteFullPublishDraft(draftAccount, draftId.value);
+          draftId.value = '';
         }
         message.value = '';
         images.value = [];
@@ -716,6 +801,11 @@ async function handlePublish() {
 <style scoped>
 .publish-visibility { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-size-sub); }
 .publish-visibility select { padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
+
+.draft-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: var(--font-size-caption); color: var(--text-secondary); }
+.draft-tools button, .draft-list button { color: var(--brand-primary); }
+.draft-list { max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--border); margin-bottom: 10px; }
+.draft-list > div { display: flex; justify-content: space-between; gap: 10px; margin: 8px 0; }
 
 .publish-fields { display: contents; }
 
