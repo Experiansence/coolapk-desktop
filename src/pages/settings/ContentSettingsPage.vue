@@ -63,7 +63,9 @@
         </div>
         <select v-model="settingsStore.settings.imageOpenMode" class="select-control">
           <option value="internal">内置查看器 (推荐)</option>
-          <option value="system">系统默认查看器</option>
+          <option value="system" :disabled="!supportsSystemViewer">
+            系统默认查看器{{ supportsSystemViewer ? '' : '（当前平台不支持）' }}
+          </option>
         </select>
       </div>
 
@@ -172,8 +174,11 @@ import { computed, ref } from 'vue';
 import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 import AppButton from '../../components/common/AppButton.vue';
+import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
+// 系统默认查看器依赖桌面端的 opener，iOS/Android 上没有实现。
+const supportsSystemViewer = !isTouchMobilePlatform();
 const keywordInput = ref('');
 
 const blockedKeywords = computed(() => settingsStore.settings.blockedKeywords);

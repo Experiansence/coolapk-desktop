@@ -36,7 +36,14 @@
       @error="handleVideoError"
     ></video>
 
-    <span v-if="item.isLivePhoto" class="live-badge" title="Live Photo 实况">
+    <span
+      v-if="item.isLivePhoto"
+      class="live-badge"
+      role="button"
+      :aria-label="isPlaying ? '暂停实况' : '播放实况'"
+      title="Live Photo 实况"
+      @click="handlePreviewTap"
+    >
       Live
     </span>
 
@@ -51,6 +58,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import AppImage from '../common/AppImage.vue';
 import { getHdImageUrl } from '../../utils/image';
 import { normalizeResourceUrl } from '../../utils/resourceCache';
+import { isCoarsePointer } from '../../utils/platform';
 import {
   resolveLivePhotoVideo,
   type FeedImageItem,
@@ -177,6 +185,21 @@ async function retryThroughResolver() {
   } finally {
     if (sequence === resolveSequence) resolving.value = false;
   }
+}
+
+/**
+ * 触摸端没有 hover，点击 Live 角标就地播放 / 暂停。
+ * 桌面端保持原行为：不拦截点击，让它冒泡到宫格打开查看器。
+ */
+function handlePreviewTap(event: MouseEvent) {
+  if (!props.item.isLivePhoto || !isCoarsePointer()) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (isHovered.value) {
+    handleMouseLeave();
+    return;
+  }
+  void handleMouseEnter();
 }
 
 function handleMouseLeave() {
@@ -312,9 +335,20 @@ onUnmounted(() => {
   font-weight: 500;
   font-family: var(--font-family-base);
   line-height: 1.2;
-  pointer-events: none;
+  /* 触摸端要能点这个角标就地播放，桌面端点击继续冒泡到宫格打开查看器。 */
+  pointer-events: auto;
+  cursor: pointer;
   user-select: none;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 角标本体只有约 34x22，向单元格内部（上、左）扩大触摸命中区。 */
+@media (pointer: coarse) {
+  .live-badge::after {
+    content: '';
+    position: absolute;
+    inset: -12px -4px -4px -12px;
+  }
 }
 
 .live-photo-preview.is-playing .live-badge {
