@@ -45,7 +45,11 @@
         </div>
 
         <p v-if="updateInfo.hasNew && !canInstallInApp" class="startup-update-notes">
-          当前平台暂不支持应用内自动安装，请前往发布页面下载安装。
+          {{ isMacOS
+            ? '请先将应用移到 Applications 或其他可写目录；从磁盘映像运行时请手动下载安装。'
+            : isLinux
+            ? '当前运行方式无法自动更新，请使用 AppImage 或通过 deb/rpm 安装后再检查更新。'
+            : '当前平台暂不支持应用内自动安装，请前往发布页面下载安装。' }}
         </p>
 
         <div class="startup-update-actions">
@@ -115,6 +119,10 @@
         <p class="startup-update-notes">
           {{ isAndroid
             ? '是否打开系统安装界面？请在系统提示中确认安装。'
+            : updatePackageType === 'deb' || updatePackageType === 'rpm'
+            ? '是否立即更新？系统将请求管理员授权，安装成功后自动重新打开软件。'
+            : isMacOS
+            ? '是否立即更新？程序将关闭当前窗口，替换应用后自动重新打开。'
             : readyInfo.packageType === 'portable'
             ? '是否立即更新？程序将关闭当前窗口，替换此单文件后自动重新打开。'
             : '是否立即更新？程序将关闭当前窗口，全自动完成安装后重新打开软件。' }}
@@ -167,11 +175,13 @@ import {
   APP_VERSION,
   checkLatestRelease,
   isUpdateAssetCompatible,
+  isUpdatePackageType,
   isNewerVersion,
   normalizeVersion,
   shouldReplaceDownloadedUpdate,
   versionFromAssetName,
   type UpdateInfo,
+  type UpdatePackageType,
 } from './utils/updateChecker';
 import { renderReleaseMarkdown } from './utils/markdown';
 import { handleAnchorClick } from './utils/anchorClick';
@@ -201,7 +211,7 @@ type ReadyInfo = {
   version: string;
   path: string;
   fileName?: string;
-  packageType: 'installer' | 'portable';
+  packageType: UpdatePackageType;
   releaseNotes?: string;
 };
 type DownloadNotice = { version: string; releaseNotes?: string };
@@ -223,9 +233,12 @@ const installingUpdate = ref(false);
 const installPermissionNeeded = ref(false);
 const isWindows = ref(false);
 const isAndroid = ref(false);
-const canInstallInApp = computed(() => isWindows.value || isAndroid.value);
+const isMacOS = ref(false);
+const isLinux = ref(false);
+const canInstallInApp = computed(() => (isWindows.value || isAndroid.value || isMacOS.value || isLinux.value)
+  && updatePackageType.value !== 'unsupported');
 const appUpdateName = computed(() => isAndroid.value ? '酷安' : '酷安桌面版');
-const updatePackageType = ref<'installer' | 'portable'>('installer');
+const updatePackageType = ref<UpdatePackageType>('unsupported');
 let unregisterHotkeys: (() => void) | null = null;
 let unregisterSelectionClear: (() => void) | null = null;
 let updateDownloadInFlight = false;
@@ -245,9 +258,6 @@ async function checkForUpdate(manual = false) {
     await refreshUpdatePlatform();
     if (manual && canInstallInApp.value && !readyInfo.value) {
       await restorePendingUpdate();
-    }
-    if (isWindows.value) {
-      updatePackageType.value = await CoolapkTauriAPI.getUpdateDistribution();
     }
     const result = await checkLatestRelease(
       settingsStore.settings.updateChannel,
@@ -323,6 +333,14 @@ async function refreshUpdatePlatform() {
   const { os } = await getPlatformInfo();
   isWindows.value = os === 'windows';
   isAndroid.value = os === 'android';
+  isMacOS.value = os === 'macos';
+  isLinux.value = os === 'linux';
+  if (isWindows.value || isAndroid.value || isMacOS.value || isLinux.value) {
+    const distribution = await CoolapkTauriAPI.getUpdateDistribution();
+    updatePackageType.value = isUpdatePackageType(distribution) ? distribution : 'unsupported';
+  } else {
+    updatePackageType.value = 'unsupported';
+  }
 }
 
 async function startBackgroundDownload(info: UpdateInfo) {
@@ -493,7 +511,7 @@ async function restorePendingUpdate(): Promise<boolean> {
       return false;
     }
 
-    const packageType = pending.packageType === 'portable' ? 'portable' : 'installer';
+    const packageType = isUpdatePackageType(pending.packageType) ? pending.packageType : 'installer';
     const currentPackageType = await CoolapkTauriAPI.getUpdateDistribution();
     const currentPlatform = await getPlatformInfo();
     if (
@@ -519,6 +537,8 @@ async function restorePendingUpdate(): Promise<boolean> {
   }
 }
 
+const handleCheckForUpdate = () => void checkForUpdate(true);
+
 onMounted(() => {
   void downloadStore.initialize();
   authStore.initAuth();
@@ -530,12 +550,16 @@ onMounted(() => {
   // 设置页的"立即检查更新"手动触发不受影响
   void (async () => {
     await refreshUpdatePlatform();
+    if (isMacOS.value || isLinux.value) {
+      const installError = await CoolapkTauriAPI.takeUpdateInstallError();
+      if (installError) downloadError.value = installError;
+    }
     if (canInstallInApp.value) await restorePendingUpdate();
     if (!import.meta.env.DEV && settingsStore.settings.checkUpdateOnStartup) {
       void checkForUpdate();
     }
   })();
-  window.addEventListener('check-for-update', () => void checkForUpdate(true));
+  window.addEventListener('check-for-update', handleCheckForUpdate);
 
   // 启动时先清理过期图片，再按总占用阈值决定是否清理全部缓存。
   if (settingsStore.settings.autoCleanCache) {
@@ -561,6 +585,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('check-for-update', handleCheckForUpdate);
   window.removeEventListener('resize', settingsStore.refreshAutoZoom);
   unregisterHotkeys?.();
   unregisterSelectionClear?.();

@@ -3895,7 +3895,7 @@ fn cache_locations(
     Ok((image, update))
 }
 
-fn update_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(super) fn update_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "android")]
     {
         // Tauri 的 Android app_data_dir 是应用数据根目录；files 子目录可由 FileProvider 安全共享。
@@ -3903,7 +3903,11 @@ fn update_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             .join("files")
             .join("coolapk-desktop-update"))
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        Ok(app.path().app_cache_dir().map_err(|e| e.to_string())?.join("updates"))
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "linux")))]
     {
         let _ = app;
         Ok(std::env::temp_dir().join("coolapk-desktop-update"))
@@ -3914,7 +3918,11 @@ fn is_update_package_extension(path: &std::path::Path) -> bool {
     let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default();
     #[cfg(target_os = "android")]
     { extension.eq_ignore_ascii_case("apk") }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "macos")]
+    { extension.eq_ignore_ascii_case("dmg") }
+    #[cfg(target_os = "linux")]
+    { extension.eq_ignore_ascii_case("AppImage") || extension.eq_ignore_ascii_case("deb") || extension.eq_ignore_ascii_case("rpm") }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "linux")))]
     { extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("msi") }
 }
 
@@ -4070,13 +4078,17 @@ pub fn get_update_distribution() -> String {
             "portable".to_string()
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        super::desktop_update::distribution().to_string()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         "installer".to_string()
     }
 }
 
-/// Windows 启动 NSIS/便携版更新；Android 将 APK 交给系统安装器确认。
+/// 按当前发行方式启动更新，保留各平台的安装和授权流程。
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle, installer_path: String, portable: bool) -> Result<String, String> {
     #[cfg(target_os = "windows")]
@@ -4090,12 +4102,31 @@ pub async fn install_update(app: tauri::AppHandle, installer_path: String, porta
         }
         install_update_android(app, installer_path).await
     }
-    #[cfg(not(any(target_os = "windows", target_os = "android")))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            super::desktop_update::install(&app, &installer_path, portable)
+        }).await.map_err(|error| error.to_string())?.map(|_| "started".to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "android", target_os = "macos", target_os = "linux")))]
     {
         let _ = app;
         let _ = installer_path;
         let _ = portable;
         Err("当前平台暂不支持应用内自动安装，请前往发布页面手动下载安装".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn take_update_install_error(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = update_cache_dir(&app)?.join("install-error.txt");
+    match std::fs::read_to_string(&path) {
+        Ok(error) => {
+            let _ = std::fs::remove_file(path);
+            Ok(Some(error))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
     }
 }
 

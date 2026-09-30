@@ -16,7 +16,11 @@ export type UpdateInfo = {
   packageType?: UpdatePackageType;
 };
 
-export type UpdatePackageType = 'installer' | 'portable';
+export type UpdatePackageType = 'installer' | 'portable' | 'deb' | 'rpm' | 'unsupported';
+
+export function isUpdatePackageType(value: unknown): value is UpdatePackageType {
+  return typeof value === 'string' && ['installer', 'portable', 'deb', 'rpm', 'unsupported'].includes(value);
+}
 
 export type InstallerAsset = {
   name?: string;
@@ -28,6 +32,19 @@ export function isUpdateAssetCompatible(
   platform: PlatformInfo,
   packageType: UpdatePackageType
 ): boolean {
+  if (platform.os === 'macos' || platform.os === 'linux') {
+    if (!versionFromAssetName(name) || !/^coolapk-desktop[-_]/i.test(name)) return false;
+    const archPattern = platform.arch === 'aarch64'
+      ? /(?:^|[-_.])(?:arm64|aarch64)(?=[-_.]|$)/i
+      : platform.arch === 'x86_64'
+        ? /(?:^|[-_.])(?:x64|amd64|x86_64)(?=[-_.]|$)/i
+        : null;
+    if (!archPattern?.test(name)) return false;
+    if (platform.os === 'macos') return packageType === 'installer' && /\.dmg$/i.test(name);
+    if (packageType === 'portable') return /\.AppImage$/i.test(name);
+    return (packageType === 'deb' && /\.deb$/i.test(name))
+      || (packageType === 'rpm' && /\.rpm$/i.test(name));
+  }
   if (platform.os === 'android') {
     return packageType === 'installer'
       && platform.arch === 'aarch64'
@@ -51,7 +68,7 @@ export function selectInstallerAsset(
   assets: InstallerAsset[],
   platform: PlatformInfo
 ): InstallerAsset | undefined {
-  if (platform.os === 'android') {
+  if (platform.os === 'macos' || platform.os === 'android') {
     return assets.find((asset) => asset.name && asset.browser_download_url
       && isUpdateAssetCompatible(asset.name, platform, 'installer'));
   }
@@ -77,6 +94,10 @@ export function selectPortableAsset(
   assets: InstallerAsset[],
   platform: PlatformInfo
 ): InstallerAsset | undefined {
+  if (platform.os === 'linux') {
+    return assets.find((asset) => asset.name && asset.browser_download_url
+      && isUpdateAssetCompatible(asset.name, platform, 'portable'));
+  }
   if (platform.os !== 'windows') return undefined;
   const candidates = assets.filter(
     (asset) => asset.name && /[-_]portable\.exe$/i.test(asset.name) && asset.browser_download_url
@@ -204,12 +225,15 @@ export async function checkLatestRelease(
   const tagName = release.tag_name || '';
   const hasNew = Boolean(normalizeVersion(tagName)) && isNewerVersion(tagName);
 
-  // 按平台挑选 Android APK、NSIS 安装包或真正的单文件便携版，并严格匹配架构与版本号。
+  // 按平台、发行方式、架构和 release 版本选择更新包。
   let installerUrl: string | undefined;
   const assets: InstallerAsset[] = release.assets || [];
   const currentPlatform = platform ?? await getPlatformInfo();
   const candidates = assets.filter((asset) => {
     if (!asset.name || !asset.browser_download_url) return false;
+    if (currentPlatform.os === 'macos' || currentPlatform.os === 'linux') {
+      return isUpdateAssetCompatible(asset.name, currentPlatform, packageType);
+    }
     if (currentPlatform.os === 'android') {
       return packageType === 'installer' && /-android-arm64\.apk$/i.test(asset.name);
     }
@@ -230,7 +254,9 @@ export async function checkLatestRelease(
       ? []
       : candidates;
 
-  const selectedAsset = (packageType === 'portable'
+  const selectedAsset = (packageType === 'deb' || packageType === 'rpm'
+    ? validCandidates[0]
+    : packageType === 'portable'
     ? selectPortableAsset(validCandidates, currentPlatform)
     : selectInstallerAsset(validCandidates, currentPlatform));
   installerUrl = selectedAsset?.browser_download_url;
@@ -254,6 +280,8 @@ export async function checkLatestRelease(
 }
 
 export function versionFromAssetName(name: string) {
+  const desktopMatch = name.match(/^coolapk-desktop[_-](v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:_(?:x64|amd64|x86_64|arm64|aarch64)|-\d+\.(?:x86_64|aarch64))/i);
+  if (desktopMatch) return normalizeVersion(desktopMatch[1]) || undefined;
   const androidMatch = name.match(/^coolapk-(v?.+)-android-(?:arm64|aarch64)(?:-\d+-\d+)?\.apk$/i);
   if (androidMatch) return normalizeVersion(androidMatch[1]) || undefined;
   const match = name.match(/(?:^|[-_])v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=[-_]|$)/i);

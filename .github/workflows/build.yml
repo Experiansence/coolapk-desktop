@@ -114,6 +114,10 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib
 
+      - name: 更新助手替换与回滚测试
+        if: runner.os != 'Windows'
+        run: sh scripts/test-desktop-update.sh
+
   # ─── 构建（仅 tag / 手动触发） ───
   build:
     name: ${{ matrix.name }}

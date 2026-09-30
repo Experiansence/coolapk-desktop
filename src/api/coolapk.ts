@@ -6,6 +6,7 @@ import { isCoolapkWebUrl, normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
 import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
+import type { UpdatePackageType } from '../utils/updateChecker';
 
 async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}) {
   let rustError: unknown;
@@ -1417,7 +1418,11 @@ export class CoolapkTauriAPI {
   }
 
   static async getUpdateDistribution() {
-    return await invoke<'installer' | 'portable'>('get_update_distribution');
+    return await invoke<UpdatePackageType>('get_update_distribution');
+  }
+
+  static async takeUpdateInstallError() {
+    return await invoke<string | null>('take_update_install_error');
   }
 
   static async isUpdatePackageAvailable(installerPath: string) {
