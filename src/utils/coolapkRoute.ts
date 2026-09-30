@@ -47,6 +47,18 @@ export function normalizeCoolapkNativeRoute(href: string): string | null {
 const COOLAPK_HOST_RE = /^(?:www\.|m\.)?coolapk\.com$/i;
 const COOLAPK_DEEP_LINK_HOST_RE = /^(?:(?:www\.|m\.)?coolapk\.com|com\.coolapk\.market)$/i;
 
+/** 识别酷安网页域名；站外地址在点击时直接交给系统浏览器。 */
+export function isCoolapkWebUrl(href: string): boolean {
+  try {
+    const parsed = new URL(href, 'https://www.coolapk.com');
+    return ['http:', 'https:'].includes(parsed.protocol)
+      && !parsed.username && !parsed.password
+      && (parsed.hostname === 'coolapk.com' || parsed.hostname.endsWith('.coolapk.com'));
+  } catch {
+    return false;
+  }
+}
+
 function extractCoolapkPath(href: string): string | null {
   const raw = String(href || '').trim();
   if (!raw) return null;

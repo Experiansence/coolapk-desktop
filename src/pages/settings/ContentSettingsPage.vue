@@ -155,11 +155,11 @@
       <h4 class="group-title">链接</h4>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">外部链接打开方式</span>
-          <span class="row-sub">点击站外链接时在应用内新窗口浏览，或调用系统浏览器</span>
+          <span class="row-label">酷安网页打开方式</span>
+          <span class="row-sub">未适配为站内页面的酷安网页按此设置打开；非酷安域名始终直接使用系统浏览器</span>
         </div>
         <select v-model="settingsStore.settings.externalLinkMode" class="select-control">
-          <option value="internal">应用内新窗口 (推荐)</option>
+          <option value="internal">应用内查看 (推荐)</option>
           <option value="system">系统浏览器</option>
         </select>
       </div>

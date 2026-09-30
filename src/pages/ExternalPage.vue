@@ -6,11 +6,13 @@
         <span class="page-subtitle">{{ url }}</span>
       </div>
       <div class="header-actions">
-        <AppButton variant="ghost" size="sm" icon="fas fa-external-link-alt" @click="openInSystem">
+        <AppButton variant="ghost" size="sm" icon="fas fa-external-link-alt" :loading="openingSystem" @click="openInSystem">
           系统浏览器
         </AppButton>
       </div>
     </div>
+
+    <p v-if="openError" class="browser-error" role="alert">{{ openError }}</p>
 
     <div v-if="loading" class="state-wrapper">
       <LoadingState text="正在抓取页面内容..." />
@@ -18,8 +20,8 @@
     <div v-else-if="error" class="state-wrapper">
       <ErrorState title="页面加载失败" :message="error" @retry="loadPage" />
     </div>
-    <div v-else-if="!html" class="state-wrapper">
-      <EmptyState title="页面为空" description="该页面没有可显示的内容" />
+    <div v-else-if="!hasPageContent" class="state-wrapper">
+      <EmptyState title="页面暂无可显示的内容" description="请使用上方“系统浏览器”打开完整网页" />
     </div>
     <div v-else class="external-content" v-html="renderedHtml" @click="handleAnchorClick"></div>
   </div>
@@ -29,7 +31,7 @@
 import { ref, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
-import { sanitizeCoolapkHtml } from '../utils/sanitizeHtml';
+import { coolapkHtmlToPlainText, sanitizeCoolapkHtml } from '../utils/sanitizeHtml';
 import { handleAnchorClick } from '../utils/anchorClick';
 import AppButton from '../components/common/AppButton.vue';
 import LoadingState from '../components/common/LoadingState.vue';
@@ -44,6 +46,8 @@ const title = ref('外部链接');
 const html = ref('');
 const loading = ref(false);
 const error = ref('');
+const openingSystem = ref(false);
+const openError = ref('');
 
 const renderedHtml = computed(() => {
   if (!html.value) return '';
@@ -52,6 +56,8 @@ const renderedHtml = computed(() => {
     html.value.replace(/\s+/g, ' ').replace(/>\s+</g, '><')
   );
 });
+
+const hasPageContent = computed(() => Boolean(coolapkHtmlToPlainText(renderedHtml.value)));
 
 async function loadPage() {
   if (!url.value) return;
@@ -69,15 +75,24 @@ async function loadPage() {
       error.value = `页面返回 HTTP ${data.status}`;
     }
   } catch (err: any) {
-    error.value = err?.message || '抓取页面失败';
+    error.value = err?.message || String(err || '抓取页面失败');
     html.value = '';
   } finally {
     loading.value = false;
   }
 }
 
-function openInSystem() {
-  CoolapkTauriAPI.openUrl(url.value, 'system');
+async function openInSystem() {
+  if (openingSystem.value) return;
+  openingSystem.value = true;
+  openError.value = '';
+  try {
+    await CoolapkTauriAPI.openUrl(url.value, 'system');
+  } catch (err: any) {
+    openError.value = '无法打开系统浏览器：' + (err?.message || String(err));
+  } finally {
+    openingSystem.value = false;
+  }
 }
 
 watch(url, (newUrl) => {
@@ -146,6 +161,13 @@ watch(url, (newUrl) => {
 
 .state-wrapper {
   padding: var(--space-10) 0;
+}
+
+.browser-error {
+  color: var(--danger);
+  font-size: var(--font-size-sub);
+  margin-bottom: var(--space-4);
+  overflow-wrap: anywhere;
 }
 
 .external-content {

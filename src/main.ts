@@ -40,10 +40,10 @@ document.addEventListener('click', (e) => {
   if (!anchor) return;
   const href = anchor.getAttribute('href') || '';
   // 站内相对/锚点链接交给 vue-router 与页面级逻辑
-  if (!href || href.startsWith('/') || href.startsWith('#')) return;
+  if (!href || (href.startsWith('/') && !href.startsWith('//')) || href.startsWith('#')) return;
   e.preventDefault();
-  if (/^https?:\/\//i.test(href)) {
-    void CoolapkTauriAPI.openUrl(anchor.href, useSettingsStore().settings.externalLinkMode);
+  if (/^(https?:)?\/\//i.test(href)) {
+    void CoolapkTauriAPI.openUrl(href.startsWith('//') ? href : anchor.href, useSettingsStore().settings.externalLinkMode);
   }
   // 其余 scheme（javascript:、file: 等）直接静默阻止，协议白名单由 open_url 兜底
 }, false);

@@ -2764,7 +2764,7 @@ pub async fn get_app_list(
 }
 
 #[tauri::command]
-pub fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Result<(), String> {
+pub async fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Result<(), String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static BROWSER_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -2777,10 +2777,15 @@ pub fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Res
         return Err(format!("不支持的链接协议: {scheme}"));
     }
 
-    // mode: "system" 交给系统默认程序；非 http(s) 协议（如 mailto:）也必须走系统默认程序
+    // 非酷安域名直接交给系统浏览器，即使调用方传了 internal 也不创建应用内窗口。
     let system_mode = mode.as_deref() == Some("system");
-    if system_mode || (scheme != "http" && scheme != "https") {
-        return opener::open(&url).map_err(|e| e.to_string());
+    let coolapk_host = parsed.host_str().is_some_and(|host| {
+        host == "coolapk.com" || host.ends_with(".coolapk.com")
+    }) && parsed.username().is_empty() && parsed.password().is_none();
+    if system_mode || !coolapk_host || (scheme != "http" && scheme != "https") {
+        use tauri_plugin_opener::OpenerExt;
+        // 使用插件实例才能在移动端调用 Android Intent / iOS 原生接口。
+        return app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string());
     }
 
     // 应用本身即 WebView 浏览器：外部链接在新开窗口内浏览，不调起系统浏览器

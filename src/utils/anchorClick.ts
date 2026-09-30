@@ -9,7 +9,7 @@ import { openFeedDetail } from './feedNavigation';
  *  - /feed/<id> 站内动态链接 → 进入完整动态页；
  *  - 其余站内路径（/ 开头）优先走内部路由（如 /u/xxx 用户页），
  *    未命中路由时用酷安官网域名拼装，避免加载应用自身 origin 产生空白页；
- *  - http(s) 链接按设置选择应用内新窗口浏览或调起系统浏览器。
+ *  - 酷安网页按设置打开；非酷安域名由 openUrl 直接调起系统浏览器。
  */
 export function handleAnchorClick(e: Event, feedId?: string | number) {
   const anchor = (e.target as HTMLElement).closest('a');
@@ -38,7 +38,7 @@ export function handleAnchorClick(e: Event, feedId?: string | number) {
     return;
   }
 
-  if (href.startsWith('/')) {
+  if (href.startsWith('/') && !href.startsWith('//')) {
     const target = !/^\/feed\//i.test(href) ? href : '';
     if (target && router.resolve(target).matched.length) {
       router.push(target);
@@ -48,5 +48,5 @@ export function handleAnchorClick(e: Event, feedId?: string | number) {
     return;
   }
 
-  CoolapkTauriAPI.openUrl(anchor.href, useSettingsStore().settings.externalLinkMode);
+  CoolapkTauriAPI.openUrl(href.startsWith('//') ? href : anchor.href, useSettingsStore().settings.externalLinkMode);
 }

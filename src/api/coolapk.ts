@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PublishOptions } from '../types/publish';
 import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
-import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
+import { isCoolapkWebUrl, normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
 import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
@@ -1339,7 +1339,10 @@ export class CoolapkTauriAPI {
   }
 
   static async openUrl(url: string, mode: 'internal' | 'system' = 'internal') {
-    if (mode === 'internal') {
+    url = url.trim();
+    if (url.startsWith('//')) url = `https:${url}`;
+    // 站外域名直接调起系统浏览器，不入路由、不抓取外部网页，也不受打开方式设置影响。
+    if (mode === 'internal' && isCoolapkWebUrl(url)) {
       // 酷安站内深链优先交给桌面原生页面处理，避免把 feed、话题、用户、应用、产品
       // 等酷安内容降级成抓取后的纯文本网页。
       const nativeRoute = normalizeCoolapkRoute(url);
@@ -1348,8 +1351,8 @@ export class CoolapkTauriAPI {
         return;
       }
 
-      // 无对应原生页面的 HTTPS 链接再进入安全渲染的外部页面。
-      if (url.startsWith('http://') || url.startsWith('https://')) {
+      // 未适配的酷安网页仍可在应用内查看。
+      if (/^https?:\/\//i.test(url)) {
         await router.push({ path: '/external', query: { url } });
         return;
       }
@@ -1357,7 +1360,9 @@ export class CoolapkTauriAPI {
     // 非 http(s)（如 mailto:）与 system 模式交给系统默认程序
     try {
       await invoke('open_url', { url, mode: 'system' });
-    } catch {
+    } catch (error) {
+      // 原生应用中 window.open 仍是 WebView，无法作为系统浏览器的备用入口。
+      if ('__TAURI_INTERNALS__' in window) throw error;
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
