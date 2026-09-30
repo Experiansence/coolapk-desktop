@@ -81,6 +81,7 @@ export function extractCaptchaParamsFromError(error: unknown): { captchaId: stri
 }
 
 let scriptLoadingPromise: Promise<void> | null = null;
+const SCRIPT_LOAD_TIMEOUT_MS = 15_000;
 
 /**
  * 动态加载网易易盾 Web JS SDK
@@ -97,25 +98,48 @@ export function loadNECaptchaScript(): Promise<void> {
   }
 
   scriptLoadingPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector('script[src*="cstaticdun.126.net/load.min.js"]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('网易易盾验证码脚本加载失败')));
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://cstaticdun.126.net/load.min.js';
-    script.async = true;
-    script.charset = 'utf-8';
-    script.onload = () => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src*="cstaticdun.126.net/load.min.js"]');
+    const script = existing || document.createElement('script');
+    let settled = false;
+    // 旧标签可能已经触发过事件，统一设置超时，避免永远占用全文请求槽。
+    const timeout = window.setTimeout(() => fail(new Error('网易易盾验证码脚本加载超时')), SCRIPT_LOAD_TIMEOUT_MS);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      script.removeEventListener('load', onLoad);
+      script.removeEventListener('error', onError);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      // 失败标签必须移除，下次调用才会发起新的脚本请求。
+      script.remove();
+      reject(error);
+    };
+    const onLoad = () => {
+      if (settled) return;
+      if (!window.initNECaptcha) {
+        fail(new Error('网易易盾初始化函数不可用'));
+        return;
+      }
+      settled = true;
+      cleanup();
       resolve();
     };
-    script.onerror = () => {
-      scriptLoadingPromise = null;
-      reject(new Error('网易易盾验证码加载失败，请检查网络连接'));
-    };
-    document.head.appendChild(script);
+    const onError = () => fail(new Error('网易易盾验证码脚本加载失败'));
+    script.addEventListener('load', onLoad);
+    script.addEventListener('error', onError);
+    if (!existing) {
+      script.src = 'https://cstaticdun.126.net/load.min.js';
+      script.async = true;
+      script.charset = 'utf-8';
+      document.head.appendChild(script);
+    }
+  }).then(() => {
+    scriptLoadingPromise = null;
+  }, (error) => {
+    scriptLoadingPromise = null;
+    throw error;
   });
 
   return scriptLoadingPromise;

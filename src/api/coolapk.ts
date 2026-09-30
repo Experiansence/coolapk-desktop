@@ -517,9 +517,9 @@ export class CoolapkTauriAPI {
       primaryError = error;
       const captchaParams = extractCaptchaParamsFromError(error);
       if (captchaParams) {
-        // 用户完成验证后只重试一次原详情请求，避免反复弹出验证码。
-        const postToken = await verifyWithCaptcha(captchaParams.captchaId);
         try {
+          // 验证码加载失败或用户取消时仍进入网页兜底；验证成功后只重试一次。
+          const postToken = await verifyWithCaptcha(captchaParams.captchaId);
           primaryResponse = await requestDetail(postToken, captchaParams.captchaField);
           const primaryMessage = getFeedDetailMessage(primaryResponse?.data);
           if (primaryMessage && !hasFeedMoreSuffix(primaryMessage)) return primaryResponse;

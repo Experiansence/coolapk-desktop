@@ -65,6 +65,23 @@ describe('动态正文展开', () => {
     expect(wrapper.find('.feed-title').text()).toContain('回答标题');
   });
 
+  it('全文请求失败后恢复按钮，再次展开可以取得完整内容', async () => {
+    mocks.getFeedDetail.mockRejectedValueOnce(new Error('验证码加载失败')).mockResolvedValueOnce({ data: { message: '重试后的完整正文' } });
+    const wrapper = mount(FeedContent, {
+      props: { feedId: '456', message: '正文摘要... 查看更多' },
+      global: { plugins: [createPinia()] },
+    });
+
+    await wrapper.find('.expand-btn').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.expand-btn').attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('.expand-btn').text()).toBe('全文加载失败，重试');
+    await wrapper.find('.expand-btn').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('重试后的完整正文');
+    expect(mocks.getFeedDetail).toHaveBeenCalledTimes(2);
+  });
+
   it('提问卡片在标题前显示明确的提问标识', () => {
     const wrapper = mount(FeedContent, {
       props: { title: '问题标题', message: '问题正文', questionMode: true },

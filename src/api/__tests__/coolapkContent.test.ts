@@ -1,6 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { CoolapkTauriAPI } from '../coolapk';
+import { clearFeedFullTextCache, getFeedFullTextRequestStats, loadFeedFullText } from '../../utils/feedFullTextCache';
 
 function okResponse(data: unknown) {
   return { code: 200, data };
@@ -10,6 +11,66 @@ describe('CoolapkTauriAPI 内容新页接口封装', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockResolvedValue(okResponse([]));
+    clearFeedFullTextCache();
+    delete window.initNECaptcha;
+    document.head.innerHTML = '';
+  });
+
+  afterEach(() => {
+    delete window.initNECaptcha;
+    vi.restoreAllMocks();
+  });
+
+  it('验证码脚本连续加载失败时仍取得网页全文并释放并发槽', async () => {
+    // 在脚本插入后模拟 WebView 的 CSP 拒载，确保第二次也能重新发起加载。
+    const appendChild = document.head.appendChild.bind(document.head);
+    vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
+      const result = appendChild(node);
+      queueMicrotask(() => node.dispatchEvent(new Event('error')));
+      return result;
+    });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'get_feed_detail') throw JSON.stringify({ code: 403, messageStatus: 'err_request_captcha_v2' });
+      return okResponse({ html: JSON.stringify({ data: { message: '网页完整正文' } }) });
+    });
+
+    await expect(loadFeedFullText('456')).resolves.toBe('网页完整正文');
+    await expect(loadFeedFullText('789')).resolves.toBe('网页完整正文');
+    await vi.waitFor(() => expect(getFeedFullTextRequestStats()).toEqual({ active: 0, queued: 0 }));
+    expect(invoke).toHaveBeenNthCalledWith(2, 'fetch_external_page', { url: 'https://www.coolapk.com/feed/456' });
+    expect(invoke).toHaveBeenNthCalledWith(4, 'fetch_external_page', { url: 'https://www.coolapk.com/feed/789' });
+    expect(document.querySelector('script')).toBeNull();
+  });
+
+  it.each(['cancel', 'init', 'retry'])('验证码取消、初始化失败或重试失败时使用网页兜底：%s', async (failure) => {
+    window.initNECaptcha = vi.fn((config, _onLoad, onError) => {
+      if (failure === 'cancel') config.onClose?.();
+      else if (failure === 'init') onError?.(new Error('初始化失败'));
+      else config.onVerify?.(null, { validate: 'validated' });
+    });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'get_feed_detail') throw JSON.stringify({ code: 403, messageStatus: 'err_request_captcha_v2' });
+      return okResponse({ html: JSON.stringify({ data: { message: '网页完整正文' } }) });
+    });
+
+    await expect(CoolapkTauriAPI.getFeedDetail('456')).resolves.toEqual(okResponse({ message: '网页完整正文' }));
+    expect(invoke).toHaveBeenLastCalledWith('fetch_external_page', { url: 'https://www.coolapk.com/feed/456' });
+    expect(invoke).toHaveBeenCalledTimes(failure === 'retry' ? 3 : 2);
+  });
+
+  it('验证码和网页兜底都失败后释放全文请求，允许同帖再次展开', async () => {
+    window.initNECaptcha = vi.fn((_config, _onLoad, onError) => onError?.(new Error('初始化失败')));
+    let webAvailable = false;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'get_feed_detail') throw JSON.stringify({ code: 403, messageStatus: 'err_request_captcha_v2' });
+      return okResponse({ html: webAvailable ? JSON.stringify({ data: { message: '重新取得完整正文' } }) : '' });
+    });
+
+    await expect(loadFeedFullText('456')).rejects.toThrow('初始化失败');
+    await vi.waitFor(() => expect(getFeedFullTextRequestStats()).toEqual({ active: 0, queued: 0 }));
+    webAvailable = true;
+    await expect(loadFeedFullText('456')).resolves.toBe('重新取得完整正文');
+    expect(invoke).toHaveBeenCalledTimes(4);
   });
 
   it('后台正文读取使用独立的游客详情命令', async () => {

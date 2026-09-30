@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   DEFAULT_COOLAPK_CAPTCHA_ID,
   extractCaptchaParamsFromError,
@@ -11,6 +11,11 @@ describe('neteaseCaptcha', () => {
     vi.restoreAllMocks();
     document.head.innerHTML = '';
     delete (window as any).initNECaptcha;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete window.initNECaptcha;
   });
 
   it('exports default coolapk captcha id', () => {
@@ -30,6 +35,52 @@ describe('neteaseCaptcha', () => {
     (window as any).initNECaptcha = vi.fn();
     script?.dispatchEvent(new Event('load'));
     await promise;
+  });
+
+  it('脚本失败后移除标签，并让并发调用共享失败后重新加载', async () => {
+    const first = loadNECaptchaScript();
+    expect(loadNECaptchaScript()).toBe(first);
+    const failure = expect(first).rejects.toThrow('脚本加载失败');
+    const failedScript = document.querySelector('script')!;
+    failedScript.dispatchEvent(new Event('error'));
+    await failure;
+    expect(failedScript.isConnected).toBe(false);
+
+    const retry = loadNECaptchaScript();
+    const newScript = document.querySelector('script')!;
+    expect(newScript).not.toBe(failedScript);
+    window.initNECaptcha = vi.fn();
+    newScript.dispatchEvent(new Event('load'));
+    await retry;
+  });
+
+  it.each([false, true])('脚本无事件时超时清理，已有标签=%s', async (existing) => {
+    vi.useFakeTimers();
+    if (existing) {
+      // 模拟旧代码遗留的失败标签，历史 error 事件不会再次触发。
+      const script = document.createElement('script');
+      script.src = 'https://cstaticdun.126.net/load.min.js';
+      document.head.appendChild(script);
+      script.dispatchEvent(new Event('error'));
+    }
+    const failure = expect(loadNECaptchaScript()).rejects.toThrow('脚本加载超时');
+    await vi.advanceTimersByTimeAsync(15_000);
+    await failure;
+    expect(document.querySelector('script')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const retry = loadNECaptchaScript();
+    window.initNECaptcha = vi.fn();
+    document.querySelector('script')!.dispatchEvent(new Event('load'));
+    await retry;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('脚本加载后没有初始化函数也会清理标签并允许重试', async () => {
+    const failure = expect(loadNECaptchaScript()).rejects.toThrow('初始化函数不可用');
+    document.querySelector('script')!.dispatchEvent(new Event('load'));
+    await failure;
+    expect(document.querySelector('script')).toBeNull();
   });
 
   it('resolves formatted token on successful validation', async () => {
