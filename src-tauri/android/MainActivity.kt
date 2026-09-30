@@ -11,6 +11,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.Keep
 import androidx.core.content.FileProvider
 import java.io.File
 
@@ -54,6 +55,8 @@ class MainActivity : TauriActivity() {
         return uri
     }
 
+    // Rust 通过 JNI 按名称调用，Release 混淆时必须保留方法名称和实现。
+    @Keep
     fun publishUpdateApk(path: String): String = try {
         val file = updateFile(path)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -83,6 +86,8 @@ class MainActivity : TauriActivity() {
         "error:${error.message ?: error.javaClass.simpleName}"
     }
 
+    // 待安装包恢复也由 JNI 调用，不能被当作未使用的方法裁剪。
+    @Keep
     fun isUpdatePackageAvailable(location: String): String = try {
         if (location.startsWith("content://")) updateUri(location) else updateFile(location)
         "available"
@@ -90,6 +95,8 @@ class MainActivity : TauriActivity() {
         "missing"
     }
 
+    // 保留系统安装器入口，避免下载成功后因方法被混淆而无法安装。
+    @Keep
     fun launchUpdateInstaller(location: String): String = try {
         val uri = if (location.startsWith("content://")) {
             updateUri(location)

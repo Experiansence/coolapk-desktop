@@ -3732,16 +3732,20 @@ pub async fn download_update(
             &app,
             "publishUpdateApk",
             path.to_string_lossy().to_string(),
-        ).await?;
-        if published.starts_with("error:") {
-            return Err(published.trim_start_matches("error:").to_string());
-        }
-        if published != "private_fallback" {
-            if !published.starts_with("content://") {
-                return Err(format!("Android 下载目录返回未知结果：{published}"));
+        ).await;
+        // 下载已完成；导出到公共下载目录失败时保留私有 APK，仍可通过 FileProvider 安装。
+        match published {
+            Ok(location) if location.starts_with("content://") => {
+                let _ = tokio::fs::remove_file(&path).await;
+                return Ok(location);
             }
-            let _ = tokio::fs::remove_file(&path).await;
-            return Ok(published);
+            Ok(status) if status == "private_fallback" => {}
+            Ok(status) => {
+                log::warn!("APK 已下载，导出到下载目录失败，使用私有更新包：{status}");
+            }
+            Err(error) => {
+                log::warn!("APK 已下载，调用下载目录导出失败，使用私有更新包：{error}");
+            }
         }
     }
     Ok(path.to_string_lossy().to_string())
@@ -4135,10 +4139,21 @@ async fn call_android_update_method(
                 let value = jni::objects::JString::from(value);
                 Ok(env.get_string(&value)?.into())
             })();
-            if result.is_err() && env.exception_check().unwrap_or(false) {
+            let result = result.map_err(|error| {
+                // JNI 默认只返回 JavaException；清除挂起异常后读取真实原因，便于定位混淆和系统安装器错误。
+                let exception = env.exception_occurred().ok();
                 let _ = env.exception_clear();
-            }
-            let _ = sender.send(result.map_err(|error| error.to_string()));
+                let detail = exception.filter(|value| !value.is_null()).and_then(|exception| {
+                    let value = env.call_method(exception, "toString", "()Ljava/lang/String;", &[]).ok()?.l().ok()?;
+                    let value = jni::objects::JString::from(value);
+                    let detail: String = env.get_string(&value).ok()?.into();
+                    Some(detail)
+                });
+                // 读取异常详情本身也可能抛出异常，不能污染后续 JNI 调用。
+                let _ = env.exception_clear();
+                format!("Android {method} 调用失败：{}", detail.unwrap_or_else(|| error.to_string()))
+            });
+            let _ = sender.send(result);
         });
     }).map_err(|error| format!("调用 Android 安装器失败：{error}"))?;
     tokio::time::timeout(Duration::from_secs(120), receiver)
