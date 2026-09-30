@@ -516,7 +516,14 @@
       >
         {{ loadMoreError }}，点击重试
       </button>
-      <span v-else class="comment-load-more-hint">继续下滑加载更多评论</span>
+      <button
+        v-else
+        type="button"
+        class="comment-load-more-hint"
+        @click.stop="$emit('load-more-comments')"
+      >
+        继续下滑加载更多评论
+      </button>
     </div>
   </div>
 </template>
@@ -1936,6 +1943,8 @@ async function handleSend() {
   border-radius: var(--radius-card, 12px);
   padding: 10px 12px;
   margin-bottom: 14px;
+  /* 键盘弹出时给编辑框下方留出键盘高度，保证表情/图片/发送按钮不被遮挡。 */
+  scroll-margin-bottom: calc(var(--keyboard-inset, 0px) + 16px);
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
 
