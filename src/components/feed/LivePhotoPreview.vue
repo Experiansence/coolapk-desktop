@@ -19,7 +19,7 @@
     />
 
     <video
-      v-if="item.isLivePhoto && resolvedVideoUrl"
+      v-if="item.isLivePhoto && resolvedVideoUrl && videoMounted"
       ref="videoRef"
       class="live-photo-video"
       :src="resolvedVideoUrl"
@@ -84,6 +84,9 @@ const emit = defineEmits<{
 const videoRef = ref<HTMLVideoElement | null>(null);
 // 列表默认只挂载静态封面；视频地址在首次悬浮时才交给 <video>。
 const resolvedVideoUrl = ref('');
+// 只有"打算播放"期间才把 <video> 放进 DOM：暂停后浏览器就没有任何视频画面可画，
+// 静态封面必定回到这一项自己的图，不会残留上一帧或被 iOS 的视频合成层盖住。
+const videoMounted = ref(false);
 const resolving = ref(false);
 const isPlaying = ref(false);
 const videoError = ref(false);
@@ -121,6 +124,7 @@ async function handleMouseEnter() {
   if (!props.item.isLivePhoto) return;
   isHovered.value = true;
   videoError.value = false;
+  videoMounted.value = true;
 
   if (!resolvedVideoUrl.value) {
     const sequence = ++resolveSequence;
@@ -216,6 +220,8 @@ function handleMouseLeave() {
     }
   }
   isPlaying.value = false;
+  // 暂停与移出后立刻卸载视频节点：暂停态下视频不应再参与渲染。
+  videoMounted.value = false;
 }
 
 function handleVideoError(event: Event) {

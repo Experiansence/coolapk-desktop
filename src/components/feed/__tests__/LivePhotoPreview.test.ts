@@ -69,10 +69,20 @@ describe('LivePhotoPreview 触摸端播放', () => {
     await wrapper.get('.live-badge').trigger('click');
     await flushPromises();
     expect(HTMLMediaElement.prototype.pause).not.toHaveBeenCalled();
+    expect(wrapper.find('.live-photo-video').exists()).toBe(true);
 
     await wrapper.get('.live-badge').trigger('click');
     await flushPromises();
     expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1);
+    // 回归：暂停后视频节点必须离开 DOM，否则画面会停在视频的某一帧上
+    // （看起来像另一张图），而不是回到这一项自己的静态封面。
+    expect(wrapper.find('.live-photo-video').exists()).toBe(false);
+
+    // 再次点击能重新挂载并播放，不需要重新解析地址。
+    await wrapper.get('.live-badge').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.live-photo-video').exists()).toBe(true);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
