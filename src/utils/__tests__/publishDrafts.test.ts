@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearPublishDraft, loadPublishDraft, savePublishDraft } from '../publishDrafts';
 import { saveFullPublishDraft, listFullPublishDrafts, restoreFullPublishDraft, deleteFullPublishDraft, type PublishDraftState } from '../publishDrafts';
 
@@ -54,4 +54,15 @@ describe('多篇完整草稿', () => {
     await deleteFullPublishDraft('legacy-1', migrated[0].id);
     expect(await listFullPublishDrafts('legacy-1')).toEqual([]);
   });
+  it('普通视频草稿保留原文件、封面与上传结果，恢复后重新生成预览地址', async () => {
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:restored');
+    const file = new File(['original-video'], 'clip.mov', { type: 'video/quicktime' }), cover = new File(['cover'], 'cover.jpg', { type: 'image/jpeg' });
+    await saveFullPublishDraft('video-draft', 'video', { ...state, video: { file, cover, preview: 'blob:expired', coverPreview: '封面', duration: 1234, mediaUrl: 'https://video.example/clip.mov', mediaInfo: '媒体信息' } });
+    const stored = (await listFullPublishDrafts('video-draft'))[0];
+    expect(stored.state.video).not.toHaveProperty('preview');
+    const restored = restoreFullPublishDraft(stored);
+    expect(restored.video?.file.name).toBe('clip.mov'); expect(restored.video?.file.size).toBe(file.size); expect(restored.video?.preview).toBe('blob:restored'); expect(restored.video?.duration).toBe(1234); expect(restored.video?.mediaUrl).toBe('https://video.example/clip.mov');
+    createUrl.mockRestore();
+  });
+
 });

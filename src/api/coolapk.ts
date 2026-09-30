@@ -1142,6 +1142,11 @@ export class CoolapkTauriAPI {
     return await invokeNative('create_forward', args);
   }
 
+  // 普通视频独立走官方腾讯 UGC 流程。
+  static async uploadPublishVideo(videoBytes: Uint8Array, fileName: string, coverBytes: Uint8Array, duration: number) {
+    return await invokeNative('upload_publish_video', { videoBytes, fileName, coverBytes, duration });
+  }
+
   static async uploadImage(imageBytes: Uint8Array, fileName: string, contentType: string, dir: string = 'feed', toUid?: string, liveVideoBytes?: Uint8Array, hdr = 0) {
     return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid, liveVideoBytes, hdr });
   }
@@ -1605,6 +1610,11 @@ export class CoolapkTauriAPI {
 
   static async getGoodsDetail(goodsId: string) {
     return await invokeNative('get_goods_detail', { goodsId });
+  }
+
+  // 商城搜索结果先转换为酷安好物，不能将商城 SKU 当作好物详情 ID。
+  static async prepareGoodsByUrl(url: string) {
+    return await invokeNative('prepare_goods_by_url', { url });
   }
 
   static async getGoodsListTypes() {

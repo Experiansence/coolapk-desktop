@@ -4458,6 +4458,11 @@ pub async fn search_goods(
 }
 
 #[tauri::command]
+pub async fn prepare_goods_by_url(state: State<'_, AppState>, url: String) -> Result<Value, String> {
+    state.client.prepare_goods_by_url(&url).await
+}
+
+#[tauri::command]
 pub async fn get_goods_detail(
     state: State<'_, AppState>,
     goods_id: String,
@@ -4822,4 +4827,9 @@ mod download_tests {
         assert!(validate_download_path_for_file_operation(&text).is_err());
         let _ = std::fs::remove_dir_all(root);
     }
+}
+
+#[tauri::command]
+pub async fn upload_publish_video(state: State<'_, AppState>, video_bytes: Vec<u8>, file_name: String, cover_bytes: Vec<u8>, duration: u64) -> Result<Value, String> {
+    state.client.upload_publish_video(&video_bytes, &file_name, &cover_bytes, duration).await
 }

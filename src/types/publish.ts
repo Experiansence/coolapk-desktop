@@ -19,4 +19,6 @@ export interface PublishOptions {
   originalType?: 0 | 1 | 2 | 3;
   extraUrl?: string;
   dyhId?: string;
+  mediaUrl?: string;
+  mediaInfo?: string;
 }

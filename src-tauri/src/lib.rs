@@ -1353,6 +1353,8 @@ pub fn run() {
             search_apks_by_tag,
             get_goods_search_hot_words,
             search_goods,
+            coolapk::commands::prepare_goods_by_url,
+            coolapk::commands::upload_publish_video,
             get_goods_detail,
             get_goods_list_types,
             get_goods_list,

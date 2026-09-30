@@ -1,7 +1,9 @@
 <template>
   <div v-if="recommendations.length" class="recommendations" aria-label="推荐话题">
-    <span>推荐话题</span>
-    <button v-for="item in recommendations" :key="item.title" type="button" :title="item.source + '话题'" @mousedown.prevent @click="emit('select', item.title)">#{{ item.title }}# <small>{{ item.source }}</small></button>
+    <!-- 话题保持单行横向浏览，来源放入提示，避免重复标签挤占正文空间。 -->
+    <div class="recommendations-track">
+      <button v-for="item in recommendations" :key="item.title" type="button" :title="`${item.source}话题：${item.title}`" :aria-label="`插入话题${item.title}`" @mousedown.prevent @click="emit('select', item.title)"><span class="topic-symbol" aria-hidden="true">#</span><span class="topic-title">{{ item.title }}</span></button>
+    </div>
   </div>
 </template>
 <script setup lang="ts">
@@ -28,7 +30,13 @@ watch(() => props.uid, async (uid) => {
 watch(() => props.refresh, async () => { const uid = props.uid; const value = await loadRecentPublishTopics(uid); if (uid === props.uid) recent.value = value; });
 </script>
 <style scoped>
-.recommendations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; font-size: var(--font-size-caption); color: var(--text-secondary); align-items: center; }
-button { padding: 4px 8px; border-radius: var(--radius-pill); background: var(--surface); color: var(--brand-primary); }
-small { color: var(--text-tertiary); }
+.recommendations { display: flex; gap: 12px; margin-top: 12px; min-width: 0; align-items: center; }
+.recommendations-track { display: flex; gap: 8px; min-width: 0; flex: 1; overflow-x: auto; padding: 3px 2px 5px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.recommendations-track:hover { scrollbar-color: var(--border) transparent; }
+button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; max-width: 220px; padding: 6px 10px; border: 1px solid var(--border-light); border-radius: var(--radius-pill); background: var(--background); color: var(--text-secondary); font-size: 12px; line-height: 18px; transition: background-color .15s, border-color .15s, color .15s; }
+button:hover { background: var(--brand-soft); border-color: var(--brand-primary); color: var(--brand-primary); }
+button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 1px; }
+.topic-symbol { color: var(--brand-primary); font-size: 14px; font-weight: 600; }
+.topic-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .recommendations { gap: 8px; } button { max-width: 180px; } }
 </style>

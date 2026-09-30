@@ -20,6 +20,9 @@
       </AppButton>
     </div>
 
+    <p v-if="error" class="picker-error" role="alert">{{ error }} <button type="button" :disabled="submitting" @click="emit('retry')">重试</button></p>
+    <p v-if="submitting" class="picker-progress" role="status">正在添加商品…</p>
+
     <div v-if="searching && results.length === 0" class="picker-state">
       <LoadingState text="正在搜索好物..." />
     </div>
@@ -76,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import AppDialog from '../common/AppDialog.vue';
 import AppButton from '../common/AppButton.vue';
 import AppImage from '../common/AppImage.vue';
@@ -89,10 +92,13 @@ import { getErrorMessage } from '../../utils/errors';
 const props = defineProps<{
   isOpen: boolean;
   title?: string;
+  busy?: boolean;
+  error?: string;
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'pick', goods: any): void;
+  (e: 'retry'): void;
 }>();
 
 const keyword = ref('');
@@ -101,7 +107,8 @@ const page = ref(1);
 const searching = ref(false);
 const searched = ref(false);
 const noMore = ref(false);
-const submitting = ref(false);
+// 外层转换商品期间禁止重复选择和关闭，避免后返回的结果覆盖新选择。
+const submitting = computed(() => !!props.busy);
 
 watch(
   () => props.isOpen,
@@ -181,6 +188,9 @@ function close() {
 </script>
 
 <style scoped>
+.picker-error { color: var(--text-secondary); font-size: 13px; margin-bottom: 12px; }
+.picker-error button { color: var(--brand-primary); margin-left: 6px; }
+.picker-progress { color: var(--text-tertiary); font-size: 13px; margin-bottom: 12px; }
 .search-bar {
   display: flex;
   gap: var(--space-2);

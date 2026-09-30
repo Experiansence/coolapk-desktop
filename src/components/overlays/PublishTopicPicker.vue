@@ -1,7 +1,8 @@
 <template>
   <PublishOptionSheet :is-open="true" title="选择话题" @close="emit('close')">
+  <template #search>    <div class="publish-search"><i class="fas fa-search"></i><input v-model="query" placeholder="搜索话题" aria-label="搜索话题" @keydown.enter.prevent="search(true)" /></div></template>
   <section class="topic-picker" aria-label="选择话题">
-    <div class="publish-search"><i class="fas fa-search"></i><input v-model="query" placeholder="搜索话题" aria-label="搜索话题" @keydown.enter.prevent="search(true)" /></div>
+
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="search(true)">重试</button></p>
     <template v-if="!query.trim() && recent.length">
       <div class="publish-picker-heading">最近参与 <button type="button" @click="clearRecent">清空</button></div>

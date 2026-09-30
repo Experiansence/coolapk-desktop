@@ -1,6 +1,6 @@
 <template>
   <section class="target-picker">
-    <div class="target-current"><button type="button" class="publish-setting-row" @click="expanded = true"><i class="fas fa-location-arrow setting-icon"></i><span class="setting-title">发布到</span><span class="setting-value" :class="{ selected: modelValue }">{{ modelValue?.title || '选择话题、应用或产品' }}</span><i class="fas fa-chevron-right setting-arrow"></i></button><button v-if="modelValue" type="button" class="target-remove" aria-label="移除发布板块" @click="emit('update:modelValue', null)">×</button></div>
+    <div class="target-current"><button type="button" class="publish-setting-row" @click="expanded = true"><PublishIcon name="add" class="setting-icon" /><span class="setting-title">{{ modelValue?.title || '发布到' }}</span><span class="setting-value" :class="{ selected: modelValue }">{{ modelValue ? '更换板块' : '选择合适的板块会有更多的赞' }}</span><i class="fas fa-chevron-right setting-arrow"></i></button><button v-if="modelValue" type="button" class="target-remove" aria-label="移除发布板块" @click="emit('update:modelValue', null)"><PublishIcon name="close" /></button></div>
     <PublishOptionSheet :is-open="expanded" title="发布到" @close="expanded = false">
       <div class="publish-search"><i class="fas fa-search"></i><input v-model="query" aria-label="搜索发布板块" placeholder="搜索话题、应用或产品" /></div>
       <div class="tabs publish-picker-tabs"><button v-for="tab in tabs" :key="tab.type" type="button" :class="{ active: type === tab.type }" @click="type = tab.type">{{ tab.title }}</button></div>
@@ -14,6 +14,7 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue';
 import PublishOptionSheet from './PublishOptionSheet.vue';
+import PublishIcon from './PublishIcon.vue';
 import AppImage from '../common/AppImage.vue';
 import '../../styles/publish.css';
 import { CoolapkTauriAPI } from '../../api/coolapk';
@@ -77,9 +78,12 @@ async function choose(target: PublishTarget) {
 watch([query, type], () => { ++revision; loading.value = false; targets.value = []; hasMore.value = false; error.value = ''; clearTimeout(timer); timer = setTimeout(() => void load(true), 500); });
 watch(expanded, (value) => { if (value) void load(true); else { ++revision; clearTimeout(timer); loading.value = false; } });
 onBeforeUnmount(() => { ++revision; clearTimeout(timer); });
+// 工具栏的应用入口复用同一个选择器，并直接定位到应用页签。
+defineExpose({ openPicker: (targetType: PublishTarget['type'] = 'tag') => { type.value = targetType; expanded.value = true; } });
 </script>
 <style scoped>
 .target-current { display: flex; align-items: center; }
 .target-remove { padding: 10px; color: var(--text-tertiary); }
 .target-logo { width: 36px; height: 36px; border-radius: 8px; }
+@media (max-width: 600px) { .target-current .publish-setting-row { height: 56px; padding: 0 16px; border: 0; } .target-current .setting-icon { width: 32px; height: 32px; padding: 4px; } .target-current .setting-value { font-size: 12px; } .target-remove { padding-right: 16px; } .target-remove .publish-icon { width: 16px; height: 16px; } }
 </style>

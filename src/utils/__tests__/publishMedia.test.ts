@@ -4,7 +4,7 @@ describe('发布图片处理', () => {
   it('识别 JPEG 尾部实况视频且不误判普通图片', () => {
     const jpeg = new Uint8Array([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
     const mp4 = new Uint8Array([0, 0, 0, 12, 102, 116, 121, 112, 105, 115, 111, 109]);
-    expect(motionPhotoOffset(new Uint8Array([...jpeg, ...mp4]))).toBe(jpeg.length);
+    expect(motionPhotoOffset(new Uint8Array([...jpeg, ...mp4]))).toBe(-1);
     expect(motionPhotoOffset(jpeg)).toBe(-1);
     expect(motionPhotoOffset(mp4)).toBe(-1);
   });

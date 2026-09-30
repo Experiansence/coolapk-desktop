@@ -20,6 +20,8 @@ pub struct PublishOptions {
     pub original_type: Option<u32>,
     pub extra_url: Option<String>,
     pub dyh_id: Option<String>,
+    pub media_url: Option<String>,
+    pub media_info: Option<String>,
 }
 
 fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
@@ -30,6 +32,12 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
     if options.extra_url.as_ref().is_some_and(|url| url.len() > 4096 || url.starts_with("javascript:") || url.starts_with("data:")) { return Err("附加内容链接无效".to_string()); }
     if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
     if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
+    if let Some(url) = options.media_url.as_deref() {
+        let parsed = reqwest::Url::parse(url).map_err(|_| "视频地址无效")?;
+        if !["http", "https"].contains(&parsed.scheme()) || url.len() > 4096 { return Err("视频地址无效".to_string()); }
+        let info: Value = serde_json::from_str(options.media_info.as_deref().unwrap_or("")).map_err(|_| "视频信息无效")?;
+        if info.get("mediaType").and_then(Value::as_str) != Some("video") { return Err("视频信息无效".to_string()); }
+    } else if options.media_info.is_some() { return Err("视频地址缺失".to_string()); }
     let sub_type = options.sub_type_id.as_deref().unwrap_or("");
     let sub_data = options.sub_data.as_deref().unwrap_or("");
     if !sub_type.is_empty() {
@@ -60,6 +68,8 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
             "is_html_article" if options.large_cover.is_some() => *value = if options.large_cover == Some(true) { "2" } else { "0" }.to_string(),
             "original_type" if options.original_type.is_some() => *value = options.original_type.unwrap_or(0).to_string(),
             "extra_url" if options.extra_url.is_some() => *value = options.extra_url.clone().unwrap_or_default(),
+            "media_url" if options.media_url.is_some() => *value = options.media_url.clone().unwrap_or_default(),
+            "media_info" if options.media_info.is_some() => *value = options.media_info.clone().unwrap_or_default(),
             "dyhId" if options.dyh_id.is_some() => *value = options.dyh_id.clone().unwrap_or_default(),
             "type" if target_type == "apk" => *value = "comment".to_string(),
             _ => {},
@@ -71,7 +81,7 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
 /// 按官方 OSS 清单登记实况关系，视频名使用内容摘要避免同名覆盖。
 fn build_publish_upload_files(image: &[u8], name: &str, live_video: Option<&[u8]>, hdr: u32) -> (String, Option<String>) {
     use md5::{Digest, Md5};
-    let video_name = live_video.map(|video| format!("{:x}.mp4", Md5::digest(video)));
+    let video_name = live_video.map(|video| format!("{:x}.{}", Md5::digest(video), if video.get(8..12) == Some(b"qt  ") { "mov" } else { "mp4" }));
     let mut files = vec![json!({ "name": name, "resolution": image_resolution(image), "md5": format!("{:x}", Md5::digest(image)), "hdr": hdr })];
     if let (Some(video), Some(name)) = (live_video, video_name.as_ref()) {
         files[0]["livePhotoVideo"] = json!(name);
@@ -5910,6 +5920,13 @@ impl CoolapkClient {
     /// 旧接口 /v6/feed/uploadImage 已被酷安服务端下线（旧版本不再支持图片上传），
     /// 改走新版 OSS 直传链路：ossUploadPrepare 获取凭证 → 直传阿里云 OSS → 返回图片地址。
     /// to_uid：私信场景需传对方 uid（dir=message），发动态（dir=feed）可不传。
+    /// 官方先向酷安申请腾讯 UGC 签名，再上传普通视频及封面。
+    pub async fn upload_publish_video(&self, video: &[u8], name: &str, cover: &[u8], duration: u64) -> Result<Value, String> {
+        let response = wrap_api_data(self.api_post("/v6/upload/TXUgcUploadPrepare", &[], &[]).await?)?;
+        let signature = response.get("data").and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or("未获得视频上传签名")?;
+        crate::coolapk::video_upload::upload(signature, video, name, cover, duration).await
+    }
+
     pub async fn upload_image(
         &self,
         image_bytes: &[u8],
@@ -6168,13 +6185,14 @@ impl CoolapkClient {
         let now = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
         let digest = BASE64.encode(Md5::digest(bytes));
         let resource = format!("/{bucket}/{key}");
-        let canonical = format!("PUT\n{digest}\nvideo/mp4\n{now}\nx-oss-security-token:{token}\n{resource}");
+        let content_type = if bytes.get(8..12) == Some(b"qt  ") { "video/quicktime" } else { "video/mp4" };
+        let canonical = format!("PUT\n{digest}\n{content_type}\n{now}\nx-oss-security-token:{token}\n{resource}");
         let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes()).map_err(|error| error.to_string())?;
         mac.update(canonical.as_bytes());
         let signature = BASE64.encode(mac.finalize().into_bytes());
         let host = endpoint.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
         let url = format!("https://{bucket}.{host}/{key}");
-        let response = self.client.put(url).header("Authorization", format!("OSS {id}:{signature}")).header("Content-MD5", digest).header("Content-Type", "video/mp4").header("Date", now).header("x-oss-security-token", token).body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?;
+        let response = self.client.put(url).header("Authorization", format!("OSS {id}:{signature}")).header("Content-MD5", digest).header("Content-Type", content_type).header("Date", now).header("x-oss-security-token", token).body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?;
         if !response.status().is_success() { return Err(format!("实况视频上传失败（HTTP {}）", response.status())); }
         Ok(())
     }
@@ -8154,6 +8172,12 @@ impl CoolapkClient {
             )
             .await?;
         Ok(json!({ "code": 200, "data": Self::extract_entity_rows(&raw) }))
+    }
+
+    /// 对照 APK goods/addGoods，将商城商品链接转换为可附加到动态的 FeedGoods。
+    pub async fn prepare_goods_by_url(&self, url: &str) -> Result<Value, String> {
+        if url.trim().is_empty() { return Err("商品缺少商城链接".to_string()); }
+        wrap_api_data(self.api_post("/v6/goods/addGoods", &[], &[("url", url.to_string())]).await?)
     }
 
     /// 商品/好物详情（FeedGoods）
