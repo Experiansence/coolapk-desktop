@@ -5,7 +5,7 @@
         <FeedTabs
           v-model:active-key="activeTab"
           :tabs="orderedDynamicTabs"
-          :manager-tabs="serverTabs"
+          :manager-tabs="visibleServerTabs"
           @tab-order-updated="handleTabOrderUpdated"
           :active-sub-tab-key="activeFollowSubChannelKey"
           @select-sub-tab="handleHomeSubChannelSelected"
@@ -494,9 +494,10 @@ const headlineRankingRows = computed(() => Math.max(1, Math.ceil(headlineUserIte
 const serverTabs = ref<ConfigPageTab[]>([]);
 const selectedFollowSubChannelKey = ref('');
 const pendingFollowSubChannelKey = ref('');
+const visibleServerTabs = computed<ConfigPageTab[]>(() => serverTabs.value.filter((tab) => !isHomeTopicConfigTab(tab)));
 
 const orderedDynamicTabs = computed<ConfigPageTab[]>(() => {
-  const source = serverTabs.value;
+  const source = visibleServerTabs.value;
   if (!source.length) return [];
   const order = settingsStore.settings.homeTabOrder || [];
   if (!order.length) return source;
@@ -731,6 +732,9 @@ const hotRanks: { key: HotRankType; label: string; icon: string; color: string }
 function getTabKey(tab: ConfigPageTab): string {
   return tab.page_name || tab.url || String(tab.id || tab.title);
 }
+
+// 首页及频道管理都隐藏服务端下发的独立话题入口。
+function isHomeTopicConfigTab(tab: ConfigPageTab): boolean { return String(tab.page_name || '').trim() === 'V9_HOME_TAB_TOPIC' || String(tab.url || '').trim().includes('V9_HOME_TAB_TOPIC') || String(tab.title || '').trim() === '话题'; }
 
 function isHeadlineConfigTab(tab: ConfigPageTab): boolean {
   return tab.page_name === 'V9_HOME_TAB_HEADLINE' || tab.url === '/main/headline' || tab.title === '头条';
