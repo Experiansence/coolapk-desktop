@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn test_publish_target_matches_apk_form() {
+    let mut form = build_create_feed_form("正文", None, None);
+    let options: PublishOptions = serde_json::from_value(json!({"targetType":"apk","targetId":"123"})).unwrap();
+    apply_publish_options(&mut form, &options).unwrap();
+    assert!(form.contains(&("type", "comment".to_string())));
+    assert!(form.contains(&("targetType", "apk".to_string())));
+    assert!(form.contains(&("targetId", "123".to_string())));
+    let invalid: PublishOptions = serde_json::from_value(json!({"targetType":"tag"})).unwrap();
+    assert!(apply_publish_options(&mut form, &invalid).is_err());
+}
+
+#[test]
 fn test_search_response_filters_sponsor_entities_recursively() {
     let raw = serde_json::json!({
         "data": [{

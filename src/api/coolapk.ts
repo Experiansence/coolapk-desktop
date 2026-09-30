@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { PublishOptions } from '../types/publish';
 import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
 import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
@@ -1238,8 +1239,8 @@ export class CoolapkTauriAPI {
   }
 
   // 10. 离线/在线发布动态
-  static async createFeed(message: string, pic?: string, postToken?: string) {
-    const args: any = { message };
+  static async createFeed(message: string, pic?: string, postToken?: string, options?: PublishOptions) {
+    const args: any = { message, options };
     if (pic) args.pic = pic;
     if (postToken) args.postToken = postToken;
     return await invokeNative('create_feed', args);

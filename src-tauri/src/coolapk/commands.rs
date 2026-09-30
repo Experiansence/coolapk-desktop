@@ -2187,10 +2187,11 @@ pub async fn create_feed(
     message: String,
     pic: Option<String>,
     post_token: Option<String>,
+    options: Option<crate::coolapk::client::PublishOptions>,
 ) -> Result<Value, String> {
     state
         .client
-        .create_feed(&message, pic.as_deref(), post_token.as_deref())
+        .create_feed_with_options(&message, pic.as_deref(), post_token.as_deref(), options.as_ref())
         .await
 }
 

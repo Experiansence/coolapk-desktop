@@ -7,6 +7,30 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// 可选字段与界面保持一致，未设置时保留普通动态默认值。
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublishOptions {
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+}
+
+fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
+    let target_type = options.target_type.as_deref().unwrap_or("");
+    let target_id = options.target_id.as_deref().unwrap_or("");
+    if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
+    if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
+    for (key, value) in form.iter_mut() {
+        match *key {
+            "targetType" => *value = target_type.to_string(),
+            "targetId" => *value = target_id.to_string(),
+            "type" if target_type == "apk" => *value = "comment".to_string(),
+            _ => {},
+        }
+    }
+    Ok(())
+}
+
 /// 接口路径需求：记录服务端配置中声明的写接口风控要求。
 ///
 /// `needs_ddid` 标记服务端要求携带 DDI 会话 Cookie 的写接口；请求层会在设置了会话值时添加 `ddid`。
@@ -6631,6 +6655,13 @@ impl CoolapkClient {
             "发布动态失败：",
         )
         .await
+    }
+
+    /// 普通动态扩展选项使用同一个官方表单接口，应用板块按 APK 提交 comment 类型。
+    pub async fn create_feed_with_options(&self, message: &str, pic: Option<&str>, post_token: Option<&str>, options: Option<&PublishOptions>) -> Result<Value, String> {
+        let mut form = build_create_feed_form(message, pic, post_token);
+        if let Some(options) = options { apply_publish_options(&mut form, options)?; }
+        self.submit_create_feed_form(form, "发布动态失败：").await
     }
 
     /// 回答问题（需登录）。APK 仍使用 createFeed，只是 type=answer 且 fid 为问题 ID。
