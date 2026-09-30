@@ -5261,6 +5261,11 @@ impl CoolapkClient {
         )
     }
 
+    /// 发帖话题选择使用官方 searchTag，空关键词同时返回最近参与及热门话题。
+    pub async fn search_publish_topics(&self, query: &str, page: u32, recent_ids: &str) -> Result<Value, String> {
+        wrap_api_data(self.api_get("/v6/feed/searchTag", &[("q", query.to_string()), ("page", page.to_string()), ("recentIds", recent_ids.to_string())]).await?)
+    }
+
     /// 产品详情（按名称）
     /// 数据来源: GET /v6/product/detail?name={name}
     pub async fn get_product_detail_by_name(&self, name: &str) -> Result<Value, String> {

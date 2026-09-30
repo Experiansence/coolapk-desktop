@@ -936,6 +936,12 @@ pub async fn search_feed_topics(
     state.client.search_feed_topics(&query, page).await
 }
 
+// 发帖搜索使用独立接口，避免改变发现页的话题搜索行为。
+#[tauri::command]
+pub async fn search_publish_topics(state: State<'_, AppState>, query: String, page: u32, recent_ids: String) -> Result<Value, String> {
+    state.client.search_publish_topics(&query, page, &recent_ids).await
+}
+
 #[tauri::command]
 pub async fn get_product_detail_by_name(
     state: State<'_, AppState>,

@@ -1315,6 +1315,7 @@ pub fn run() {
             search_users,
             get_search_suggestions_app,
             search_feed_topics,
+            coolapk::commands::search_publish_topics,
             get_product_detail_by_name,
             get_load_config,
             get_home_tab_config,

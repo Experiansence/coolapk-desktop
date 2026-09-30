@@ -1082,6 +1082,11 @@ export class CoolapkTauriAPI {
     return await invokeNative('search_feed_topics', { query, page });
   }
 
+  // 与官方发帖选择器一致，空关键词获取最近参与及热门话题。
+  static async searchPublishTopics(query: string, page = 1, recentIds = '') {
+    return await invokeNative('search_publish_topics', { query, page, recentIds });
+  }
+
   static async getProductDetailByName(name: string) {
     return await invokeNative('get_product_detail_by_name', { name });
   }

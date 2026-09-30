@@ -88,27 +88,8 @@
         </div>
       </div>
 
-      <!-- 话题面板 -->
-      <div v-if="showTopicPanel" class="topic-panel custom-scrollbar">
-        <div class="topic-create">
-          <input v-model="customTopic" type="text" maxlength="80" placeholder="输入自定义话题名称" aria-label="自定义话题名称" @keydown.enter.prevent="insertCustomTopic" />
-          <button type="button" :disabled="!customTopic.trim()" @mousedown.prevent @click="insertCustomTopic">插入话题</button>
-        </div>
-        <div class="topic-panel-label">热门话题</div>
-        <div v-if="topicsLoading" class="panel-tip"><i class="fas fa-circle-notch fa-spin"></i> 正在获取热门话题...</div>
-        <div v-else-if="topics.length === 0" class="panel-tip">暂无热门话题</div>
-        <button
-          v-for="(t, idx) in topics"
-          :key="t.id || t.tag || t.title || idx"
-          class="topic-item"
-          :title="getTopicTitle(t)"
-          @mousedown.prevent
-          @click="insertTopic(getTopicTitle(t))"
-        >
-          <i class="fas fa-hashtag topic-hash"></i>
-          <span class="topic-name">{{ getTopicTitle(t) }}</span>
-        </button>
-      </div>
+      <!-- 话题选择器保留正文光标，选择后替换正在输入的井号片段。 -->
+      <PublishTopicPicker v-if="showTopicPanel" :uid="currentDraftAccount()" :initial-query="topicQuery" @select="selectPublishTopic" />
 
       <div class="publish-toolbar">
         <div class="toolbar-tools">
@@ -172,6 +153,8 @@ import { extractFeedImageInputs, normalizeFeedImageItems } from '../../utils/liv
 import { clearPublishDraft, loadPublishDraft, savePublishDraft } from '../../utils/publishDrafts';
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
+import PublishTopicPicker from './PublishTopicPicker.vue';
+import type { PublishTopic } from '../../utils/publishTopics';
 import AppDialog from '../common/AppDialog.vue';
 import AppButton from '../common/AppButton.vue';
 import AppImage from '../common/AppImage.vue';
@@ -189,11 +172,10 @@ const errorMessage = ref('');
 const showEmojiPanel = ref(false);
 const { recentEmojis, addRecent } = useRecentEmojis();
 const showTopicPanel = ref(false);
-const customTopic = ref('');
+const topicQuery = ref('');
+const topicTriggerStart = ref<number | null>(null);
 // 自定义话题输入框获得焦点后，仍按正文原来的光标位置插入话题。
 const topicInsertOffset = ref(0);
-const topics = ref<any[]>([]);
-const topicsLoading = ref(false);
 const previewMode = ref(false);
 const editLoading = ref(false);
 const editLoadError = ref('');
@@ -224,7 +206,8 @@ watch(() => appStore.isPublishOpen, async (open) => {
     previewMode.value = false;
     showEmojiPanel.value = false;
     showTopicPanel.value = false;
-    customTopic.value = '';
+    topicQuery.value = '';
+    topicTriggerStart.value = null;
     editLoadError.value = '';
     if (appStore.editFeedTarget) {
       editLoading.value = true;
@@ -266,9 +249,6 @@ watch(() => appStore.isPublishOpen, async (open) => {
     await nextTick();
     renderEditor();
     restoringDraft = false;
-    if (topics.value.length === 0 && !topicsLoading.value) {
-      fetchHotTopics();
-    }
     nextTick(() => messageInput.value?.focus());
   }
 });
@@ -360,6 +340,18 @@ function handleEditorInput(event: InputEvent) {
   if (!editor || event.currentTarget !== editor) return;
   if (event.isComposing) { message.value = editorText(editor); return; }
   syncEditor();
+  // 输入未闭合的话题时自动打开选择器；粘贴整段文字不触发选择。
+  if (event.inputType === 'insertText') {
+    const offset = editorOffset();
+    const fragment = message.value.slice(0, offset).match(/(?:^|[\s])#([^#\n]{0,80})$/);
+    if (fragment) {
+      topicTriggerStart.value = offset - fragment[1].length - 1;
+      topicInsertOffset.value = offset;
+      topicQuery.value = fragment[1];
+      showTopicPanel.value = true;
+      showEmojiPanel.value = false;
+    } else if (topicTriggerStart.value !== null) { showTopicPanel.value = false; topicTriggerStart.value = null; }
+  }
 }
 
 function insertAtCursor(text: string, offset?: number) {
@@ -409,30 +401,17 @@ function insertEmoji(name: string) {
   insertAtCursor(`[${name}]`);
 }
 
-function getTopicTitle(t: any): string {
-  if (!t) return '';
-  if (typeof t === 'string') return t;
-  const raw = t.title || t.tag || t.name || t.entityTitle || t.topic_title || t.targetTitle || t.infoHtml || '';
-  if (typeof raw === 'string') {
-    const title = raw.trim();
-    return title.startsWith('#') && title.endsWith('#') ? title.slice(1, -1).trim() : title;
+function selectPublishTopic(topic: PublishTopic) {
+  const start = topicTriggerStart.value;
+  if (start !== null) {
+    const end = topicInsertOffset.value;
+    message.value = message.value.slice(0, start) + message.value.slice(end);
+    renderEditor(start);
   }
-  return '';
-}
-
-function insertTopic(title: string) {
-  // 只去掉话题格式两侧的井号，保留 C# 等名称内部的井号。
-  const raw = String(title || '').trim();
-  const clean = raw.startsWith('#') && raw.endsWith('#') ? raw.slice(1, -1).trim() : raw.replace(/^#/, '').trim();
-  if (!clean) return;
-  insertAtCursor(`#${clean}#`, topicInsertOffset.value);
-  topicInsertOffset.value = editorOffset();
-}
-
-function insertCustomTopic() {
-  if (!customTopic.value.trim()) return;
-  insertTopic(customTopic.value);
-  customTopic.value = '';
+  insertAtCursor(`#${topic.title}# `, start ?? topicInsertOffset.value);
+  showTopicPanel.value = false;
+  topicTriggerStart.value = null;
+  topicQuery.value = '';
 }
 
 function insertAtMention() {
@@ -445,27 +424,11 @@ function toggleEmojiPanel() {
 }
 
 function toggleTopicPanel() {
-  if (!showTopicPanel.value) topicInsertOffset.value = editorOffset();
+  topicInsertOffset.value = editorOffset();
+  topicTriggerStart.value = null;
+  topicQuery.value = '';
   showTopicPanel.value = !showTopicPanel.value;
-  if (showTopicPanel.value) {
-    showEmojiPanel.value = false;
-    fetchHotTopics();
-  }
-}
-
-async function fetchHotTopics() {
-  if (topicsLoading.value) return;
-  topicsLoading.value = true;
-  try {
-    const res = await CoolapkTauriAPI.getHotTopics();
-    if (res && res.data && Array.isArray(res.data)) {
-      topics.value = res.data.slice(0, 20);
-    }
-  } catch (err) {
-    console.warn('获取热门话题失败:', err);
-  } finally {
-    topicsLoading.value = false;
-  }
+  if (showTopicPanel.value) showEmojiPanel.value = false;
 }
 
 function triggerImageUpload() {
