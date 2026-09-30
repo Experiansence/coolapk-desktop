@@ -55,6 +55,10 @@
           @mousemove="onDrag"
           @mouseup="stopDrag"
           @mouseleave="stopDrag"
+          @touchstart="onTouchStart"
+          @touchmove="onTouchMove"
+          @touchend="onTouchEnd"
+          @touchcancel="onTouchCancel"
           @wheel.prevent="handleWheel"
         >
           <img
@@ -64,6 +68,7 @@
             alt="Viewer Image"
             class="viewer-img"
             :style="mediaTransformStyle"
+            :class="{ 'is-touch-dragging': touchDragging }"
             @load="onImageLoaded"
             @dragstart.prevent
           />
@@ -166,6 +171,12 @@ const rotation = ref(0);
 const translateX = ref(0);
 const translateY = ref(0);
 const isDragging = ref(false);
+// 触摸横滑时的实时位移（仅缩放比例为 1 时使用），松手后归零。
+const swipeOffsetX = ref(0);
+// 触摸下滑关闭时的实时位移，松手后归零。
+const swipeOffsetY = ref(0);
+// 触摸滑动期间关闭 transform 过渡，避免跟手位移被 50ms 补间拖出黏滞感。
+const touchDragging = ref(false);
 const savingOriginal = ref(false);
 
 const displaySrc = ref<string>('');
@@ -196,7 +207,7 @@ const currentItem = computed(() => imageItems.value[currentIndex.value] || null)
 const totalCount = computed(() => imageItems.value.length);
 const rawUrl = computed(() => currentItem.value?.sourceUrl || '');
 const mediaTransformStyle = computed(() => ({
-  transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
+  transform: `translate(${translateX.value + swipeOffsetX.value}px, ${translateY.value + swipeOffsetY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
   cursor: isDragging.value ? 'grabbing' : 'grab',
 }));
 
@@ -562,6 +573,8 @@ function resetTransform() {
   rotation.value = 0;
   translateX.value = 0;
   translateY.value = 0;
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
 }
 
 function rotateRight() {
@@ -606,12 +619,18 @@ function handleWheel(e: WheelEvent) {
   scale.value = Number(newScale.toFixed(2));
 }
 
-function handleDoubleClick() {
+function toggleZoom() {
   if (scale.value === 1) {
     scale.value = 1.8;
   } else {
     resetTransform();
   }
+}
+
+function handleDoubleClick() {
+  // 触摸端已经用 touchend 间隔识别过双击，避免同一次双击被鼠标事件再算一遍。
+  if (Date.now() < suppressDoubleClickUntil) return;
+  toggleZoom();
 }
 
 let dragStartX = 0;
@@ -644,7 +663,187 @@ function stopDrag() {
   }, 50);
 }
 
+/* ------------------------------------------------------------------
+ * 触摸手势（移动端）
+ * 缩放比例为 1 时：单指横滑 = 上一张 / 下一张（跟随位移 + 边界阻尼），
+ * 单指下滑 = 关闭查看器，双击 = 放大 / 还原。
+ * 两指：捏合缩放。
+ * 放大后：单指拖动 = 平移图片，避免和切图冲突。
+ * ------------------------------------------------------------------ */
+const SWIPE_SWITCH_DISTANCE = 56;
+const SWIPE_CLOSE_DISTANCE = 120;
+const SWIPE_AXIS_LOCK_RATIO = 1.15;
+const SWIPE_EDGE_RESISTANCE = 0.28;
+const BACKDROP_TAP_GUARD_MS = 400;
+// 触摸端双击判定窗口；与 utils/homeTab 的 360ms 取值保持同一量级。
+const DOUBLE_TAP_MS = 300;
+const PINCH_MIN_SCALE = 0.3;
+const PINCH_MAX_SCALE = 4;
+
+let touchActive = false;
+let touchMoved = false;
+let touchPanMode = false;
+let touchStartX = 0;
+let touchStartY = 0;
+let suppressBackdropTapUntil = 0;
+let suppressDoubleClickUntil = 0;
+let lastTapAt = 0;
+let pinchActive = false;
+let pinchStartDistance = 0;
+let pinchStartScale = 1;
+
+function touchDistance(a: Touch, b: Touch): number {
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
+function onTouchStart(e: TouchEvent) {
+  touchMoved = false;
+  touchPanMode = false;
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+
+  // 双指：捏合缩放。整段手势结束后才重新接管，避免缩放中途误切图。
+  if (e.touches.length === 2) {
+    touchActive = false;
+    pinchActive = true;
+    touchDragging.value = true;
+    pinchStartDistance = touchDistance(e.touches[0], e.touches[1]);
+    pinchStartScale = scale.value;
+    return;
+  }
+
+  pinchActive = false;
+  if (e.touches.length !== 1) {
+    touchActive = false;
+    touchDragging.value = false;
+    return;
+  }
+  touchActive = true;
+  touchDragging.value = true;
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+  if (scale.value > 1) {
+    touchPanMode = true;
+    isDragging.value = true;
+    startX = touch.clientX - translateX.value;
+    startY = touch.clientY - translateY.value;
+  }
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (pinchActive) {
+    if (e.touches.length !== 2 || pinchStartDistance <= 0) return;
+    if (e.cancelable) e.preventDefault();
+    const distance = touchDistance(e.touches[0], e.touches[1]);
+    if (Math.abs(distance - pinchStartDistance) > 8) touchMoved = true;
+    const next = pinchStartScale * (distance / pinchStartDistance);
+    scale.value = Math.min(Math.max(Number(next.toFixed(2)), PINCH_MIN_SCALE), PINCH_MAX_SCALE);
+    return;
+  }
+
+  if (!touchActive) return;
+  if (e.touches.length !== 1) {
+    touchActive = false;
+    touchDragging.value = false;
+    swipeOffsetX.value = 0;
+    swipeOffsetY.value = 0;
+    return;
+  }
+  const touch = e.touches[0];
+  const dx = touch.clientX - touchStartX;
+  const dy = touch.clientY - touchStartY;
+  if (Math.hypot(dx, dy) > 6) touchMoved = true;
+
+  if (touchPanMode) {
+    if (e.cancelable) e.preventDefault();
+    translateX.value = touch.clientX - startX;
+    translateY.value = touch.clientY - startY;
+    return;
+  }
+
+  if (Math.abs(dy) > Math.abs(dx) * SWIPE_AXIS_LOCK_RATIO) {
+    // 竖向手势：下滑关闭。上滑不接管，留给后续可能加入的手势。
+    swipeOffsetX.value = 0;
+    swipeOffsetY.value = dy > 0 ? dy : 0;
+    if (e.cancelable) e.preventDefault();
+    return;
+  }
+
+  if (Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_LOCK_RATIO) {
+    swipeOffsetX.value = 0;
+    return;
+  }
+  if (e.cancelable) e.preventDefault();
+
+  const atStart = currentIndex.value === 0 && dx > 0;
+  const atEnd = currentIndex.value === totalCount.value - 1 && dx < 0;
+  swipeOffsetX.value = (atStart || atEnd) ? dx * SWIPE_EDGE_RESISTANCE : dx;
+}
+
+function endTouchGesture(commitSwipe: boolean) {
+  const offsetX = swipeOffsetX.value;
+  const offsetY = swipeOffsetY.value;
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+  touchDragging.value = false;
+
+  if (pinchActive) {
+    pinchActive = false;
+    return;
+  }
+  if (!touchActive) return;
+  touchActive = false;
+  const panned = touchPanMode;
+  touchPanMode = false;
+
+  // 纯点按：双击缩放，单击交给 click 逻辑处理（点背景关闭）。
+  // 注意放在平移判断之前：放大状态下单击同样不能移动图片，必须仍然允许双击还原。
+  if (!touchMoved) {
+    if (panned) isDragging.value = false;
+    const now = Date.now();
+    if (now - lastTapAt < DOUBLE_TAP_MS) {
+      lastTapAt = 0;
+      suppressBackdropTapUntil = now + BACKDROP_TAP_GUARD_MS;
+      suppressDoubleClickUntil = now + BACKDROP_TAP_GUARD_MS;
+      toggleZoom();
+    } else {
+      lastTapAt = now;
+    }
+    return;
+  }
+
+  if (panned) {
+    isDragging.value = false;
+    suppressBackdropTapUntil = Date.now() + BACKDROP_TAP_GUARD_MS;
+    return;
+  }
+  // 滑动结束后 WebKit 仍可能补发一次 click，避免被当成"点背景"直接关闭。
+  suppressBackdropTapUntil = Date.now() + BACKDROP_TAP_GUARD_MS;
+
+  // 下滑关闭：位移足够直接关闭，否则回弹。
+  if (commitSwipe && offsetY >= SWIPE_CLOSE_DISTANCE) {
+    close();
+    return;
+  }
+  if (!commitSwipe || Math.abs(offsetX) < SWIPE_SWITCH_DISTANCE) return;
+  if (offsetX < 0) next();
+  else prev();
+}
+
+function onTouchEnd(e: TouchEvent) {
+  // 捏合结束时可能还有一根手指在屏幕上，等全部抬起再复位。
+  if (pinchActive && e.touches.length > 0) return;
+  endTouchGesture(true);
+}
+
+function onTouchCancel() {
+  endTouchGesture(false);
+}
+
 function handleBackdropClick(e: MouseEvent) {
+  if (Date.now() < suppressBackdropTapUntil) return;
+
   if (isDraggedMove) {
     isDraggedMove = false;
     return;
@@ -838,6 +1037,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   overflow: hidden;
   position: relative;
   user-select: none;
+  /* 触摸端由脚本接管横滑切图与放大后平移，避免被 WebView 当成滚动/回弹。 */
+  touch-action: none;
 }
 
 .viewer-img {
@@ -851,6 +1052,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   border-radius: 4px;
   transition: transform 0.05s ease-out;
   pointer-events: auto;
+}
+
+/* 触摸拖动期间取消过渡，保证位移严格跟手。 */
+.viewer-img.is-touch-dragging {
+  transition: none;
 }
 
 .viewer-live-video {
@@ -1072,6 +1278,48 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 @media (max-width: 720px) {
   .image-viewer-backdrop {
     inset: 0;
+  }
+
+  /* 顶栏落在刘海/灵动岛区域，必须自行让出安全区（与 MobileTopBar 一致）。 */
+  .viewer-topbar {
+    height: auto;
+    min-height: 44px;
+    align-items: center;
+    padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-left)) 0 max(10px, env(safe-area-inset-right));
+  }
+
+  /* 桌面版整排按钮宽度（约 428px）超过手机可用宽度，这里压缩到能完整放下关闭按钮。 */
+  .topbar-actions {
+    gap: 2px;
+  }
+
+  .viewer-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .zoom-text {
+    min-width: 32px;
+    font-size: 12px;
+  }
+
+  .counter-text {
+    font-size: 13px;
+  }
+
+  .nav-arrow {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .nav-prev { left: 8px; }
+  .nav-next { right: 8px; }
+
+  .viewer-bottombar {
+    bottom: calc(16px + env(safe-area-inset-bottom));
   }
 }
 </style>
