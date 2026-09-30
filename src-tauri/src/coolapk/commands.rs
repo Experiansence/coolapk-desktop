@@ -26,12 +26,68 @@ pub struct LoginSession {
 struct LoginVerification {
     attempted_access_callback: Option<String>,
     completed: bool,
+    #[cfg(any(target_os = "ios", test))]
+    ios_cookie_fingerprint: Option<String>,
+    #[cfg(any(target_os = "ios", test))]
+    ios_cookie_attempts: u8,
+    #[cfg(any(target_os = "ios", test))]
+    ios_cookie_next_retry: Option<Instant>,
 }
 
 impl LoginVerification {
     fn should_exchange(&self, callback: &str, has_session: bool) -> bool {
         has_session && self.attempted_access_callback.as_deref() != Some(callback)
     }
+
+    /// 没有 Cookie 的等待不计次数；同一会话失败四次后暂停十秒，登录后仍可继续同步。
+    #[cfg(any(target_os = "ios", test))]
+    fn should_verify_ios_cookie(&mut self, cookie: &str, callback: Option<&str>) -> bool {
+        let mut pairs = cookie.split(';').map(str::trim).collect::<Vec<_>>();
+        pairs.sort_unstable();
+        let fingerprint = format!("{:x}", Md5::digest(format!("{}\n{}", pairs.join(";"), callback.unwrap_or_default()).as_bytes()));
+        if self.ios_cookie_fingerprint.as_deref() != Some(fingerprint.as_str()) {
+            self.ios_cookie_fingerprint = Some(fingerprint);
+            self.ios_cookie_attempts = 0;
+            self.ios_cookie_next_retry = None;
+        }
+        if self.ios_cookie_attempts >= 4 {
+            if self.ios_cookie_next_retry.is_some_and(|at| Instant::now() < at) { return false; }
+            self.ios_cookie_attempts = 0;
+        }
+        self.ios_cookie_attempts += 1;
+        if self.ios_cookie_attempts == 4 { self.ios_cookie_next_retry = Some(Instant::now() + Duration::from_secs(10)); }
+        true
+    }
+}
+
+/// iOS 官方页面可能在原 URL 内完成短信登录，不依赖网页是否发生跳转。
+#[cfg(any(target_os = "ios", test))]
+fn should_poll_ios_login_cookies(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" { return false; }
+    match url.host_str() {
+        Some("account.coolapk.com") => matches!(url.path().trim_end_matches('/'), "/auth/login" | "/auth/callback"),
+        Some("www.coolapk.com" | "m.coolapk.com" | "coolapk.com") => true,
+        _ => false,
+    }
+}
+
+/// 返回按钮只使用固定导航标记，官方远程页面仍不具备 IPC 权限。
+#[cfg(any(target_os = "ios", test))]
+fn is_ios_login_return_url(url: &reqwest::Url) -> bool {
+    url.scheme() == "coolapk-login" && url.host_str() == Some("return") && matches!(url.path(), "" | "/") && url.username().is_empty() && url.password().is_none() && url.port().is_none() && url.query().is_none() && url.fragment().is_none()
+}
+
+/// 按域名优先级合并 Cookie，account 域覆盖其他子域的同名旧值。
+#[cfg(any(target_os = "ios", test))]
+fn merge_ios_login_cookies(mut cookies: Vec<(String, String, String)>) -> String {
+    cookies.retain(|(domain, name, value)| is_coolapk_cookie_domain(domain) && (name != "SESSID" || CoolapkClient::has_valid_session_cookie(&format!("SESSID={value}"))));
+    cookies.sort_by_key(|(domain, name, value)| {
+        let domain = domain.trim_start_matches('.').to_ascii_lowercase();
+        let priority = match domain.as_str() { "account.coolapk.com" => 3, "coolapk.com" => 2, _ => 1 };
+        (priority, domain, name.clone(), value.clone())
+    });
+    let header = cookies.into_iter().map(|(_, name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ");
+    merge_cookie_headers(None, Some(&header)).unwrap_or_default()
 }
 
 static IMAGE_SAVE_LOCK: Mutex<()> = Mutex::new(());
@@ -2766,7 +2822,19 @@ pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
             })
             .map_err(|error| error.to_string())
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "ios")]
+        {
+            // iOS 没有桌面关窗动画，先隐藏登录窗口，再恢复主窗口为前台窗口。
+            let result = win.hide().and_then(|_| win.close()).map_err(|error| error.to_string());
+            if result.is_ok() {
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
+            }
+            result
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             win.close().map_err(|error| error.to_string())
         }
@@ -2948,10 +3016,9 @@ async fn get_login_webview_cookie<R: tauri::Runtime>(win: &tauri::WebviewWindow<
             let cookies: *mut AnyObject = msg_send![store, httpCookieStore];
             let sender = Mutex::new(Some(sender));
             let completion = block2::RcBlock::new(move |values: std::ptr::NonNull<NSArray<NSHTTPCookie>>| {
-                let header = values.as_ref().iter()
-                    .filter(|cookie| is_coolapk_cookie_domain(&cookie.domain().to_string()))
-                    .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-                    .collect::<Vec<_>>().join("; ");
+                let header = merge_ios_login_cookies(values.as_ref().iter()
+                    .map(|cookie| (cookie.domain().to_string(), cookie.name().to_string(), cookie.value().to_string()))
+                    .collect());
                 if let Some(sender) = sender.lock().ok().and_then(|mut value| value.take()) {
                     login_checkpoint(LoginStage::CookieReadCompleted);
                     let _ = sender.send(header);
@@ -3061,7 +3128,10 @@ async fn verify_login_webview(
     app: &tauri::AppHandle,
     win: &tauri::WebviewWindow,
     session: &LoginSession,
+    automatic: bool,
 ) -> Result<bool, String> {
+    #[cfg(not(target_os = "ios"))]
+    let _ = automatic;
     let mut verification = session.verification.lock().await;
     if verification.completed {
         return Ok(true);
@@ -3088,6 +3158,10 @@ async fn verify_login_webview(
     let has_session = cookie.as_deref().is_some_and(CoolapkClient::has_valid_session_cookie);
     if !has_session {
         log::info!("login.cookie_not_ready");
+        return Ok(false);
+    }
+    #[cfg(target_os = "ios")]
+    if automatic && !verification.should_verify_ios_cookie(cookie.as_deref().unwrap_or_default(), callback.as_deref()) {
         return Ok(false);
     }
     let state = app.state::<AppState>();
@@ -3134,7 +3208,7 @@ pub async fn sync_login_webview(app: tauri::AppHandle) -> Result<bool, String> {
         return Ok(false);
     };
     log::info!("login.manual_sync_started");
-    verify_login_webview(&app, &win, &session).await
+    verify_login_webview(&app, &win, &session, false).await
 }
 
 #[cfg(target_os = "ios")]
@@ -3220,12 +3294,16 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
         })();
     "#
     .replace("__APP_ORIGIN__", &app_origin);
+    #[cfg(target_os = "ios")]
+    let js_script = format!("{js_script}\n{}", include_str!("ios-login-controls.js"));
 
     // 授权回调通常会立即 302 到 forward 页面，定时读取 win.url() 可能完全看不到它。
     // 在 WebView 导航发生时同步捕获回调 URL，再交给异步任务兑换授权码。
     let session = std::sync::Arc::new(LoginSession::default());
     let navigation_session = session.clone();
     let navigation_app_origin = app_origin.clone();
+    #[cfg(target_os = "ios")]
+    let navigation_app = app.clone();
     login_checkpoint(LoginStage::WindowBuildStarted);
     let login_window = tauri::WebviewWindowBuilder::new(
         &app,
@@ -3235,6 +3313,27 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     .title("酷安官方授权登录")
     .inner_size(440.0, 620.0)
     .on_navigation(move |url| {
+        #[cfg(target_os = "ios")]
+        if is_ios_login_return_url(url) {
+            let app = navigation_app.clone();
+            let session = navigation_session.clone();
+            tauri::async_runtime::spawn(async move {
+                let current = app.state::<AppState>().login_session.lock().ok().and_then(|value| value.clone());
+                if !current.as_ref().is_some_and(|value| std::sync::Arc::ptr_eq(value, &session)) { return; }
+                if let Some(win) = app.get_webview_window("login_window") {
+                    log::info!("login.ios_return_requested");
+                    // 退出登录页不恢复旧会话；其他页面返回前先同步，用户无需杀掉应用。
+                    let can_sync = win.url().ok().is_some_and(|url| should_poll_ios_login_cookies(&url));
+                    if can_sync { let _ = verify_login_webview(&app, &win, &session, false).await; }
+                    // 同步期间可能重新打开登录窗口，旧返回任务不能关闭新会话。
+                    let current = app.state::<AppState>().login_session.lock().ok().and_then(|value| value.clone());
+                    if current.as_ref().is_some_and(|value| std::sync::Arc::ptr_eq(value, &session)) && app.get_webview_window("login_window").is_some() {
+                        let _ = close_login_window(app);
+                    }
+                }
+            });
+            return false;
+        }
         if login_callback_kind(url, &navigation_app_origin).is_some()
             && extract_access_code_from_url(url.as_str()).is_some()
         {
@@ -3306,17 +3405,22 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
             }
             let on_landing = url.scheme() == "https"
                 && matches!(url.host_str(), Some("www.coolapk.com" | "m.coolapk.com" | "coolapk.com"));
-            if (callback.is_some() || on_landing) && attempts < 4
+            #[cfg(target_os = "ios")]
+            let ios_cookie_poll = callback.is_some() || should_poll_ios_login_cookies(&url);
+            #[cfg(not(target_os = "ios"))]
+            let ios_cookie_poll = false;
+            // iOS 等待会话写入期间持续轮询，账号校验由会话指纹和失败后的冷却时间限频。
+            if (callback.is_some() || on_landing || ios_cookie_poll) && (attempts < 4 || ios_cookie_poll)
                 && last_attempt.is_none_or(|at| at.elapsed() >= Duration::from_secs(2))
             {
                 attempts += 1;
                 last_attempt = Some(Instant::now());
                 log::info!("login.callback_attempt number={attempts}");
-                match verify_login_webview(&app_handle, &win, &session).await {
+                match verify_login_webview(&app_handle, &win, &session, true).await {
                     Ok(true) => break,
                     _ => log::warn!("login.callback_unverified"),
                 }
-                if attempts == 4 {
+                if attempts == 4 && !ios_cookie_poll {
                     log::warn!("login.callback_retry_exhausted");
                 }
             }
@@ -3332,6 +3436,63 @@ mod login_callback_tests {
         extract_access_code_from_url, extract_callback_param, extract_ck_from_url,
         login_callback_kind, login_failure_kind, LOGIN_WEBVIEW_USER_AGENT,
     };
+
+    #[test]
+    fn ios_waits_for_sms_login_on_account_page_but_not_logout_or_untrusted_pages() {
+        for url in ["https://account.coolapk.com/auth/login", "https://account.coolapk.com/auth/login/?type=coolapk", "https://account.coolapk.com/auth/callback", "https://www.coolapk.com/"] {
+            assert!(super::should_poll_ios_login_cookies(&reqwest::Url::parse(url).unwrap()));
+        }
+        for url in ["https://account.coolapk.com/auth/logout", "https://account.coolapk.com/other", "http://account.coolapk.com/auth/login", "https://account.coolapk.com.evil.test/auth/login"] {
+            assert!(!super::should_poll_ios_login_cookies(&reqwest::Url::parse(url).unwrap()));
+        }
+    }
+
+    #[test]
+    fn ios_limits_same_cookie_verification_but_retries_new_sessions_and_callbacks() {
+        let mut verification = super::LoginVerification::default();
+        for _ in 0..4 { assert!(verification.should_verify_ios_cookie("SESSID=one; uid=12", None)); }
+        assert!(!verification.should_verify_ios_cookie("uid=12; SESSID=one", None));
+        assert!(verification.should_verify_ios_cookie("SESSID=two; uid=12", None));
+        for _ in 0..3 { assert!(verification.should_verify_ios_cookie("SESSID=two; uid=12", None)); }
+        assert!(!verification.should_verify_ios_cookie("SESSID=two; uid=12", None));
+        assert!(verification.should_verify_ios_cookie("SESSID=two; uid=12", Some("new-callback")));
+    }
+
+    #[test]
+    fn ios_resumes_verification_after_cooldown_even_if_login_keeps_the_same_cookie() {
+        let mut verification = super::LoginVerification::default();
+        for _ in 0..4 { assert!(verification.should_verify_ios_cookie("SESSID=unchanged", None)); }
+        assert!(!verification.should_verify_ios_cookie("SESSID=unchanged", None));
+        // 短信登录完成后 Cookie 可能不变，冷却结束必须重新校验，不能永久停掉自动同步。
+        verification.ios_cookie_next_retry = Some(std::time::Instant::now());
+        assert!(verification.should_verify_ios_cookie("SESSID=unchanged", None));
+        assert_eq!(verification.ios_cookie_attempts, 1);
+    }
+
+    #[test]
+    fn ios_cookie_merge_prefers_account_session_and_ignores_expired_or_unrelated_values() {
+        let cookies = vec![
+            ("account.coolapk.com", "SESSID", "account"),
+            ("www.coolapk.com", "SESSID", "web-old"),
+            (".coolapk.com", "SESSID", "root-old"),
+            (".coolapk.com", "uid", "12"),
+            ("account.coolapk.com", "SESSID", "deleted"),
+            ("evil.test", "token", "unrelated"),
+        ].into_iter().map(|(domain, name, value)| (domain.to_string(), name.to_string(), value.to_string())).collect();
+        let header = super::merge_ios_login_cookies(cookies);
+        assert_eq!(header.matches("SESSID=").count(), 1);
+        assert!(header.contains("SESSID=account"));
+        assert!(header.contains("uid=12"));
+        assert!(!header.contains("unrelated"));
+    }
+
+    #[test]
+    fn ios_return_navigation_only_accepts_the_fixed_marker() {
+        assert!(super::is_ios_login_return_url(&reqwest::Url::parse("coolapk-login://return").unwrap()));
+        for url in ["https://return/", "coolapk-login://return/other", "coolapk-login://return?cookie=secret", "coolapk-login://other", "coolapk-login://user@return"] {
+            assert!(!super::is_ios_login_return_url(&reqwest::Url::parse(url).unwrap()));
+        }
+    }
 
     #[test]
     fn missing_cookie_does_not_consume_access_code_exchange() {
