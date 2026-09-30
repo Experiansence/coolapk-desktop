@@ -1,0 +1,33 @@
+import { mount, flushPromises } from '@vue/test-utils';
+import { describe, it, expect, vi } from 'vitest';
+import PublishExtras from '../PublishExtras.vue';
+import { CoolapkTauriAPI } from '../../../api/coolapk';
+vi.mock('../../../api/coolapk', () => ({ CoolapkTauriAPI: { getMyDyhEditorList: vi.fn(), getGoodsDetail: vi.fn() } }));
+describe('内容声明与附加内容', () => {
+  it('原创禁止转载映射为 2，订阅号使用可编辑列表', async () => {
+    vi.mocked(CoolapkTauriAPI.getMyDyhEditorList).mockResolvedValue({ code: 200, data: [{ id: '9', title: '我的订阅号' }] });
+    const wrapper = mount(PublishExtras, { props: { uid: '1', modelValue: { originalType: 1 } }, global: { stubs: { GoodsSearchPickerDialog: true } } });
+    await flushPromises();
+    await wrapper.get('input[type=checkbox]').setValue(true);
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ originalType: 2 });
+    await wrapper.findAll('select')[1].setValue('9');
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ dyhId: '9' });
+    expect(CoolapkTauriAPI.getMyDyhEditorList).toHaveBeenCalledWith(1);
+    wrapper.unmount();
+  });
+  it('读取商品详情后附加真实链接，缺少链接不能发布附件', async () => {
+    vi.mocked(CoolapkTauriAPI.getMyDyhEditorList).mockResolvedValue({ code: 200, data: [] });
+    vi.mocked(CoolapkTauriAPI.getGoodsDetail).mockResolvedValueOnce({ code: 200, data: { url: '/goods/detail?id=8', title: '好物' } }).mockResolvedValueOnce({ code: 200, data: {} });
+    const wrapper = mount(PublishExtras, { props: { uid: '1', modelValue: {} }, global: { stubs: { GoodsSearchPickerDialog: true } } });
+    await flushPromises();
+    const picker = wrapper.findComponent({ name: 'GoodsSearchPickerDialog' });
+    picker.vm.$emit('pick', { id: '8' });
+    await flushPromises();
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ extraUrl: '/goods/detail?id=8' });
+    picker.vm.$emit('pick', { id: '9' });
+    await flushPromises();
+    expect(wrapper.get('[role=alert]').text()).toContain('缺少');
+    expect(wrapper.emitted('update:modelValue')).toHaveLength(1);
+    wrapper.unmount();
+  });
+});

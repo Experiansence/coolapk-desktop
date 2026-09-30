@@ -1,7 +1,7 @@
 <template>
   <AppDialog
     :is-open="isOpen"
-    title="添加好物到清单"
+    :title="title || '添加好物到清单'"
     :width="560"
     :close-on-backdrop="!submitting"
     @close="close"
@@ -88,6 +88,7 @@ import { getErrorMessage } from '../../utils/errors';
 
 const props = defineProps<{
   isOpen: boolean;
+  title?: string;
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;

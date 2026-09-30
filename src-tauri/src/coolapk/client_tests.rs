@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn test_publish_extras_apk_fields() {
+    let options: PublishOptions = serde_json::from_value(json!({"originalType":2,"dyhId":"9","extraUrl":"/goods/detail?id=8"})).unwrap();
+    let mut form = build_create_feed_form("正文", None, None);
+    apply_publish_options(&mut form, &options).unwrap();
+    assert!(form.contains(&("original_type", "2".to_string())));
+    assert!(form.contains(&("dyhId", "9".to_string())));
+    assert!(form.contains(&("extra_url", "/goods/detail?id=8".to_string())));
+    let invalid: PublishOptions = serde_json::from_value(json!({"originalType":4})).unwrap();
+    assert!(apply_publish_options(&mut form, &invalid).is_err());
+}
+
+#[test]
 fn test_publish_live_photo_upload_files() {
     let (files, video_name) = build_publish_upload_files(b"cover", "photo.jpg", Some(b"video"), 1);
     let entries: Value = serde_json::from_str(&files).unwrap();

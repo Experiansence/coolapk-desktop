@@ -100,6 +100,7 @@
         </div>
       </div>
 
+      <PublishExtras v-if="!isEditMode" :uid="currentDraftAccount()" v-model="extraOptions" :attachment-title="attachmentTitle" @attachment-title="attachmentTitle = $event" />
       <PublishTargetPicker v-if="!isEditMode" v-model="publishTarget" />
       <!-- 官方仅自己可见使用 publish_status=1，不能直接把 -1 写到请求表单。 -->
       <label v-if="!isEditMode" class="publish-visibility">谁可以看 <select v-model="visibleStatus" :disabled="submitting"><option :value="1">所有人</option><option :value="-1">仅自己</option></select></label>
@@ -176,6 +177,7 @@ import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
 import PublishTopicPicker from './PublishTopicPicker.vue';
 import PublishTargetPicker from './PublishTargetPicker.vue';
+import PublishExtras from './PublishExtras.vue';
 import type { PublishTarget, PublishOptions } from '../../types/publish';
 import PublishProductOptions from './PublishProductOptions.vue';
 import { validateProductPublish } from '../../utils/publishProduct';
@@ -194,6 +196,8 @@ const MAX_IMAGES = 9;
 const message = ref('');
 const publishTarget = ref<PublishTarget | null>(null);
 const productOptions = ref<PublishOptions>({});
+const extraOptions = ref<PublishOptions>({ originalType: 0, extraUrl: '', dyhId: '' });
+const attachmentTitle = ref('');
 const visibleStatus = ref<1 | -1>(1);
 watch(publishTarget, () => { productOptions.value = {}; });
 const images = ref<PublishImage[]>([]);
@@ -247,6 +251,8 @@ watch(() => appStore.isPublishOpen, async (open) => {
     publishTarget.value = null;
     visibleStatus.value = 1;
     largeCover.value = false;
+    extraOptions.value = { originalType: 0, extraUrl: '', dyhId: '' };
+    attachmentTitle.value = '';
     images.value = [];
     uploadingImages.value = false;
     errorMessage.value = '';
@@ -620,7 +626,7 @@ async function handlePublish() {
 
       const executeCreate = async (postToken?: string) => {
         if (appStore.editFeedTarget) return await CoolapkTauriAPI.updateFeed(String(appStore.editFeedTarget.id), buildFinalMessage(), pic, postToken);
-        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', visibleStatus: visibleStatus.value, largeCover: largeCover.value && !['3', '4'].includes(productOptions.value.subTypeId || ''), ...productOptions.value });
+        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', visibleStatus: visibleStatus.value, largeCover: largeCover.value && !['3', '4'].includes(productOptions.value.subTypeId || ''), ...productOptions.value, ...extraOptions.value });
       };
 
       let res: any;

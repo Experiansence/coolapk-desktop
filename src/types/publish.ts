@@ -16,4 +16,7 @@ export interface PublishOptions {
   subData?: string;
   visibleStatus?: 1 | -1;
   largeCover?: boolean;
+  originalType?: 0 | 1 | 2 | 3;
+  extraUrl?: string;
+  dyhId?: string;
 }

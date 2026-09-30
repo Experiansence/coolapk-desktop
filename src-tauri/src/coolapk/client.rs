@@ -17,12 +17,17 @@ pub struct PublishOptions {
     pub sub_data: Option<String>,
     pub visible_status: Option<i32>,
     pub large_cover: Option<bool>,
+    pub original_type: Option<u32>,
+    pub extra_url: Option<String>,
+    pub dyh_id: Option<String>,
 }
 
 fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
     let target_type = options.target_type.as_deref().unwrap_or("");
     let target_id = options.target_id.as_deref().unwrap_or("");
     if options.visible_status.is_some_and(|status| status != 1 && status != -1) { return Err("动态可见范围无效".to_string()); }
+    if options.original_type.is_some_and(|status| status > 3) { return Err("内容声明无效".to_string()); }
+    if options.extra_url.as_ref().is_some_and(|url| url.len() > 4096 || url.starts_with("javascript:") || url.starts_with("data:")) { return Err("附加内容链接无效".to_string()); }
     if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
     if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
     let sub_type = options.sub_type_id.as_deref().unwrap_or("");
@@ -53,6 +58,9 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
             "targetId" => *value = target_id.to_string(),
             "publish_status" if options.visible_status.is_some() => *value = if options.visible_status == Some(-1) { "1" } else { "0" }.to_string(),
             "is_html_article" if options.large_cover.is_some() => *value = if options.large_cover == Some(true) { "2" } else { "0" }.to_string(),
+            "original_type" if options.original_type.is_some() => *value = options.original_type.unwrap_or(0).to_string(),
+            "extra_url" if options.extra_url.is_some() => *value = options.extra_url.clone().unwrap_or_default(),
+            "dyhId" if options.dyh_id.is_some() => *value = options.dyh_id.clone().unwrap_or_default(),
             "type" if target_type == "apk" => *value = "comment".to_string(),
             _ => {},
         }
