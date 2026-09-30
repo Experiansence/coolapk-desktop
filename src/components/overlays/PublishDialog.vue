@@ -93,6 +93,8 @@
       <!-- 话题选择器保留正文光标，选择后替换正在输入的井号片段。 -->
       <PublishTopicPicker v-if="showTopicPanel" :uid="currentDraftAccount()" :initial-query="topicQuery" @select="selectPublishTopic" />
 
+      <PublishMentionPicker v-if="showMentionPanel" :uid="currentDraftAccount()" :initial-query="mentionQuery" @select="selectMentionUsers" />
+
       <div class="publish-toolbar">
         <div class="toolbar-tools">
           <button
@@ -156,6 +158,7 @@ import { clearPublishDraft, loadPublishDraft, savePublishDraft } from '../../uti
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
 import PublishTopicPicker from './PublishTopicPicker.vue';
+import PublishMentionPicker, { type MentionUser } from './PublishMentionPicker.vue';
 import PublishTopicRecommendations from './PublishTopicRecommendations.vue';
 import type { PublishTopic } from '../../utils/publishTopics';
 import AppDialog from '../common/AppDialog.vue';
@@ -175,6 +178,10 @@ const errorMessage = ref('');
 const showEmojiPanel = ref(false);
 const { recentEmojis, addRecent } = useRecentEmojis();
 const showTopicPanel = ref(false);
+const showMentionPanel = ref(false);
+const mentionQuery = ref('');
+const mentionTriggerStart = ref<number | null>(null);
+const mentionInsertOffset = ref(0);
 const topicQuery = ref('');
 const topicRefresh = ref(0);
 const topicTriggerStart = ref<number | null>(null);
@@ -210,6 +217,8 @@ watch(() => appStore.isPublishOpen, async (open) => {
     previewMode.value = false;
     showEmojiPanel.value = false;
     showTopicPanel.value = false;
+    showMentionPanel.value = false;
+    mentionTriggerStart.value = null;
     topicQuery.value = '';
     topicTriggerStart.value = null;
     editLoadError.value = '';
@@ -354,7 +363,17 @@ function handleEditorInput(event: InputEvent) {
       topicQuery.value = fragment[1];
       showTopicPanel.value = true;
       showEmojiPanel.value = false;
+      showMentionPanel.value = false;
     } else if (topicTriggerStart.value !== null) { showTopicPanel.value = false; topicTriggerStart.value = null; }
+    const mention = message.value.slice(0, offset).match(/(?:^|[\s])@([^@\s]{0,40})$/);
+    if (mention) {
+      mentionTriggerStart.value = offset - mention[1].length - 1;
+      mentionInsertOffset.value = offset;
+      mentionQuery.value = mention[1];
+      showMentionPanel.value = true;
+      showTopicPanel.value = false;
+      showEmojiPanel.value = false;
+    } else if (mentionTriggerStart.value !== null) { showMentionPanel.value = false; mentionTriggerStart.value = null; }
   }
 }
 
@@ -425,12 +444,27 @@ function selectPublishTopic(topic: PublishTopic) {
 }
 
 function insertAtMention() {
-  insertAtCursor('@');
+  mentionInsertOffset.value = editorOffset();
+  mentionTriggerStart.value = null;
+  mentionQuery.value = '';
+  showMentionPanel.value = !showMentionPanel.value;
+  if (showMentionPanel.value) { showTopicPanel.value = false; showEmojiPanel.value = false; }
+}
+
+function selectMentionUsers(users: MentionUser[]) {
+  const start = mentionTriggerStart.value;
+  if (start !== null) {
+    message.value = message.value.slice(0, start) + message.value.slice(mentionInsertOffset.value);
+    renderEditor(start);
+  }
+  insertAtCursor(users.map((user) => `@${user.username} `).join(''), start ?? mentionInsertOffset.value);
+  showMentionPanel.value = false;
+  mentionTriggerStart.value = null;
 }
 
 function toggleEmojiPanel() {
   showEmojiPanel.value = !showEmojiPanel.value;
-  if (showEmojiPanel.value) showTopicPanel.value = false;
+  if (showEmojiPanel.value) { showTopicPanel.value = false; showMentionPanel.value = false; }
 }
 
 function toggleTopicPanel() {
@@ -438,7 +472,7 @@ function toggleTopicPanel() {
   topicTriggerStart.value = null;
   topicQuery.value = '';
   showTopicPanel.value = !showTopicPanel.value;
-  if (showTopicPanel.value) showEmojiPanel.value = false;
+  if (showTopicPanel.value) { showEmojiPanel.value = false; showMentionPanel.value = false; }
 }
 
 function triggerImageUpload() {
