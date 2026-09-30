@@ -69,7 +69,6 @@
             class="viewer-img"
             :style="mediaTransformStyle"
             :class="{ 'is-touch-dragging': touchDragging }"
-            @load="onImageLoaded"
             @dragstart.prevent
           />
           <video
@@ -153,11 +152,11 @@ import { useAppStore } from '../../stores/app';
 import { useSettingsStore } from '../../stores/settings';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { getHdImageUrl, getOriginalImageUrl } from '../../utils/image';
-import { loadImageResource, normalizeResourceUrl } from '../../utils/resourceCache';
+import { getMemoryCachedResourceSync, loadImageResource, normalizeResourceUrl } from '../../utils/resourceCache';
 import { getErrorMessage } from '../../utils/errors';
 import { showToast } from '../../utils/toast';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
-import { normalizeFeedImageItems, resolveLivePhotoVideo } from '../../utils/livePhoto';
+import { normalizeFeedImageItems, resolveLivePhotoVideo, type FeedImageItem } from '../../utils/livePhoto';
 import { detectLiveVideoCodec, getLiveVideoCodecSupport, waitForDecodedVideoFrame, type LiveVideoCodec } from '../../utils/liveVideoCodec';
 
 const appStore = useAppStore();
@@ -211,30 +210,47 @@ const mediaTransformStyle = computed(() => ({
   cursor: isDragging.value ? 'grabbing' : 'grab',
 }));
 
+function itemCoverUrl(item: FeedImageItem): string {
+  return item.coverUrl || item.sourceUrl;
+}
+
+/** 私信图片等走 API 接口的图片（showImage）本身即原图，不做缩略图后缀处理。 */
+function isPassThroughImageUrl(url: string): boolean {
+  return url.includes('/v6/message/showImage') || url.includes('api.coolapk.com');
+}
+
+/**
+ * 该图片首次显示时使用的地址，必须与 loadCurrentMedia 的选择保持一致；
+ * 相邻图片预读也复用这里，避免预读与显示读到两个不同地址而白读一轮。
+ */
+function itemDisplayUrl(item: FeedImageItem): string {
+  const coverUrl = itemCoverUrl(item);
+  if (isPassThroughImageUrl(coverUrl)) return coverUrl;
+  if (item.isLivePhoto) return normalizeResourceUrl(item.sourceUrl || coverUrl);
+  return getHdImageUrl(coverUrl);
+}
+
+/** 该图片的原图地址。 */
+function itemOriginalUrl(item: FeedImageItem): string {
+  if (!item.sourceUrl) return '';
+  if (isPassThroughImageUrl(item.sourceUrl)) return item.sourceUrl;
+  return getOriginalImageUrl(item.sourceUrl);
+}
+
 const currentUrl = computed(() => {
   const item = currentItem.value;
   if (!item) return '';
-  const coverUrl = item.coverUrl || item.sourceUrl;
-  // 私信图片等走 API 接口的图片（showImage）不做缩略图后缀处理
-  if (coverUrl.includes('/v6/message/showImage') || coverUrl.includes('api.coolapk.com')) {
-    return coverUrl;
-  }
-  if (item.isLivePhoto) {
-    return normalizeResourceUrl(rawUrl.value || coverUrl);
-  }
+  // 这一张的原图已经加载过：切回来继续显示原图，不要退回缩略图。
   if (originalLoadedMap.value[currentIndex.value]) {
-    return getOriginalImageUrl(rawUrl.value);
+    const original = itemOriginalUrl(item);
+    if (original) return original;
   }
-  return getHdImageUrl(coverUrl);
+  return itemDisplayUrl(item);
 });
 
 const originalUrl = computed(() => {
-  if (!rawUrl.value) return '';
-  // 私信图片接口本身就返回原图，普通酷安图片则剥离缩略图后缀。
-  if (rawUrl.value.includes('/v6/message/showImage') || rawUrl.value.includes('api.coolapk.com')) {
-    return rawUrl.value;
-  }
-  return getOriginalImageUrl(rawUrl.value);
+  const item = currentItem.value;
+  return item ? itemOriginalUrl(item) : '';
 });
 
 const isCurrentOriginalLoaded = computed(() => Boolean(originalLoadedMap.value[currentIndex.value]));
@@ -252,6 +268,12 @@ async function resolveImageData(url: string): Promise<boolean> {
   }
   if (url.startsWith('data:') || url.startsWith('blob:')) {
     displaySrc.value = url;
+    return true;
+  }
+  // 命中内存缓存时同步贴回，切图不用闪一帧「正在载入高清大图」。
+  const cached = getMemoryCachedResourceSync(url);
+  if (cached) {
+    displaySrc.value = cached;
     return true;
   }
   displaySrc.value = '';
@@ -513,12 +535,31 @@ function loadCurrentMedia() {
     clearMediaForNoImageMode();
     return;
   }
-  if (settingsStore.settings.autoLoadOriginalImage) {
+  if (settingsStore.settings.autoLoadOriginalImage && originalUrl.value) {
     void loadOriginal();
   } else if (currentUrl.value) {
     void resolveImageData(currentUrl.value);
   }
   void resolveCurrentLiveVideo();
+  prefetchAdjacentImages();
+}
+
+/**
+ * 预读左右相邻图片：切图时直接用缓存出图，不必等一次完整的原图下载。
+ * 这里只做预热，不参与 displaySrc；同一地址的并发请求由 resourceCache 合并。
+ */
+function prefetchAdjacentImages() {
+  if (noImageMode.value) return;
+  const items = imageItems.value;
+  if (items.length < 2) return;
+  const prefetchOriginal = settingsStore.settings.autoLoadOriginalImage;
+  for (const offset of [-1, 1]) {
+    const item = items[currentIndex.value + offset];
+    if (!item) continue;
+    const url = (prefetchOriginal ? itemOriginalUrl(item) : '') || itemDisplayUrl(item);
+    if (!url || url.startsWith('data:') || url.startsWith('blob:')) continue;
+    void loadImageResource(url, CoolapkTauriAPI.getImageDataUrl).catch(() => undefined);
+  }
 }
 
 watch(currentItem, () => {
@@ -535,12 +576,17 @@ watch(noImageMode, (enabled) => {
 async function loadOriginal() {
   if (noImageMode.value) return;
   const idx = currentIndex.value;
-  if (originalLoadedMap.value[idx] || originalLoadingMap.value[idx]) return;
-
   const itemSourceUrl = rawUrl.value;
   const url = originalUrl.value;
-  if (!itemSourceUrl || !url) return;
 
+  // 没有原图地址（接口本身只给缩略图）时退回当前显示地址，避免切图后空着。
+  if (!itemSourceUrl || !url) {
+    if (currentUrl.value) await resolveImageData(currentUrl.value);
+    return;
+  }
+
+  // 不再用 originalLoadingMap 拦截"同一张图正在加载"：同一地址的并发请求由
+  // resourceCache 合并，而拦截会让「切走再切回」跳过加载，画面停在上一次的结果。
   originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: true };
   try {
     const loaded = await resolveImageData(url);
@@ -552,18 +598,8 @@ async function loadOriginal() {
       originalLoadedMap.value = { ...originalLoadedMap.value, [idx]: true };
     }
   } finally {
-    if (
-      idx === currentIndex.value
-      && currentItem.value?.sourceUrl === itemSourceUrl
-    ) {
-      originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: false };
-    }
-  }
-}
-
-function onImageLoaded() {
-  const idx = currentIndex.value;
-  if (originalLoadingMap.value[idx]) {
+    // 无论成功、失败还是被切图顶掉都要释放标记：只按"当前是否还是这张图"
+    // 清理会让被切走的那张永久停在加载中，之后切回来既不重新加载也不更新画面。
     originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: false };
   }
 }

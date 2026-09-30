@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../../stores/app';
+import { getMemoryCachedResourceSync, loadImageResource } from '../../../utils/resourceCache';
 import ImageViewer from '../ImageViewer.vue';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -13,9 +14,18 @@ vi.mock('@tauri-apps/api/app', () => ({
 }));
 
 vi.mock('../../../utils/resourceCache', () => ({
-  loadImageResource: vi.fn(async (url: string) => `data:image/png;base64,${btoa(url)}`),
+  loadImageResource: vi.fn(),
   normalizeResourceUrl: (url: string) => url,
+  getMemoryCachedResourceSync: vi.fn(() => null),
 }));
+
+const loadResourceMock = vi.mocked(loadImageResource);
+const memoryCacheMock = vi.mocked(getMemoryCachedResourceSync);
+
+/** 与资源缓存的真实行为一致：返回可区分的 data URL，便于断言画面上是哪一张。 */
+function dataOf(url: string): string {
+  return `data:image/png;base64,${btoa(url)}`;
+}
 
 interface Point {
   clientX: number;
@@ -59,6 +69,9 @@ function counter(wrapper: ReturnType<typeof mount>): string {
 describe('图片查看器触摸手势', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // 每个用例都重新装好默认实现：restoreAllMocks 会清掉工厂里的实现。
+    loadResourceMock.mockImplementation(async (url: string) => dataOf(String(url)));
+    memoryCacheMock.mockReturnValue(null);
   });
 
   it('单指左滑切换到下一张', async () => {
@@ -263,6 +276,66 @@ describe('图片查看器触摸手势', () => {
 
     expect(store.activeImageViewer).not.toBeNull();
     expect(wrapper.get('.viewer-img').attributes('style')).toContain('translate(0px, 0px)');
+    wrapper.unmount();
+  });
+
+  it('切走再切回会重新加载这一张，不会停在上一次的画面', async () => {
+    const pending = new Map<string, Array<(value: string) => void>>();
+    loadResourceMock.mockImplementation((url: string) => {
+      if (String(url).endsWith('/0.jpg')) {
+        return new Promise<string>((resolve) => {
+          const list = pending.get(String(url)) ?? [];
+          list.push(resolve);
+          pending.set(String(url), list);
+        });
+      }
+      return Promise.resolve(dataOf(String(url)));
+    });
+
+    const { wrapper, stage } = await mountViewer(3, 0);
+    // 第一张的原图还在下载，此时切走。
+    expect(wrapper.find('.viewer-loading').exists()).toBe(true);
+
+    await swipe(stage, point(300, 400), point(180, 405));
+    expect(counter(wrapper)).toBe('2 / 3');
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf('https://img.example/1.jpg'));
+
+    const url0 = 'https://img.example/0.jpg';
+    const before = (pending.get(url0) ?? []).length;
+
+    await swipe(stage, point(180, 400), point(300, 400));
+    expect(counter(wrapper)).toBe('1 / 3');
+
+    const requests = pending.get(url0) ?? [];
+    // 关键回归：切回来必须重新发起这一张的加载，而不是被"加载中"标记永久跳过。
+    expect(requests.length).toBe(before + 1);
+
+    requests[requests.length - 1](dataOf(url0));
+    await flushPromises();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(url0));
+    wrapper.unmount();
+  });
+
+  it('打开查看器会预读左右相邻图片', async () => {
+    const { wrapper } = await mountViewer(3, 1);
+
+    const requested = loadResourceMock.mock.calls.map(([url]) => String(url));
+    expect(requested).toContain('https://img.example/0.jpg');
+    expect(requested).toContain('https://img.example/2.jpg');
+    // 预读只预热缓存，不能改变当前显示。
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf('https://img.example/1.jpg'));
+    wrapper.unmount();
+  });
+
+  it('命中内存缓存时直接出图，不显示加载中', async () => {
+    memoryCacheMock.mockImplementation((url?: string) => (
+      url && url.includes('/1.jpg') ? 'data:image/png;base64,CACHED' : null
+    ));
+
+    const { wrapper } = await mountViewer(3, 1);
+
+    expect(wrapper.find('.viewer-loading').exists()).toBe(false);
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe('data:image/png;base64,CACHED');
     wrapper.unmount();
   });
 });
