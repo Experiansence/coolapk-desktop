@@ -56,7 +56,7 @@ jni = "0.21"
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSHTTPCookie"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSHTTPCookie", "NSException", "NSObjCRuntime"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.7"

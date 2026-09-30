@@ -1,5 +1,6 @@
 use crate::coolapk::client::{CoolapkClient, DeviceProfile};
 use crate::download_manager::{DownloadControl, DownloadManager};
+use crate::diagnostics::{login_checkpoint, LoginStage};
 use base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NO_PAD}};
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
@@ -2737,6 +2738,7 @@ pub fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Res
 pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Emitter;
     use tauri::Manager;
+    login_checkpoint(LoginStage::CloseRequested);
     let close_result = if let Some(win) = app.get_webview_window("login_window") {
         #[cfg(target_os = "android")]
         {
@@ -2760,6 +2762,7 @@ pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
     };
     // 即使关窗请求失败，也通知主窗口检查已保存的登录态。
     log::info!("login.window_closed close_ok={}", close_result.is_ok());
+    if close_result.is_ok() { login_checkpoint(LoginStage::CloseCompleted); }
     let _ = app.emit("login-window-closed", ());
     close_result
 }
@@ -2868,6 +2871,7 @@ fn merge_cookie_headers(first: Option<&str>, second: Option<&str>) -> Option<Str
 
 /// 从登录 WebView 的 Cookie 存储读取酷安会话，包含 HttpOnly Cookie。
 async fn get_login_webview_cookie<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<String, String> {
+    login_checkpoint(LoginStage::CookieReadStarted);
     // 在 WebView 线程直接访问系统 CookieManager，不依赖 Activity 或生成类中的自定义方法。
     #[cfg(target_os = "android")]
     {
@@ -2936,6 +2940,7 @@ async fn get_login_webview_cookie<R: tauri::Runtime>(win: &tauri::WebviewWindow<
                     .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
                     .collect::<Vec<_>>().join("; ");
                 if let Some(sender) = sender.lock().ok().and_then(|mut value| value.take()) {
+                    login_checkpoint(LoginStage::CookieReadCompleted);
                     let _ = sender.send(header);
                 }
             });
@@ -3121,28 +3126,23 @@ pub async fn sync_login_webview(app: tauri::AppHandle) -> Result<bool, String> {
 
 #[cfg(target_os = "ios")]
 fn apply_login_safe_area(win: &tauri::WebviewWindow) -> Result<(), String> {
-    use objc2::{msg_send, runtime::AnyObject};
+    use objc2::{msg_send, rc::Retained, runtime::AnyObject};
     win.with_webview(|webview| unsafe {
-        // 将整个官方页面限制在原生安全区内，网页的 fixed 提示也不会覆盖状态栏。
+        login_checkpoint(LoginStage::SafeAreaStarted);
+        // Wry 使用 frame 和自动缩放管理 WebView，保持它的布局方式，避免额外约束影响窗口创建。
         let view = &*(webview.inner() as *const AnyObject);
-        let parent: *mut AnyObject = msg_send![view, superview];
-        if parent.is_null() {
-            return;
-        }
-        let _: () = msg_send![view, setTranslatesAutoresizingMaskIntoConstraints: false];
-        let guide: *mut AnyObject = msg_send![parent, safeAreaLayoutGuide];
-        for selector in [objc2::sel!(topAnchor), objc2::sel!(bottomAnchor), objc2::sel!(leadingAnchor), objc2::sel!(trailingAnchor)] {
-            let anchor: *mut AnyObject = msg_send![view, performSelector: selector];
-            let safe_anchor: *mut AnyObject = msg_send![guide, performSelector: selector];
-            let constraint: *mut AnyObject = msg_send![anchor, constraintEqualToAnchor: safe_anchor];
-            let _: () = msg_send![constraint, setActive: true];
-        }
+        let scroll_view: Retained<AnyObject> = msg_send![view, scrollView];
+        // UIScrollViewContentInsetAdjustmentAlways = 3，由 UIKit 随安全区变化调整正文边距。
+        let _: () = msg_send![&scroll_view, setContentInsetAdjustmentBehavior: 3isize];
+        log::info!("login.safe_area_applied platform=ios mode=scroll_insets");
+        login_checkpoint(LoginStage::SafeAreaCompleted);
     }).map_err(|_| "设置 iOS 登录安全区失败".to_string())
 }
 
 #[tauri::command]
 pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
+    login_checkpoint(LoginStage::OpenRequested);
 
     if let Some(win) = app.get_webview_window("login_window") {
         let _ = win.set_focus();
@@ -3213,6 +3213,7 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     let session = std::sync::Arc::new(LoginSession::default());
     let navigation_session = session.clone();
     let navigation_app_origin = app_origin.clone();
+    login_checkpoint(LoginStage::WindowBuildStarted);
     let login_window = tauri::WebviewWindowBuilder::new(
         &app,
         "login_window",
@@ -3243,6 +3244,7 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     .initialization_script(js_script)
     .build()
     .map_err(|e| e.to_string())?;
+    login_checkpoint(LoginStage::WindowBuildCompleted);
 
     #[cfg(target_os = "ios")]
     if apply_login_safe_area(&window).is_err() {
