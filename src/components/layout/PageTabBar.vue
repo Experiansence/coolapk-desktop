@@ -73,6 +73,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePageTabsStore } from '../../stores/pageTabs';
+import { activateHomeTab } from '../../utils/homeTab';
 
 const router = useRouter();
 const tabsStore = usePageTabsStore();
@@ -102,6 +103,12 @@ function navigate(route: string | null) {
 
 function openTab(id: string) {
   if (suppressClick) return;
+  // 固定首页标签：已在首页时不再重复导航，改为回到顶部（双击再刷新当前栏目）。
+  if (id === 'home') {
+    activateHomeTab(router, { replace: true });
+    closeMenus();
+    return;
+  }
   navigate(tabsStore.activate(id));
   closeMenus();
 }

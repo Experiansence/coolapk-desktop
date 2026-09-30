@@ -348,6 +348,7 @@ import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import type { FeedLayout, ConfigPageTab } from '../types/settings';
 import type { DiscoveryEntity } from '../types/discovery';
 import { getHomeSubChannels, isFollowingHomeTab, resolvePreferredHomeTab, type HomeSubChannel, type HomeSubChannelSelection } from '../utils/homeTabs';
+import { HOME_TAB_REFRESH_EVENT, HOME_TAB_SCROLL_TOP_EVENT } from '../utils/homeTab';
 import { extractHotSearchKeywords, isAnswerSearchEntity } from '../utils/searchEntities';
 import { isQuestionFeedEntity, isQuestionHomeTab } from '../utils/question';
 import { isRatingFeedEntity } from '../utils/rating';
@@ -1469,6 +1470,20 @@ const onRefreshFeeds = () => {
   if (!loading.value && !loadingMore.value) loadFeeds(true);
 };
 
+/** 单击「首页」：回到列表顶部。 */
+const onHomeTabScrollTop = () => resetFeedScroll();
+
+/**
+ * 双击「首页」：回到顶部后按当前栏目重新拉取第一页。
+ *
+ * 直接复用栏目切换那条链路（resetFeedScroll + loadFeeds(true)），所以刷新拿到的是
+ * 当前选中栏目（关注 / 热榜 / 快讯 / 服务端下发的任意频道）的最新内容，不会串到别的栏目。
+ */
+const onHomeTabRefresh = () => {
+  resetFeedScroll();
+  onRefreshFeeds();
+};
+
 function handleFeedDeleted(id: string | number) {
   feeds.value = feeds.value.filter((f: any) => String(f.id) !== String(id));
 }
@@ -1529,6 +1544,8 @@ function bindGlobalListeners() {
   window.addEventListener('feed-nav-prev', onNavPrev);
   window.addEventListener('feed-nav-comment', onNavComment);
   window.addEventListener('refresh-feeds', onRefreshFeeds);
+  window.addEventListener(HOME_TAB_SCROLL_TOP_EVENT, onHomeTabScrollTop);
+  window.addEventListener(HOME_TAB_REFRESH_EVENT, onHomeTabRefresh);
   window.addEventListener('pointerup', handleFeedPointerUp);
   window.addEventListener('pointercancel', handleFeedPointerCancel);
 }
@@ -1538,6 +1555,8 @@ function unbindGlobalListeners() {
   window.removeEventListener('feed-nav-prev', onNavPrev);
   window.removeEventListener('feed-nav-comment', onNavComment);
   window.removeEventListener('refresh-feeds', onRefreshFeeds);
+  window.removeEventListener(HOME_TAB_SCROLL_TOP_EVENT, onHomeTabScrollTop);
+  window.removeEventListener(HOME_TAB_REFRESH_EVENT, onHomeTabRefresh);
   window.removeEventListener('pointerup', handleFeedPointerUp);
   window.removeEventListener('pointercancel', handleFeedPointerCancel);
   resetHomeTabSwipeState();

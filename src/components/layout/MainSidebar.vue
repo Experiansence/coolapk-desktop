@@ -37,7 +37,7 @@
           class="nav-item"
           active-class="is-active"
           :title="item.label"
-          @click="handleNavSelection"
+          @click="handlePrimaryNavClick($event, item.path)"
         >
           <i :class="[item.icon, 'nav-icon']"></i>
           <span v-if="!isCollapsed || mobileOpen" class="nav-label">{{ item.label }}</span>
@@ -133,6 +133,7 @@ import { useNotificationStore } from '../../stores/notifications';
 import { useDownloadStore } from '../../stores/downloads';
 import { APP_VERSION } from '../../constants/version';
 import { triggerSidebarTransition } from '../../utils/routeTransition';
+import { activateHomeTab } from '../../utils/homeTab';
 import { openFeedbackMessage } from '../../utils/feedback';
 
 const route = useRoute();
@@ -152,6 +153,19 @@ const mobileOpen = computed(() => props.mobileOpen);
 function handleNavSelection() {
   emit('closeMobile');
   triggerSidebarTransition();
+}
+
+/**
+ * 一级导航点击。
+ *
+ * 「首页」再点一次时 router-link 的重复导航会被 vue-router 中止，页面停留原地；
+ * 这里接管成「单击回到顶部、双击回到顶部并刷新当前栏目」，与移动端底栏一致。
+ */
+function handlePrimaryNavClick(event: MouseEvent, path: string) {
+  handleNavSelection();
+  if (path !== '/') return;
+  event.preventDefault();
+  activateHomeTab(router);
 }
 
 function handleFeedback() {
