@@ -113,7 +113,14 @@ function getImageUrl(element: HTMLElement): string {
   return image?.dataset.originalUrl || image?.currentSrc || image?.src || '';
 }
 
-function buildContext(event: MouseEvent): ContextState | null {
+/** 构建菜单只需要命中元素与坐标，因此鼠标右键和触摸长按可以共用同一份逻辑。 */
+type ContextPoint = {
+  target: EventTarget | null;
+  clientX: number;
+  clientY: number;
+};
+
+function buildContext(event: ContextPoint): ContextState | null {
   const element = event.target instanceof HTMLElement ? event.target : null;
   if (!element) return null;
   if (element.closest('.app-context-menu')) return null;
@@ -580,13 +587,44 @@ function closeMenu() {
 
 useAndroidBackButton(() => Boolean(menu.value), closeMenu);
 
-function openMenu(event: MouseEvent) {
+/**
+ * 触摸端长按等价于桌面右键。
+ *
+ * 刻意不接管图片、图片载体、链接和输入框：
+ * - iOS 在长按图片/链接时会弹出系统菜单（存储到照片 / 拷贝链接等），那目前是
+ *   本应用在 iOS 上唯一真正可用的存图路径；
+ * - 输入框和可编辑区域本身需要系统选择手柄。
+ * 应用菜单和系统菜单同时弹出只会互相打架，所以这些区域让给系统；
+ * 其余区域（评论、私信、页面空白与普通控件）在 iOS 上没有系统菜单可竞争。
+ */
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
+// Android WebView 自身会在长按时派发 contextmenu，避免同一次手势跑两遍。
+const NATIVE_CONTEXT_MENU_GRACE_MS = 700;
+// 长按抬手后 WebKit 仍可能补发一次 click，避免菜单刚打开就被 window click 关掉。
+const LONG_PRESS_CLICK_GUARD_MS = 400;
+
+let lastNativeContextMenuAt = 0;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let longPressOrigin: { x: number; y: number } | null = null;
+let longPressOpened = false;
+let suppressMenuCloseUntil = 0;
+
+function cancelLongPress() {
+  if (longPressTimer !== null) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+  longPressOrigin = null;
+}
+
+function resolveMenuState(point: ContextPoint): ContextState | null {
   // 标签栏提供收藏、固定和关闭等专用菜单，不能被全局捕获阶段的页面菜单抢先接管。
-  if (event.target instanceof Element && event.target.closest('.page-tab-bar')) return;
-  const state = buildContext(event);
-  if (!state) return;
-  event.preventDefault();
-  event.stopPropagation();
+  if (point.target instanceof Element && point.target.closest('.page-tab-bar')) return null;
+  return buildContext(point);
+}
+
+function applyMenu(state: ContextState) {
   const items = createItems(state);
   const width = 258;
   const estimatedHeight = Math.min(520, items.length * 38 + 16);
@@ -598,6 +636,98 @@ function openMenu(event: MouseEvent) {
   };
 }
 
+function openMenu(event: MouseEvent) {
+  lastNativeContextMenuAt = Date.now();
+  const state = resolveMenuState(event);
+  if (!state) return;
+  event.preventDefault();
+  event.stopPropagation();
+  applyMenu(state);
+}
+
+function openMenuForLongPress(target: EventTarget | null, x: number, y: number): boolean {
+  if (Date.now() - lastNativeContextMenuAt < NATIVE_CONTEXT_MENU_GRACE_MS) return false;
+  if (target instanceof Element && target.closest('img, [data-context-image-url], a[href], input, textarea, select, [contenteditable="true"]')) return false;
+  const state = resolveMenuState({ target, clientX: x, clientY: y });
+  if (!state) return false;
+  applyMenu(state);
+  return true;
+}
+
+function handleWindowClick() {
+  if (Date.now() < suppressMenuCloseUntil) return;
+  closeMenu();
+}
+
+function handleTouchStart(event: TouchEvent) {
+  cancelLongPress();
+  longPressOpened = false;
+  if (event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  longPressOrigin = { x: touch.clientX, y: touch.clientY };
+  const target = event.target;
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    if (!longPressOrigin) return;
+    if (openMenuForLongPress(target, longPressOrigin.x, longPressOrigin.y)) {
+      longPressOpened = true;
+      suppressMenuCloseUntil = Date.now() + LONG_PRESS_CLICK_GUARD_MS;
+    }
+  }, LONG_PRESS_MS);
+}
+
+function handleTouchMove(event: TouchEvent) {
+  if (!longPressOrigin) return;
+  const touch = event.touches[0];
+  if (!touch) {
+    cancelLongPress();
+    return;
+  }
+  if (
+    Math.hypot(touch.clientX - longPressOrigin.x, touch.clientY - longPressOrigin.y)
+    > LONG_PRESS_MOVE_TOLERANCE
+  ) {
+    cancelLongPress();
+  }
+}
+
+function handleTouchEnd(event: TouchEvent) {
+  cancelLongPress();
+  const opened = longPressOpened;
+  longPressOpened = false;
+  // 阻止这次抬手派生的 click 与系统选单。
+  if (opened && event.cancelable) event.preventDefault();
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeMenu();
+}
+
+onMounted(() => {
+  window.addEventListener('contextmenu', openMenu, true);
+  window.addEventListener('click', handleWindowClick);
+  window.addEventListener('keydown', handleKeydown, true);
+  window.addEventListener('resize', closeMenu);
+  window.addEventListener('scroll', closeMenu, true);
+  window.addEventListener('touchstart', handleTouchStart, { capture: true, passive: true });
+  window.addEventListener('touchmove', handleTouchMove, { capture: true, passive: true });
+  window.addEventListener('touchend', handleTouchEnd, { capture: true, passive: false });
+  window.addEventListener('touchcancel', handleTouchEnd, { capture: true, passive: false });
+});
+
+onUnmounted(() => {
+  cancelLongPress();
+  window.removeEventListener('contextmenu', openMenu, true);
+  window.removeEventListener('click', handleWindowClick);
+  window.removeEventListener('keydown', handleKeydown, true);
+  window.removeEventListener('resize', closeMenu);
+  window.removeEventListener('scroll', closeMenu, true);
+  window.removeEventListener('touchstart', handleTouchStart, true);
+  window.removeEventListener('touchmove', handleTouchMove, true);
+  window.removeEventListener('touchend', handleTouchEnd, true);
+  window.removeEventListener('touchcancel', handleTouchEnd, true);
+});
+
 async function run(itemToRun: MenuItem) {
   if (!itemToRun.action || itemToRun.disabled) return;
   closeMenu();
@@ -608,26 +738,6 @@ async function run(itemToRun: MenuItem) {
     showToast(`操作失败：${String(error)}`, 'error', 2400);
   }
 }
-
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeMenu();
-}
-
-onMounted(() => {
-  window.addEventListener('contextmenu', openMenu, true);
-  window.addEventListener('click', closeMenu);
-  window.addEventListener('keydown', handleKeydown, true);
-  window.addEventListener('resize', closeMenu);
-  window.addEventListener('scroll', closeMenu, true);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('contextmenu', openMenu, true);
-  window.removeEventListener('click', closeMenu);
-  window.removeEventListener('keydown', handleKeydown, true);
-  window.removeEventListener('resize', closeMenu);
-  window.removeEventListener('scroll', closeMenu, true);
-});
 </script>
 
 <style scoped>
