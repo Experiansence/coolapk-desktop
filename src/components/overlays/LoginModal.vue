@@ -788,6 +788,13 @@ onUnmounted(() => {
 }
 
 @media (pointer: coarse) {
+  /* iOS 软键盘弹出时布局视口不变，只有 visualViewport 收缩并整体上移。
+     遮罩贴合可视区域后，弹窗才会居中在键盘上方，而不是被顶出屏幕一半。 */
+  .login-overlay {
+    top: var(--app-viewport-top, 0px);
+    height: var(--app-viewport-height, 100%);
+  }
+
   /* 移动端关闭按钮是唯一常驻出口（Esc 与 Android 返回键在 iOS 上都无效）。 */
   .close-btn {
     width: 44px;

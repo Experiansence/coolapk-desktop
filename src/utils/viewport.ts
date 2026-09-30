@@ -6,6 +6,7 @@
  * 并在键盘弹出时把焦点所在的输入区域滚进可视范围。
  */
 export const APP_VIEWPORT_HEIGHT_VAR = '--app-viewport-height';
+export const APP_VIEWPORT_TOP_VAR = '--app-viewport-top';
 export const KEYBOARD_INSET_VAR = '--keyboard-inset';
 
 /** 判定"键盘刚刚弹出"的高度差阈值，小于它视为地址栏之类的常规抖动。 */
@@ -16,13 +17,15 @@ const KEYBOARD_SCROLL_DELAY_MS = 120;
 export interface ViewportMetrics {
   /** 当前真正可见的高度（px）。 */
   height: number;
+  /** 可视视口相对布局视口的纵向偏移（px）：iOS 键盘把整页顶上去时大于 0。 */
+  top: number;
   /** 被软键盘遮住的高度（px），键盘未弹出时为 0。 */
   keyboardInset: number;
 }
 
 type ViewportHost = {
   innerHeight: number;
-  visualViewport?: { height: number } | null;
+  visualViewport?: { height: number; offsetTop?: number } | null;
 };
 
 /**
@@ -34,7 +37,8 @@ export function measureViewport(host: ViewportHost): ViewportMetrics {
   const layoutHeight = Math.max(0, Math.round(host.innerHeight || 0));
   const visualHeight = Math.max(0, Math.round(host.visualViewport?.height ?? layoutHeight));
   const height = Math.min(layoutHeight, visualHeight);
-  return { height, keyboardInset: Math.max(0, layoutHeight - height) };
+  const top = Math.max(0, Math.round(host.visualViewport?.offsetTop ?? 0));
+  return { height, top, keyboardInset: Math.max(0, layoutHeight - height) };
 }
 
 export function applyViewportMetrics(
@@ -43,6 +47,7 @@ export function applyViewportMetrics(
 ): void {
   if (!root) return;
   root.style.setProperty(APP_VIEWPORT_HEIGHT_VAR, `${metrics.height}px`);
+  root.style.setProperty(APP_VIEWPORT_TOP_VAR, `${metrics.top}px`);
   root.style.setProperty(KEYBOARD_INSET_VAR, `${metrics.keyboardInset}px`);
 }
 

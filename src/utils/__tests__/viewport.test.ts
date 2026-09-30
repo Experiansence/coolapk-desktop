@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APP_VIEWPORT_HEIGHT_VAR,
+  APP_VIEWPORT_TOP_VAR,
   KEYBOARD_INSET_VAR,
   applyViewportMetrics,
   measureViewport,
@@ -10,14 +11,16 @@ import {
 
 interface FakeViewport {
   height: number;
+  offsetTop: number;
   addEventListener: (type: string, listener: () => void) => void;
   removeEventListener: (type: string, listener: () => void) => void;
 }
 
-function installVisualViewport(height: number) {
+function installVisualViewport(height: number, offsetTop = 0) {
   const listeners = new Map<string, Set<() => void>>();
   const viewport: FakeViewport = {
     height,
+    offsetTop,
     addEventListener(type, listener) {
       if (!listeners.has(type)) listeners.set(type, new Set());
       listeners.get(type)!.add(listener);
@@ -50,6 +53,7 @@ describe('viewport 键盘适配', () => {
   afterEach(() => {
     delete (window as unknown as { visualViewport?: unknown }).visualViewport;
     document.documentElement.style.removeProperty(APP_VIEWPORT_HEIGHT_VAR);
+    document.documentElement.style.removeProperty(APP_VIEWPORT_TOP_VAR);
     document.documentElement.style.removeProperty(KEYBOARD_INSET_VAR);
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -58,6 +62,7 @@ describe('viewport 键盘适配', () => {
   it('没有 visualViewport 时按布局视口计算且不计键盘遮挡', () => {
     expect(measureViewport({ innerHeight: 852, visualViewport: null })).toEqual({
       height: 852,
+      top: 0,
       keyboardInset: 0,
     });
   });
@@ -65,6 +70,7 @@ describe('viewport 键盘适配', () => {
   it('键盘弹出时用可视高度并算出遮挡高度', () => {
     expect(measureViewport({ innerHeight: 852, visualViewport: { height: 516 } })).toEqual({
       height: 516,
+      top: 0,
       keyboardInset: 336,
     });
   });
@@ -72,14 +78,21 @@ describe('viewport 键盘适配', () => {
   it('可视视口比布局视口更大时取布局视口，不产生负数遮挡', () => {
     expect(measureViewport({ innerHeight: 600, visualViewport: { height: 900 } })).toEqual({
       height: 600,
+      top: 0,
       keyboardInset: 0,
     });
   });
 
+  it('iOS 把整页顶上去时带出可视视口偏移，弹窗才能贴合可见区域', () => {
+    expect(measureViewport({ innerHeight: 852, visualViewport: { height: 516, offsetTop: 240 } }))
+      .toEqual({ height: 516, top: 240, keyboardInset: 336 });
+  });
+
   it('把度量写入 CSS 变量', () => {
     const root = document.createElement('div');
-    applyViewportMetrics({ height: 516, keyboardInset: 336 }, root);
+    applyViewportMetrics({ height: 516, top: 240, keyboardInset: 336 }, root);
     expect(root.style.getPropertyValue(APP_VIEWPORT_HEIGHT_VAR)).toBe('516px');
+    expect(root.style.getPropertyValue(APP_VIEWPORT_TOP_VAR)).toBe('240px');
     expect(root.style.getPropertyValue(KEYBOARD_INSET_VAR)).toBe('336px');
   });
 
