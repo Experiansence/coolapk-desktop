@@ -17,6 +17,7 @@ export interface NECaptchaConfig {
   captchaId: string;
   element?: string | HTMLElement;
   mode?: 'float' | 'embed' | 'popup';
+  apiVersion?: 2;
   width?: string | number;
   lang?: string;
   onReady?: (instance: NECaptchaInstance) => void;
@@ -26,7 +27,7 @@ export interface NECaptchaConfig {
 }
 
 export interface NECaptchaInstance {
-  popup: () => void;
+  verify: () => void;
   refresh: () => void;
   destroy: () => void;
 }
@@ -186,6 +187,7 @@ export async function verifyWithCaptcha(captchaId = DEFAULT_COOLAPK_CAPTCHA_ID):
         captchaId,
         element: container,
         mode: 'popup',
+        apiVersion: 2,
         width: '320px',
         lang: 'zh-CN',
         onReady: (instance) => {
@@ -219,7 +221,19 @@ export async function verifyWithCaptcha(captchaId = DEFAULT_COOLAPK_CAPTCHA_ID):
       },
       (instance) => {
         captchaInstance = instance;
-        instance.popup();
+        if (typeof instance.verify !== 'function') {
+          resolved = true;
+          cleanup();
+          reject(new Error('易盾验证码实例不支持弹出验证'));
+          return;
+        }
+        try {
+          instance.verify();
+        } catch (error) {
+          resolved = true;
+          cleanup();
+          reject(error instanceof Error ? error : new Error('唤起易盾验证码失败'));
+        }
       },
       (err) => {
         cleanup();
