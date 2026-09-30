@@ -6,7 +6,7 @@ vi.mock('../../../api/coolapk', () => ({ CoolapkTauriAPI: { searchUsers: vi.fn()
 vi.mock('../../../utils/tauriStore', () => ({ readTauriStoreValue: vi.fn(async () => [{ uid: '1', username: '酷友甲' }]), writeTauriStoreValue: vi.fn() }));
 describe('发帖提醒选择', () => {
   it('读取最近联系人并插入已选择酷友', async () => {
-    const wrapper = mount(PublishMentionPicker, { props: { uid: '9' } });
+    const wrapper = mount(PublishMentionPicker, { global: { stubs: { teleport: true } }, props: { uid: '9' } });
     await flushPromises();
     await wrapper.get('input[type=checkbox]').setValue(true);
     await wrapper.findAll('button').at(-1)!.trigger('click');
@@ -15,7 +15,7 @@ describe('发帖提醒选择', () => {
   });
   it('分页去重并允许多选关注列表', async () => {
     vi.mocked(CoolapkTauriAPI.getFollowUserList).mockResolvedValueOnce({ code: 200, data: [{ userInfo: { uid: '2', username: '酷友乙' } }] }).mockResolvedValueOnce({ code: 200, data: [{ uid: '2', username: '酷友乙' }, { uid: '3', username: '酷友丙' }] });
-    const wrapper = mount(PublishMentionPicker, { props: { uid: '9' } });
+    const wrapper = mount(PublishMentionPicker, { global: { stubs: { teleport: true } }, props: { uid: '9' } });
     await flushPromises();
     await wrapper.findAll('.tabs button')[1].trigger('click');
     await flushPromises();

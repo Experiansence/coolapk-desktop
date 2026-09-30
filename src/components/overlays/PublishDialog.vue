@@ -3,18 +3,19 @@
     :is-open="appStore.isPublishOpen && !shuzilmGuideState.visible"
     :title="isEditMode ? '重新编辑动态' : '发布新动态'"
     :width="720"
+    dialog-class="publish-dialog"
     @close="closePublish"
   >
+    <template #header><button type="button" class="publish-back" aria-label="返回" :disabled="submitting" @click="closePublish"><i class="fas fa-arrow-left"></i></button><h3 class="publish-title">{{ isEditMode ? '重新编辑' : '发动态' }}</h3><button v-if="!isEditMode" type="button" class="header-drafts" :disabled="submitting || savingDraft" @click="showDrafts = true">草稿（{{ draftList.length }}）</button><AppButton class="mobile-publish" variant="primary" :disabled="editLoading || !!editLoadError || processingMedia || (!message.trim() && images.length === 0) || submitting" :loading="submitting" @click="handlePublish">{{ isEditMode ? '保存' : '发布' }}</AppButton></template>
     <div class="publish-container">
       <div v-if="editLoading" class="panel-tip">正在读取可编辑动态...</div>
       <div v-else-if="editLoadError" class="error-tip"><i class="fas fa-exclamation-circle"></i> {{ editLoadError }}</div>
       <template v-else>
       <fieldset :disabled="submitting || savingDraft" class="publish-fields">
-      <div v-if="!isEditMode" class="draft-tools"><button type="button" @click="showDrafts = !showDrafts">草稿箱（{{ draftList.length }}）</button><button type="button" @click="newDraft">新建草稿</button><span>{{ savingDraft ? '保存草稿中…' : '自动保存草稿' }}</span></div>
-      <div v-if="showDrafts && !isEditMode" class="draft-list">
-        <div v-for="draft in draftList" :key="draft.id"><button type="button" @click="switchDraft(draft)">{{ draft.title }} · {{ draft.state.images.length }} 张图片</button><button type="button" @click="removeDraft(draft.id)">删除</button></div>
-        <p v-if="!draftList.length">暂无草稿</p>
-      </div>
+      <PublishOptionSheet :is-open="showDrafts && !isEditMode" title="草稿箱" @close="showDrafts = false">
+        <div class="draft-list"><div v-for="draft in draftList" :key="draft.id" class="draft-card"><button type="button" class="draft-open" @click="switchDraft(draft)"><span class="draft-title">{{ draft.title }}</span><span class="draft-meta">{{ draft.state.images.length }} 张图片 · {{ draft.state.target?.title || '普通动态' }}</span></button><button type="button" class="draft-delete" :disabled="savingDraft" :aria-label="`删除草稿${draft.title}`" @click="removeDraft(draft.id)"><i class="far fa-trash-alt"></i></button></div><p v-if="!draftList.length" class="publish-picker-state">暂无草稿</p></div>
+        <template #footer><button type="button" class="publish-confirm" :disabled="savingDraft" @click="newDraft">新建草稿</button></template>
+      </PublishOptionSheet>
       <div v-if="previewMode" class="preview-box custom-scrollbar">
         <div class="preview-content" v-html="previewHtml"></div>
         <div v-if="!message.trim()" class="preview-empty">输入内容后此处显示预览效果</div>
@@ -105,17 +106,12 @@
         </div>
       </div>
 
-      <PublishExtras v-if="!isEditMode" :uid="currentDraftAccount()" v-model="extraOptions" :attachment-title="attachmentTitle" @attachment-title="attachmentTitle = $event" />
-      <PublishTargetPicker v-if="!isEditMode" v-model="publishTarget" />
-      <!-- 官方仅自己可见使用 publish_status=1，不能直接把 -1 写到请求表单。 -->
-      <label v-if="!isEditMode" class="publish-visibility">谁可以看 <select v-model="visibleStatus" :disabled="submitting"><option :value="1">所有人</option><option :value="-1">仅自己</option></select></label>
-      <PublishProductOptions v-if="!isEditMode && publishTarget?.type === 'product_phone'" :target="publishTarget" v-model="productOptions" />
       <PublishTopicRecommendations :node-type="publishTarget?.type === 'tag' ? '3' : publishTarget?.type === 'apk' ? '1' : publishTarget?.type === 'product_phone' ? '7' : '0'" :node-name="publishTarget?.title || ''" :uid="currentDraftAccount()" :text="message" :cursor="topicInsertOffset" :refresh="topicRefresh" @select="insertRecommendedTopic" />
 
       <!-- 话题选择器保留正文光标，选择后替换正在输入的井号片段。 -->
-      <PublishTopicPicker v-if="showTopicPanel" :uid="currentDraftAccount()" :initial-query="topicQuery" @select="selectPublishTopic" />
+      <PublishTopicPicker v-if="showTopicPanel" :uid="currentDraftAccount()" :initial-query="topicQuery" @select="selectPublishTopic" @close="showTopicPanel = false" />
 
-      <PublishMentionPicker v-if="showMentionPanel" :uid="currentDraftAccount()" :initial-query="mentionQuery" @select="selectMentionUsers" />
+      <PublishMentionPicker v-if="showMentionPanel" :uid="currentDraftAccount()" :initial-query="mentionQuery" @select="selectMentionUsers" @close="showMentionPanel = false" />
 
       <div class="publish-toolbar">
         <div class="toolbar-tools">
@@ -146,6 +142,14 @@
         <span class="word-count">{{ message.length }} / 1000</span>
       </div>
 
+      <div class="publish-settings">
+      <PublishExtras v-if="!isEditMode" :uid="currentDraftAccount()" v-model="extraOptions" :attachment-title="attachmentTitle" @attachment-title="attachmentTitle = $event" />
+      <PublishTargetPicker v-if="!isEditMode" v-model="publishTarget" />
+      <!-- 官方仅自己可见使用 publish_status=1，不能直接把 -1 写到请求表单。 -->
+      <button v-if="!isEditMode" type="button" class="publish-setting-row publish-visibility" @click="showVisibility = true"><i :class="visibleStatus === 1 ? 'fas fa-globe-asia setting-icon' : 'fas fa-lock setting-icon'"></i><span class="setting-title">谁可以看</span><span class="setting-value">{{ visibleStatus === 1 ? '所有人' : '仅自己' }}</span><i class="fas fa-chevron-right setting-arrow"></i></button>
+      <PublishOptionSheet :is-open="showVisibility" title="谁可以看" @close="showVisibility = false"><button v-for="choice in visibilityChoices" :key="choice.value" type="button" class="publish-choice" :class="{ 'is-selected': visibleStatus === choice.value }" @click="visibleStatus = choice.value; showVisibility = false"><i :class="choice.icon"></i><span>{{ choice.title }}</span><i :class="visibleStatus === choice.value ? 'fas fa-check-circle' : 'far fa-circle'"></i></button></PublishOptionSheet>
+      <PublishProductOptions v-if="!isEditMode && publishTarget?.type === 'product_phone'" :target="publishTarget" v-model="productOptions" />
+      </div>
       <div v-if="errorMessage" class="error-tip">
         <i class="fas fa-exclamation-circle"></i> {{ errorMessage }}
       </div>
@@ -180,6 +184,8 @@ import { extractFeedImageInputs, normalizeFeedImageItems } from '../../utils/liv
 import { listFullPublishDrafts, saveFullPublishDraft, deleteFullPublishDraft, restoreFullPublishDraft, type FullPublishDraft, type PublishDraftState } from '../../utils/publishDrafts';
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
+import PublishOptionSheet from './PublishOptionSheet.vue';
+import '../../styles/publish.css';
 import PublishTopicPicker from './PublishTopicPicker.vue';
 import PublishTargetPicker from './PublishTargetPicker.vue';
 import PublishExtras from './PublishExtras.vue';
@@ -204,6 +210,8 @@ const productOptions = ref<PublishOptions>({});
 const extraOptions = ref<PublishOptions>({ originalType: 0, extraUrl: '', dyhId: '' });
 const attachmentTitle = ref('');
 const visibleStatus = ref<1 | -1>(1);
+const showVisibility = ref(false);
+const visibilityChoices = [{ value: 1, title: '所有人', icon: 'fas fa-globe-asia' }, { value: -1, title: '仅自己', icon: 'fas fa-lock' }] as const;
 watch(publishTarget, () => { if (!restoringDraft) productOptions.value = {}; });
 const images = ref<PublishImage[]>([]);
 const largeCover = ref(false);
@@ -263,7 +271,7 @@ async function persistCurrentDraft() {
   const state = draftSnapshot();
   savingDraft.value = true;
   try {
-    if (state.text.trim() || state.images.length || state.target || state.extraOptions.extraUrl || state.extraOptions.dyhId) await saveFullPublishDraft(uid, id, state);
+    if (state.text.trim() || state.images.length || state.target || state.extraOptions.extraUrl || state.extraOptions.dyhId || state.extraOptions.originalType || state.visibleStatus !== 1 || state.largeCover) await saveFullPublishDraft(uid, id, state);
     else await deleteFullPublishDraft(uid, id);
     if (uid === draftAccount) draftList.value = await listFullPublishDrafts(uid);
   } finally { if (request === saveRevision) savingDraft.value = false; }
@@ -308,8 +316,10 @@ async function removeDraft(id: string) {
 }
 
 function currentDraftAccount(): string {
-  return String(authStore.user?.uid || 'guest');
+  return appStore.isPublishOpen && draftAccount ? draftAccount : String(authStore.user?.uid || 'guest');
 }
+// 账号切换时先保存原账号草稿再退出编辑，避免草稿和发布凭据跨账号混用。
+watch(() => authStore.user?.uid, () => { if (appStore.isPublishOpen && draftAccount !== String(authStore.user?.uid || 'guest')) void closePublish(); });
 
 const previewHtml = computed(() => {
   // 预览统一走安全化渲染（先 sanitize 再渲染酷安表情），
@@ -321,10 +331,11 @@ watch(() => appStore.isPublishOpen, async (open) => {
   const revision = ++openRevision;
   if (open) {
     restoringDraft = true;
-    draftAccount = currentDraftAccount();
+    draftAccount = String(authStore.user?.uid || 'guest');
     sessionIsEdit = isEditMode.value;
     draftId.value = crypto.randomUUID();
     showDrafts.value = false;
+    showVisibility.value = false;
     clearTimeout(draftTimer);
     message.value = '';
     publishTarget.value = null;
@@ -568,7 +579,8 @@ function selectPublishTopic(topic: PublishTopic) {
   topicQuery.value = '';
 }
 
-function insertAtMention() {
+async function insertAtMention() {
+  if (previewMode.value) { previewMode.value = false; await nextTick(); renderEditor(); }
   mentionInsertOffset.value = editorOffset();
   mentionTriggerStart.value = null;
   mentionQuery.value = '';
@@ -592,7 +604,8 @@ function toggleEmojiPanel() {
   if (showEmojiPanel.value) { showTopicPanel.value = false; showMentionPanel.value = false; }
 }
 
-function toggleTopicPanel() {
+async function toggleTopicPanel() {
+  if (previewMode.value) { previewMode.value = false; await nextTick(); renderEditor(); }
   topicInsertOffset.value = editorOffset();
   topicTriggerStart.value = null;
   topicQuery.value = '';
@@ -677,6 +690,7 @@ function buildFinalMessage(): string {
 
 async function handlePublish() {
   if ((!message.value.trim() && images.value.length === 0) || submitting.value || processingMedia.value || editLoading.value || editLoadError.value) return;
+  if (draftAccount !== String(authStore.user?.uid || 'guest')) { errorMessage.value = '账号已切换，请重新打开发帖页'; return; }
 
   if (!isEditMode.value) {
     const validation = validateProductPublish(publishTarget.value, productOptions.value, images.value.length);
@@ -1096,5 +1110,33 @@ async function handlePublish() {
     opacity: 1;
     transform: translate(-50%, 0);
   }
+}
+</style>
+
+<style scoped>
+.publish-back { width: 32px; height: 32px; color: var(--text-primary); }
+.publish-title { flex: 1; font-size: 16px; font-weight: 600; margin: 0 12px; }
+.header-drafts { color: var(--text-secondary); font-size: 13px; }
+.mobile-publish { display: none; }
+.publish-settings { margin-top: 12px; }
+.publish-visibility { margin: 0; font-size: 14px; color: var(--text-primary); }
+.draft-list { border: 0; max-height: none; padding: 0; }
+.draft-card { display: flex; align-items: center; border-bottom: 1px solid var(--border-light); padding: 14px 0; }
+.draft-open { flex: 1; min-width: 0; text-align: left; display: grid; gap: 8px; }
+.draft-title { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-meta { color: var(--text-tertiary); font-size: 12px; }
+.draft-delete { color: var(--text-tertiary); padding: 12px; }
+.media-thumb { width: 100%; height: auto; aspect-ratio: 1; }
+.media-item { width: 110px; }
+@media (max-width: 600px) {
+  .mobile-publish { display: inline-flex; margin-left: 14px; }
+  .publish-textarea { min-height: 240px; max-height: none; font-size: 16px; }
+  .publish-media-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .media-item { width: 100%; }
+  .toolbar-tools { flex: 1; justify-content: space-around; gap: 0; flex-wrap: nowrap; }
+  .tool-btn { font-size: 0; width: 40px; height: 44px; justify-content: center; }
+  .tool-btn i { font-size: 22px; }
+  .word-count { font-size: 10px; }
+  .publish-toolbar { margin-top: 16px; padding-top: 0; }
 }
 </style>

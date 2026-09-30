@@ -6,11 +6,14 @@ vi.mock('../../../api/coolapk', () => ({ CoolapkTauriAPI: { getMyDyhEditorList: 
 describe('内容声明与附加内容', () => {
   it('原创禁止转载映射为 2，订阅号使用可编辑列表', async () => {
     vi.mocked(CoolapkTauriAPI.getMyDyhEditorList).mockResolvedValue({ code: 200, data: [{ id: '9', title: '我的订阅号' }] });
-    const wrapper = mount(PublishExtras, { props: { uid: '1', modelValue: { originalType: 1 } }, global: { stubs: { GoodsSearchPickerDialog: true } } });
+    const wrapper = mount(PublishExtras, { props: { uid: '1', modelValue: { originalType: 1 } }, global: { stubs: { teleport: true, GoodsSearchPickerDialog: true } } });
     await flushPromises();
+    await wrapper.findAll('.publish-setting-row')[0].trigger('click');
     await wrapper.get('input[type=checkbox]').setValue(true);
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ originalType: 2 });
-    await wrapper.findAll('select')[1].setValue('9');
+    await wrapper.findAll('.publish-confirm')[0].trigger('click');
+    await wrapper.findAll('.publish-setting-row').find(button => button.text().includes('订阅号'))!.trigger('click');
+    await wrapper.findAll('.publish-choice').find(button => button.text() === '我的订阅号')!.trigger('click');
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toMatchObject({ dyhId: '9' });
     expect(CoolapkTauriAPI.getMyDyhEditorList).toHaveBeenCalledWith(1);
     wrapper.unmount();
@@ -18,7 +21,7 @@ describe('内容声明与附加内容', () => {
   it('读取商品详情后附加真实链接，缺少链接不能发布附件', async () => {
     vi.mocked(CoolapkTauriAPI.getMyDyhEditorList).mockResolvedValue({ code: 200, data: [] });
     vi.mocked(CoolapkTauriAPI.getGoodsDetail).mockResolvedValueOnce({ code: 200, data: { url: '/goods/detail?id=8', title: '好物' } }).mockResolvedValueOnce({ code: 200, data: {} });
-    const wrapper = mount(PublishExtras, { props: { uid: '1', modelValue: {} }, global: { stubs: { GoodsSearchPickerDialog: true } } });
+    const wrapper = mount(PublishExtras, { props: { uid: '1', modelValue: {} }, global: { stubs: { teleport: true, GoodsSearchPickerDialog: true } } });
     await flushPromises();
     const picker = wrapper.findComponent({ name: 'GoodsSearchPickerDialog' });
     picker.vm.$emit('pick', { id: '8' });

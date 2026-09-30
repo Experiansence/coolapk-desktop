@@ -1,27 +1,31 @@
 <template>
+  <PublishOptionSheet :is-open="true" title="选择话题" @close="emit('close')">
   <section class="topic-picker" aria-label="选择话题">
-    <input v-model="query" placeholder="搜索话题" aria-label="搜索话题" @keydown.enter.prevent="search(true)" />
+    <div class="publish-search"><i class="fas fa-search"></i><input v-model="query" placeholder="搜索话题" aria-label="搜索话题" @keydown.enter.prevent="search(true)" /></div>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="search(true)">重试</button></p>
     <template v-if="!query.trim() && recent.length">
-      <div class="picker-heading">最近参与 <button type="button" @click="clearRecent">清空</button></div>
-      <button v-for="topic in recent" :key="topic.id" type="button" class="topic-choice" @mousedown.prevent @click="choose(topic)">#{{ topic.title }}#</button>
+      <div class="publish-picker-heading">最近参与 <button type="button" @click="clearRecent">清空</button></div>
+      <button v-for="topic in recent" :key="topic.id" type="button" class="topic-choice publish-picker-item" @mousedown.prevent @click="choose(topic)"><span class="publish-picker-icon">#</span><span class="publish-picker-name">#{{ topic.title }}#</span><i class="fas fa-chevron-right publish-picker-arrow"></i></button>
     </template>
-    <div class="picker-heading">{{ query.trim() ? '搜索结果' : '热门话题' }}</div>
-    <button v-for="topic in topics" :key="topic.id" type="button" class="topic-choice" @mousedown.prevent @click="choose(topic)">#{{ topic.title }}#</button>
-    <p v-if="loading">正在获取话题…</p>
-    <p v-else-if="!topics.length && !error">暂无话题</p>
-    <button v-if="hasMore && !loading" type="button" @click="search(false)">加载更多</button>
-    <button v-if="query.trim()" type="button" @mousedown.prevent @click="emit('select', { id: '', title: query.trim().replace(/^#|#$/g, '') })">插入自定义话题 #{{ query.trim() }}#</button>
+    <div class="publish-picker-heading">{{ query.trim() ? '搜索结果' : '热门话题' }}</div>
+    <button v-for="topic in topics" :key="topic.id" type="button" class="topic-choice publish-picker-item" @mousedown.prevent @click="choose(topic)"><span class="publish-picker-icon">#</span><span class="publish-picker-name">#{{ topic.title }}#</span><i class="fas fa-chevron-right publish-picker-arrow"></i></button>
+    <p v-if="loading" class="publish-picker-state">正在获取话题…</p>
+    <p v-else-if="!topics.length && !error" class="publish-picker-state">暂无话题</p>
+    <button v-if="hasMore && !loading" class="publish-picker-more" type="button" @click="search(false)">加载更多</button>
+    <button v-if="query.trim()" class="publish-picker-more" type="button" @mousedown.prevent @click="emit('select', { id: '', title: query.trim().replace(/^#|#$/g, '') })">插入自定义话题 #{{ query.trim() }}#</button>
   </section>
+  </PublishOptionSheet>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue';
+import PublishOptionSheet from './PublishOptionSheet.vue';
+import '../../styles/publish.css';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { normalizePublishTopics, loadRecentPublishTopics, rememberPublishTopic, clearRecentPublishTopics, type PublishTopic } from '../../utils/publishTopics';
 
 const props = defineProps<{ uid: string; initialQuery?: string }>();
-const emit = defineEmits<{ select: [topic: PublishTopic] }>();
+const emit = defineEmits<{ select: [topic: PublishTopic]; close: [] }>();
 const query = ref(props.initialQuery || '');
 const topics = ref<PublishTopic[]>([]);
 const recent = ref<PublishTopic[]>([]);
@@ -58,8 +62,8 @@ async function search(reset: boolean) {
 
 async function choose(topic: PublishTopic) {
   // 存储失败不阻止用户插入话题。
-  emit('select', topic);
   try { await rememberPublishTopic(props.uid, topic); } catch (failure) { console.warn('保存最近话题失败', failure); }
+  emit('select', topic);
 }
 async function clearRecent() { await clearRecentPublishTopics(props.uid); recent.value = []; await search(true); }
 watch(query, () => { ++revision; loading.value = false; topics.value = []; hasMore.value = false; clearTimeout(timer); timer = setTimeout(() => void search(true), 500); });
@@ -69,11 +73,7 @@ onBeforeUnmount(() => { ++revision; clearTimeout(timer); });
 </script>
 
 <style scoped>
-.topic-picker { margin-top: 12px; padding: 12px; max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-control); }
-input { width: 100%; padding: 8px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
-.picker-heading { margin: 10px 0; color: var(--text-secondary); }
-.picker-heading button { float: right; }
-button { color: var(--brand-primary); padding: 5px 9px; }
-.topic-choice { margin: 3px; border: 1px solid var(--border); border-radius: var(--radius-pill); }
-p { color: var(--text-secondary); }
+.topic-picker { min-height: 280px; }
+p[role=alert] { color: var(--text-secondary); padding: 12px 0; }
+p[role=alert] button { color: var(--brand-primary); }
 </style>

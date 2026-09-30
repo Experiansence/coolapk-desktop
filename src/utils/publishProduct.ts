@@ -1,5 +1,17 @@
 import type { PublishOptions, PublishTarget } from '../types/publish';
 
+// APK 的 Gson 字段为 page_name、rule 和下划线跑分名，统一转换后供选择和范围检查使用。
+export function normalizeProductPublishTabs(value: unknown): NonNullable<PublishTarget['subTabs']> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const pageName = String(item.page_name ?? item.pageName ?? '');
+    if (!/^[0-6]$/.test(pageName) || !item.title) return [];
+    const rule = item.rule ?? item.subTabRule;
+    return [{ pageName, title: String(item.title), isSubtab: item.is_subtab ?? item.isSubtab, subTabRule: rule && typeof rule === 'object' ? { min: rule.min, max: rule.max, antutuScore: rule.antutu_score ?? rule.antutuScore, geekBenchSingleScore: rule.geek_bench_single_score ?? rule.geekBenchSingleScore, geekBenchMultiScore: rule.geek_bench_multi_score ?? rule.geekBenchMultiScore, threeDMarkScore: rule['3d_mark_score'] ?? rule.threeDMarkScore } : undefined }];
+  });
+}
+
 export const BENCHMARK_FIELDS = [
   { key: 'antutu_score', title: '安兔兔', rule: 'antutuScore' },
   { key: 'geek_bench_single_score', title: 'GeekBench 单核', rule: 'geekBenchSingleScore' },

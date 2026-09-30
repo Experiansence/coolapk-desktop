@@ -15,10 +15,11 @@ describe('发帖话题选择', () => {
 
   it('使用官方搜索接口并返回完整选择对象', async () => {
     vi.mocked(CoolapkTauriAPI.searchPublishTopics).mockResolvedValue({ code: 200, data: [{ id: '1', title: '摄影', entityType: 'topic' }] });
-    const wrapper = mount(PublishTopicPicker, { props: { uid: '123' } });
+    const wrapper = mount(PublishTopicPicker, { global: { stubs: { teleport: true } }, props: { uid: '123' } });
     await flushPromises();
     expect(CoolapkTauriAPI.searchPublishTopics).toHaveBeenCalledWith('', 1, '');
     await wrapper.get('.topic-choice').trigger('click');
+    await flushPromises();
     expect(wrapper.emitted('select')?.[0]?.[0]).toMatchObject({ id: '1', title: '摄影' });
     wrapper.unmount();
   });
@@ -26,7 +27,7 @@ describe('发帖话题选择', () => {
   it('搜索防抖且拒绝过期响应', async () => {
     vi.useFakeTimers();
     vi.mocked(CoolapkTauriAPI.searchPublishTopics).mockResolvedValueOnce({ code: 200, data: [] });
-    const wrapper = mount(PublishTopicPicker, { props: { uid: '123' } });
+    const wrapper = mount(PublishTopicPicker, { global: { stubs: { teleport: true } }, props: { uid: '123' } });
     await flushPromises();
     let resolveOld!: (value: any) => void;
     vi.mocked(CoolapkTauriAPI.searchPublishTopics).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
@@ -37,7 +38,7 @@ describe('发帖话题选择', () => {
     await vi.advanceTimersByTimeAsync(500);
     resolveOld({ code: 200, data: [{ id: '1', title: '旧话题' }] });
     await flushPromises();
-    expect(wrapper.findAll('.topic-choice').map((item) => item.text())).toEqual(['#新话题#']);
+    expect(wrapper.findAll('.topic-choice .publish-picker-name').map((item) => item.text())).toEqual(['#新话题#']);
     wrapper.unmount();
   });
 });

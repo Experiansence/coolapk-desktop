@@ -17,7 +17,7 @@ function mountDialog() {
   return mount(PublishDialog, { global: { stubs: {
     AppDialog: { props: ['isOpen'], template: '<div v-if="isOpen"><slot/><slot name="footer"/></div>' },
     AppButton: { props: ['disabled'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot/></button>' },
-    AppImage: true, PublishTargetPicker: true, PublishTopicPicker: true, PublishTopicRecommendations: { props: ['nodeType', 'nodeName', 'uid', 'text', 'cursor', 'refresh'], template: '<div/>' }, PublishMentionPicker: true, PublishProductOptions: true, PublishExtras: true,
+    teleport: true, AppImage: true, PublishTargetPicker: true, PublishTopicPicker: true, PublishTopicRecommendations: { props: ['nodeType', 'nodeName', 'uid', 'text', 'cursor', 'refresh'], template: '<div/>' }, PublishMentionPicker: true, PublishProductOptions: true, PublishExtras: true,
   } } });
 }
 async function openDialog() { const wrapper = mountDialog(); stores.app.isPublishOpen = true; await flushPromises(); return wrapper; }
@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   stores.app = reactive({ isPublishOpen: false, editFeedTarget: null, closePublish() { this.isPublishOpen = false; } });
   stores.settings = { settings: { publishDeviceSignature: false, deviceFingerprint: { deviceId: 'device' } } };
-  stores.auth = { user: { uid: '123' } };
+  stores.auth = reactive({ user: { uid: '123' } });
   vi.mocked(listFullPublishDrafts).mockResolvedValue([]);
 });
 describe('完整发帖流程', () => {
@@ -56,7 +56,8 @@ describe('完整发帖流程', () => {
     await flushPromises();
     wrapper.findComponent({ name: 'PublishProductOptions' }).vm.$emit('update:modelValue', { subTypeId: '1', subData: '8.5' });
     wrapper.findComponent({ name: 'PublishExtras' }).vm.$emit('update:modelValue', { originalType: 2, dyhId: '9', extraUrl: '/goods/detail?id=8' });
-    await wrapper.get('.publish-visibility select').setValue('-1');
+    await wrapper.get('button.publish-visibility').trigger('click');
+    await wrapper.findAll('.publish-choice').find(button => button.text().includes('仅自己'))!.trigger('click');
     await wrapper.findAll('button').find((button) => button.text() === '立即发布')!.trigger('click');
     await flushPromises();
     expect(CoolapkTauriAPI.createFeed).toHaveBeenCalledWith('正文', undefined, undefined, expect.objectContaining({ targetType: 'product_phone', targetId: '7', subTypeId: '1', subData: '8.5', visibleStatus: -1, originalType: 2, dyhId: '9', extraUrl: '/goods/detail?id=8' }));
@@ -66,11 +67,31 @@ describe('完整发帖流程', () => {
   it('关闭前保存完整状态而非仅保存文字', async () => {
     const wrapper = await openDialog();
     await typeText(wrapper, '草稿正文');
-    await wrapper.get('.publish-visibility select').setValue('-1');
+    await wrapper.get('button.publish-visibility').trigger('click');
+    await wrapper.findAll('.publish-choice').find(button => button.text().includes('仅自己'))!.trigger('click');
     await wrapper.findAll('button').find((button) => button.text() === '取消')!.trigger('click');
     await flushPromises();
     expect(saveFullPublishDraft).toHaveBeenCalledWith('123', expect.any(String), expect.objectContaining({ text: '草稿正文', visibleStatus: -1, productOptions: {}, images: [] }));
     expect(stores.app.isPublishOpen).toBe(false);
     wrapper.unmount();
   });
+  it('切换账号先保存原账号草稿并退出发帖', async () => {
+    const wrapper = await openDialog();
+    await typeText(wrapper, '原账号草稿');
+    stores.auth.user.uid = '456';
+    await flushPromises();
+    expect(saveFullPublishDraft).toHaveBeenCalledWith('123', expect.any(String), expect.objectContaining({ text: '原账号草稿' }));
+    expect(stores.app.isPublishOpen).toBe(false);
+    wrapper.unmount();
+  });
+  it('只设置可见范围的草稿也保留完整选项', async () => {
+    const wrapper = await openDialog();
+    await wrapper.get('button.publish-visibility').trigger('click');
+    await wrapper.findAll('.publish-choice').find(button => button.text().includes('仅自己'))!.trigger('click');
+    await wrapper.findAll('button').find(button => button.text() === '取消')!.trigger('click');
+    await flushPromises();
+    expect(saveFullPublishDraft).toHaveBeenCalledWith('123', expect.any(String), expect.objectContaining({ text: '', visibleStatus: -1 }));
+    wrapper.unmount();
+  });
+
 });

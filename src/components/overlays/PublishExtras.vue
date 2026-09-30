@@ -1,12 +1,20 @@
 <template>
   <section class="publish-extras" aria-label="内容声明和附加内容">
-    <label>内容声明 <select :value="declaration" @change="setDeclaration"><option value="0">无需声明</option><option value="1">内容原创</option><option value="3">内容转载</option></select></label>
-    <label v-if="declaration === 1"><input type="checkbox" :checked="modelValue.originalType === 2" @change="setRepost" />未经允许，禁止转载</label>
-    <div class="goods-selection"><button type="button" @click="showGoods = true">添加商品</button><span v-if="goodsTitle">{{ goodsTitle }}</span><button v-if="modelValue.extraUrl" type="button" @click="removeGoods">移除商品</button></div>
-    <label>订阅号 <select :value="modelValue.dyhId || ''" @change="setDyh"><option value="">不发布到订阅号</option><option v-for="dyh in dyhs" :key="dyh.id" :value="String(dyh.id)">{{ dyh.title }}</option></select></label>
-    <button v-if="hasMoreDyhs && !loading" type="button" @click="loadDyhs(false)">更多订阅号</button>
-    <p v-if="loading">正在读取可编辑订阅号…</p>
-    <p v-if="error" role="alert">{{ error }} <button type="button" @click="loadDyhs(true)">重试</button></p>
+    <button type="button" class="publish-setting-row" @click="showDeclaration = true"><i class="far fa-file-alt setting-icon"></i><span class="setting-title">内容声明</span><span class="setting-value" :class="{ selected: declaration }">{{ declaration === 1 ? (modelValue.originalType === 2 ? '原创，禁止转载' : '内容原创') : declaration === 3 ? '内容转载' : '无需声明' }}</span><i class="fas fa-chevron-right setting-arrow"></i></button>
+    <button type="button" class="publish-setting-row" @click="showGoods = true"><i class="fas fa-shopping-bag setting-icon"></i><span class="setting-title">好物</span><span class="setting-value" :class="{ selected: modelValue.extraUrl }">{{ goodsTitle || (modelValue.extraUrl ? '已附加商品' : '添加商品') }}</span><i class="fas fa-chevron-right setting-arrow"></i></button>
+    <button v-if="modelValue.extraUrl" type="button" class="remove-goods" @click="removeGoods">移除商品</button>
+    <button v-if="dyhs.length || modelValue.dyhId || error" type="button" class="publish-setting-row" @click="showDyh = true"><i class="far fa-newspaper setting-icon"></i><span class="setting-title">订阅号</span><span class="setting-value" :class="{ selected: modelValue.dyhId }">{{ dyhs.find(item => String(item.id) === modelValue.dyhId)?.title || (modelValue.dyhId ? '已选择订阅号' : '不发布到订阅号') }}</span><i class="fas fa-chevron-right setting-arrow"></i></button>
+    <p v-if="error" role="alert" class="extras-error">{{ error }} <button type="button" @click="loadDyhs(true)">重试</button></p>
+    <PublishOptionSheet :is-open="showDeclaration" title="内容声明" @close="showDeclaration = false">
+      <button v-for="choice in declarations" :key="choice.value" type="button" class="publish-choice" :class="{ 'is-selected': declaration === choice.value }" @click="update({ originalType: choice.value })"><span>{{ choice.title }}</span><i :class="declaration === choice.value ? 'fas fa-check-circle' : 'far fa-circle'"></i></button>
+      <label v-if="declaration === 1" class="repost-choice"><input type="checkbox" :checked="modelValue.originalType === 2" @change="setRepost" />未经允许，禁止转载</label>
+      <template #footer><button type="button" class="publish-confirm" @click="showDeclaration = false">确定</button></template>
+    </PublishOptionSheet>
+    <PublishOptionSheet :is-open="showDyh" title="发布到订阅号" @close="showDyh = false">
+      <button type="button" class="publish-choice" @click="chooseDyh('')">不发布到订阅号<i :class="!modelValue.dyhId ? 'fas fa-check-circle' : 'far fa-circle'"></i></button>
+      <button v-for="dyh in dyhs" :key="dyh.id" type="button" class="publish-choice" :class="{ 'is-selected': modelValue.dyhId === String(dyh.id) }" @click="chooseDyh(String(dyh.id))">{{ dyh.title }}<i :class="modelValue.dyhId === String(dyh.id) ? 'fas fa-check-circle' : 'far fa-circle'"></i></button>
+      <p v-if="loading" class="publish-picker-state">正在读取可编辑订阅号…</p><p v-else-if="!dyhs.length" class="publish-picker-state">暂无可编辑订阅号</p><button v-if="hasMoreDyhs && !loading" type="button" class="publish-picker-more" @click="loadDyhs(false)">更多订阅号</button>
+    </PublishOptionSheet>
     <GoodsSearchPickerDialog :is-open="showGoods" title="选择动态附加商品" @close="showGoods = false" @pick="chooseGoods" />
   </section>
 </template>
@@ -14,11 +22,16 @@
 import { ref, computed, watch } from 'vue';
 import type { PublishOptions } from '../../types/publish';
 import { CoolapkTauriAPI } from '../../api/coolapk';
+import PublishOptionSheet from './PublishOptionSheet.vue';
+import '../../styles/publish.css';
 import GoodsSearchPickerDialog from '../goods/GoodsSearchPickerDialog.vue';
 const props = defineProps<{ uid: string; modelValue: PublishOptions; attachmentTitle?: string }>();
 const emit = defineEmits<{ 'update:modelValue': [options: PublishOptions]; 'attachment-title': [title: string] }>();
 const declaration = computed(() => props.modelValue.originalType === 2 ? 1 : props.modelValue.originalType || 0);
 const showGoods = ref(false);
+const showDeclaration = ref(false);
+const showDyh = ref(false);
+const declarations = [{ value: 0, title: '无需声明' }, { value: 1, title: '内容原创' }, { value: 3, title: '内容转载' }] as const;
 const goodsTitle = ref(props.attachmentTitle || '');
 const dyhs = ref<{ id: string; title: string }[]>([]);
 const loading = ref(false);
@@ -27,9 +40,8 @@ const hasMoreDyhs = ref(false);
 let page = 0;
 let revision = 0;
 function update(options: Partial<PublishOptions>) { emit('update:modelValue', { ...props.modelValue, ...options }); }
-function setDeclaration(event: Event) { update({ originalType: Number((event.target as HTMLSelectElement).value) as 0 | 1 | 3 }); }
 function setRepost(event: Event) { update({ originalType: (event.target as HTMLInputElement).checked ? 2 : 1 }); }
-function setDyh(event: Event) { update({ dyhId: (event.target as HTMLSelectElement).value }); }
+function chooseDyh(id: string) { update({ dyhId: id }); showDyh.value = false; }
 function removeGoods() { goodsTitle.value = ''; emit('attachment-title', ''); update({ extraUrl: '' }); }
 async function chooseGoods(goods: any) {
   showGoods.value = false;
@@ -64,8 +76,9 @@ watch(() => props.uid, () => { dyhs.value = []; void loadDyhs(true); }, { immedi
 watch(() => props.attachmentTitle, (value) => { goodsTitle.value = value || ''; });
 </script>
 <style scoped>
-.publish-extras { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: var(--font-size-sub); color: var(--text-secondary); }
-label, .goods-selection { display: flex; gap: 6px; align-items: center; }
-select { padding: 6px; max-width: 220px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
-button { color: var(--brand-primary); }
+.repost-choice { display: flex; gap: 10px; padding: 18px 4px; color: var(--text-secondary); font-size: 13px; }
+.repost-choice input { accent-color: var(--brand-primary); }
+.remove-goods { display: block; margin-left: auto; padding: 6px 0; color: var(--text-tertiary); font-size: 12px; }
+.extras-error { font-size: 12px; color: var(--text-secondary); }
+.extras-error button { color: var(--brand-primary); }
 </style>

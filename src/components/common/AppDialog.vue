@@ -5,12 +5,14 @@
     </Transition>
     <Transition name="scale-dialog">
       <div v-if="isOpen" class="dialog-wrapper">
-        <div class="dialog-container" :style="{ width: `${width}px` }">
+        <div class="dialog-container" :class="dialogClass" :style="{ width: `${width}px` }">
           <div v-if="title" class="dialog-header">
+            <slot name="header">
             <h3 class="dialog-title">{{ title }}</h3>
             <button class="dialog-close" aria-label="关闭" @click="close">
               <i class="fas fa-times"></i>
             </button>
+            </slot>
           </div>
           <div class="dialog-body custom-scrollbar">
             <slot></slot>
@@ -32,6 +34,7 @@ const props = withDefaults(
   defineProps<{
     isOpen: boolean;
     title?: string;
+    dialogClass?: string;
     width?: number;
     closeOnBackdrop?: boolean;
   }>(),

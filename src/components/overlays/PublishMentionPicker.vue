@@ -1,31 +1,31 @@
 <template>
-  <section class="mention-picker" aria-label="选择提醒的酷友">
-    <input v-model="query" placeholder="搜索酷友昵称" aria-label="搜索酷友昵称" />
-    <div class="tabs" v-if="!query.trim()">
-      <button v-for="tab in tabs" :key="tab.key" type="button" :class="{ active: source === tab.key }" @click="source = tab.key">{{ tab.title }}</button>
-    </div>
-    <p v-if="error" role="alert">{{ error }} <button @click="load(true)">重试</button></p>
-    <button v-if="source === 'recent' && !query.trim() && users.length" type="button" @click="clearRecent">清空最近联系人</button>
-    <label v-for="user in users" :key="user.uid" class="user-choice">
-      <input type="checkbox" :checked="selected.has(user.uid)" @change="toggle(user)" />
-      <AppImage v-if="user.avatar" :src="user.avatar" alt="头像" class="avatar" />
-      <span>{{ user.username }}</span>
-    </label>
-    <p v-if="loading">正在获取酷友…</p>
-    <p v-else-if="!users.length && !error">暂无酷友</p>
-    <button v-if="hasMore && !loading" type="button" @click="load(false)">加载更多</button>
-    <div class="selection"><span v-for="user in selected.values()" :key="user.uid">@{{ user.username }} <button type="button" @click="toggle(user)">移除</button></span></div>
-    <button type="button" :disabled="!selected.size" @click="confirm">插入 {{ selected.size }} 位酷友</button>
-  </section>
+  <PublishOptionSheet :is-open="true" title="选择提醒的酷友" @close="emit('close')">
+    <section class="mention-picker">
+      <div class="publish-search"><i class="fas fa-search"></i><input v-model="query" placeholder="搜索酷友昵称" aria-label="搜索酷友昵称" /></div>
+      <div v-if="!query.trim()" class="tabs publish-picker-tabs"><button v-for="tab in tabs" :key="tab.key" type="button" :class="{ active: source === tab.key }" @click="source = tab.key">{{ tab.title }}</button></div>
+      <p v-if="error" class="publish-picker-state" role="alert">{{ error }} <button type="button" @click="load(true)">重试</button></p>
+      <div v-if="source === 'recent' && !query.trim() && users.length" class="publish-picker-heading"><span>最近提醒</span><button type="button" @click="clearRecent">清空</button></div>
+      <label v-for="user in users" :key="user.uid" class="user-choice publish-picker-item">
+        <AppImage v-if="user.avatar" :src="user.avatar" alt="头像" class="avatar" /><span v-else class="avatar avatar-placeholder"><i class="fas fa-user"></i></span>
+        <span class="publish-picker-name">{{ user.username }}</span><input type="checkbox" :checked="selected.has(user.uid)" @change="toggle(user)" />
+      </label>
+      <p v-if="loading" class="publish-picker-state">正在获取酷友…</p><p v-else-if="!users.length && !error" class="publish-picker-state">暂无酷友</p>
+      <button v-if="hasMore && !loading" type="button" class="publish-picker-more" @click="load(false)">加载更多</button>
+      <div class="selection"><span v-for="user in selected.values()" :key="user.uid">@{{ user.username }} <button type="button" :aria-label="`移除${user.username}`" @click="toggle(user)">×</button></span></div>
+    </section>
+    <template #footer><button type="button" class="publish-confirm" :disabled="!selected.size" @click="confirm">确定{{ selected.size ? `（${selected.size}）` : '' }}</button></template>
+  </PublishOptionSheet>
 </template>
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue';
+import PublishOptionSheet from './PublishOptionSheet.vue';
+import '../../styles/publish.css';
 import AppImage from '../common/AppImage.vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { readTauriStoreValue, writeTauriStoreValue } from '../../utils/tauriStore';
 export interface MentionUser { uid: string; username: string; avatar?: string }
 const props = defineProps<{ uid: string; initialQuery?: string }>();
-const emit = defineEmits<{ select: [users: MentionUser[]] }>();
+const emit = defineEmits<{ select: [users: MentionUser[]]; close: [] }>();
 const tabs = [{ key: 'recent', title: '最近提醒' }, { key: 'following', title: '我关注的' }, { key: 'fans', title: '关注我的' }];
 const source = ref('recent');
 const query = ref(props.initialQuery || '');
@@ -87,12 +87,11 @@ watch(() => props.uid, () => { selected.value.clear(); void load(true); }, { imm
 onBeforeUnmount(() => { ++revision; clearTimeout(timer); });
 </script>
 <style scoped>
-.mention-picker { margin-top: 12px; padding: 12px; max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-control); }
-input[type=text], input:not([type]) { width: 100%; padding: 8px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
-.tabs, .selection { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-button { color: var(--brand-primary); padding: 5px 9px; }
-button:disabled { opacity: .5; }
-.active { background: var(--brand-soft); }
-.user-choice { display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; }
-.avatar { width: 28px; height: 28px; border-radius: 50%; }
+.mention-picker { min-height: 280px; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
+.avatar-placeholder { display: grid; place-items: center; background: var(--background); color: var(--text-tertiary); }
+.user-choice input { width: 20px; height: 20px; accent-color: var(--brand-primary); }
+.selection { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.selection span { background: var(--brand-soft); color: var(--brand-primary); font-size: 12px; padding: 6px 10px; border-radius: 20px; }
+.selection button { margin-left: 4px; }
 </style>
