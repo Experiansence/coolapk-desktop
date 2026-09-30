@@ -973,6 +973,33 @@ fn image_source_url(value: &Value) -> Option<String> {
     None
 }
 
+/// 构造 HTTP 客户端：Apple 平台改用系统信任库校验 TLS 证书，
+/// 使 Rust 侧与 WKWebView 对系统根证书（含本机 MITM 代理、企业 CA）的信任决策一致。
+/// 其余平台保持 reqwest 默认的内置 Mozilla 根证书。
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    let builder = Client::builder();
+    #[cfg(target_vendor = "apple")]
+    let builder = match apple_platform_tls_config() {
+        Some(config) => builder.use_preconfigured_tls(config),
+        None => builder,
+    };
+    builder
+}
+
+/// Apple 平台经 Security.framework 校验证书；初始化失败时回退内置根证书，
+/// 避免客户端直接不可用（此时行为与旧版本一致）。
+#[cfg(target_vendor = "apple")]
+fn apple_platform_tls_config() -> Option<rustls::ClientConfig> {
+    use rustls_platform_verifier::ConfigVerifierExt;
+    match rustls::ClientConfig::with_platform_verifier() {
+        Ok(config) => Some(config),
+        Err(error) => {
+            log::warn!("tls.platform_verifier_unavailable reason={error}");
+            None
+        }
+    }
+}
+
 impl CoolapkClient {
     /// 设备码策略：
     /// - 未登录（游客态）：每台电脑首次启动随机生成一次并持久化，之后固定
@@ -996,11 +1023,11 @@ impl CoolapkClient {
         headers.insert("X-App-Supported", HeaderValue::from_static("2604201"));
         headers.insert("X-Dark-Mode", HeaderValue::from_static("0"));
 
-        let client = Client::builder()
+        let client = http_client_builder()
             .default_headers(headers.clone())
             .build()
             .unwrap_or_default();
-        let redirect_client = Client::builder()
+        let redirect_client = http_client_builder()
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -1106,14 +1133,9 @@ impl CoolapkClient {
                 }
             }
             self.save_accounts(&accounts);
-            return code;
         }
-        let mut account_val = json!({ "uid": uid, "cookie": "", "deviceCode": code.clone() });
-        if let Some(ref dev_id) = custom_id {
-            account_val["deviceId"] = json!(dev_id.clone());
-        }
-        accounts.push(account_val);
-        self.save_accounts(&accounts);
+        // 账户不存在时不写入占位条目：设备码由 uid 确定性推导，无需落盘；
+        // 而空凭据条目会污染账户库，让“已保存账户”出现无法登录的幽灵账号。
         code
     }
 
@@ -1672,8 +1694,8 @@ impl CoolapkClient {
         }
 
         let response = request.send().await.map_err(|error| {
-            log::warn!("api.transport_failed method={} path={} timeout={} elapsed_ms={}",
-                method_name, log_path, error.is_timeout(), started.elapsed().as_millis());
+            log::warn!("api.transport_failed method={} path={} timeout={} elapsed_ms={} cause={}",
+                method_name, log_path, error.is_timeout(), started.elapsed().as_millis(), error_cause_chain(&error));
             error.to_string()
         })?;
         let status = response.status();
@@ -1741,8 +1763,8 @@ impl CoolapkClient {
             .send()
             .await
             .map_err(|error| {
-                log::warn!("api.guest_transport_failed path={} timeout={} elapsed_ms={}",
-                    log_path, error.is_timeout(), started.elapsed().as_millis());
+                log::warn!("api.guest_transport_failed path={} timeout={} elapsed_ms={} cause={}",
+                    log_path, error.is_timeout(), started.elapsed().as_millis(), error_cause_chain(&error));
                 error.to_string()
             })?;
         let status = response.status();
@@ -3589,7 +3611,7 @@ impl CoolapkClient {
                 .map_err(|_| "failed to upgrade image URL to HTTPS".to_string())?;
         }
 
-        let img_client = Client::builder()
+        let img_client = http_client_builder()
             .timeout(std::time::Duration::from_secs(12))
             .build()
             .unwrap_or_default();
@@ -3675,7 +3697,7 @@ impl CoolapkClient {
             return Err("仅支持 http(s) 链接".to_string());
         }
 
-        let page_client = reqwest::Client::builder()
+        let page_client = http_client_builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| e.to_string())?;
@@ -3875,7 +3897,7 @@ impl CoolapkClient {
             return Err("仅允许代理微博 HTTPS 视频地址".to_string());
         }
 
-        let client = Client::builder()
+        let client = http_client_builder()
             .timeout(std::time::Duration::from_secs(90))
             .build()
             .map_err(|error| format!("创建视频代理客户端失败：{error}"))?;
@@ -4050,7 +4072,7 @@ impl CoolapkClient {
             return Err("Live Photo 视频地址必须来自酷安官方 HTTPS 域名".to_string());
         }
 
-        let client = Client::builder()
+        let client = http_client_builder()
             .timeout(std::time::Duration::from_secs(12))
             .build()
             .map_err(|e| format!("failed to create Live Photo codec client: {e}"))?;
@@ -8776,6 +8798,22 @@ mod path_requirements_tests {
         assert!(classify_path("/v6/feed/likeReply").needs_ddid);
         assert!(!classify_path("/v6/feed/followTag").needs_ddid);
         assert!(!classify_path("/v6/feed/unFollowTag").needs_ddid);
+    }
+}
+
+/// 传输失败时把错误的 source 链拼成一行，便于定位 DNS、证书、代理等真因。
+/// 只记录错误类别文本；该链不含请求 URL、Cookie 或响应体。
+fn error_cause_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut causes = Vec::new();
+    let mut current = std::error::Error::source(error);
+    while let Some(cause) = current {
+        causes.push(cause.to_string());
+        current = std::error::Error::source(cause);
+    }
+    if causes.is_empty() {
+        "none".to_string()
+    } else {
+        causes.join(" <- ")
     }
 }
 

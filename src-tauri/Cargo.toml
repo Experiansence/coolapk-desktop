@@ -60,6 +60,14 @@ objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSHTTPCookie", "NSException", "NSObjCRuntime"] }
 
+# Apple 平台改用系统信任库校验 TLS（iOS/macOS 经 Security.framework），
+# 使 Rust 客户端与 WKWebView 对系统根证书（含本机 MITM 代理、企业 CA）的信任决策一致。
+# rustls 必须关闭默认特性：默认会启用 aws-lc-rs，既引入重型 C 依赖，
+# 又会与 reqwest 已启用的 ring 形成多 provider 冲突导致 ClientConfig::builder() panic。
+[target.'cfg(target_vendor = "apple")'.dependencies]
+rustls = { version = "0.23", default-features = false }
+rustls-platform-verifier = "0.7"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.7"
 

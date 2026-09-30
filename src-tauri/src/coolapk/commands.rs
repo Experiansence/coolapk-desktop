@@ -1871,7 +1871,7 @@ async fn run_apk_download(
         return Ok(json!({ "status": "canceled", "path": target, "partialPath": partial }));
     }
 
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::coolapk::client::http_client_builder()
         .user_agent("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal")
         .redirect(reqwest::redirect::Policy::limited(10));
     if let Some(proxy) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
@@ -3656,7 +3656,7 @@ pub async fn download_update(
     let path = dir.join(unique_name);
     let partial_path = path.with_extension(format!("{extension}.part"));
 
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::coolapk::client::http_client_builder()
         .user_agent("coolapk-desktop-updater")
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             let host = attempt.url().host_str().unwrap_or_default().to_ascii_lowercase();
