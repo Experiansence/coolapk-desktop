@@ -1672,6 +1672,8 @@ onUnmounted(unbindGlobalListeners);
   overflow-y: auto;
   touch-action: pan-y;
   background-color: var(--background-secondary);
+  /* 软键盘弹出时补出底部留白，否则评论框无法滚到键盘上方。 */
+  padding-bottom: var(--keyboard-inset, 0px);
 }
 
 /* 1. 头条 Tab 头部样式 */

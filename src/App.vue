@@ -184,6 +184,7 @@ import { registerGlobalSelectionClear } from './utils/selection';
 import { getPlatformInfo } from './utils/platform';
 import { usePageTabsStore } from './stores/pageTabs';
 import { logDiagnostic } from './utils/diagnosticLogger';
+import { setupKeyboardScrollAssist, setupViewportHeight } from './utils/viewport';
 
 const { isSidebarTransitionActive, resetSidebarTransition } = useSidebarTransition();
 
@@ -228,6 +229,8 @@ const appUpdateName = computed(() => isAndroid.value ? '酷安' : '酷安桌面�
 const updatePackageType = ref<'installer' | 'portable'>('installer');
 let unregisterHotkeys: (() => void) | null = null;
 let unregisterSelectionClear: (() => void) | null = null;
+let unregisterViewport: (() => void) | null = null;
+let unregisterKeyboardAssist: (() => void) | null = null;
 let updateDownloadInFlight = false;
 
 // 所有路由入口（侧边栏、内容卡片、深链和快捷键）统一在这里登记为可见标签页。
@@ -522,6 +525,8 @@ async function restorePendingUpdate(): Promise<boolean> {
 onMounted(() => {
   void downloadStore.initialize();
   authStore.initAuth();
+  unregisterViewport = setupViewportHeight();
+  unregisterKeyboardAssist = setupKeyboardScrollAssist();
   window.addEventListener('resize', settingsStore.refreshAutoZoom);
   unregisterHotkeys = registerGlobalHotkeys();
   unregisterSelectionClear = registerGlobalSelectionClear();
@@ -564,6 +569,8 @@ onUnmounted(() => {
   window.removeEventListener('resize', settingsStore.refreshAutoZoom);
   unregisterHotkeys?.();
   unregisterSelectionClear?.();
+  unregisterViewport?.();
+  unregisterKeyboardAssist?.();
 });
 </script>
 

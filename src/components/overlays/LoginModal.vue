@@ -526,6 +526,8 @@ onUnmounted(() => {
 .login-dialog {
   width: 100%;
   max-width: 480px;
+  /* 高级登录展开后固有高度会超过手机屏幕，必须给出可滚动上限，否则关闭按钮会被顶出屏幕。 */
+  max-height: min(85vh, calc(var(--app-viewport-height, 100vh) - 32px));
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 16px);
@@ -597,6 +599,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+  /* 与 .login-body 一致：弹窗限高后由内容区自己滚动。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .user-card {
@@ -775,6 +781,19 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  /* 弹窗限高后正文自己是滚动容器，否则高级登录展开会把关闭按钮挤出去。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (pointer: coarse) {
+  /* 移动端关闭按钮是唯一常驻出口（Esc 与 Android 返回键在 iOS 上都无效）。 */
+  .close-btn {
+    width: 44px;
+    height: 44px;
+    margin-right: -6px;
+  }
 }
 
 /* 官方直连授权核心极简卡片 */
