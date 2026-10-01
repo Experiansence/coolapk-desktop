@@ -5,7 +5,7 @@
       :key="item.path"
       type="button"
       :class="['mobile-nav-item', { active: isActive(item.path) }]"
-      @click="router.push(item.path)"
+      @click="activate(item.path)"
     >
       <i :class="item.icon"></i>
       <span>{{ item.label }}</span>
@@ -20,7 +20,7 @@
       :key="item.path"
       type="button"
       :class="['mobile-nav-item', { active: isActive(item.path) }]"
-      @click="router.push(item.path)"
+      @click="activate(item.path)"
     >
       <i :class="item.icon"></i>
       <span>{{ item.label }}</span>
@@ -33,6 +33,7 @@ import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/app';
 import { useAuthStore } from '../../stores/auth';
+import { activateHomeTab } from '../../utils/homeTab';
 
 const route = useRoute();
 const router = useRouter();
@@ -56,8 +57,26 @@ const rightItems = computed(() => [
 
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/';
-  if (path.startsWith('/user/')) return route.path.startsWith('/user/');
+  if (path.startsWith('/user/')) {
+    // 「我的」只在本人主页高亮，访问他人主页时不能把这一格点亮。
+    const ownUid = String(authStore.user?.uid || '').trim();
+    if (!ownUid) return false;
+    const ownPath = `/user/${encodeURIComponent(ownUid)}`;
+    return route.path === ownPath || route.path.startsWith(`${ownPath}/`);
+  }
   return route.path === path || route.path.startsWith(`${path}/`);
+}
+
+/**
+ * 「首页」交给共享判据：单击回到顶部，双击回到顶部并刷新当前栏目。
+ * 已在首页时 router.push('/') 会被 vue-router 判为重复导航而中止，必须另行接管。
+ */
+function activate(path: string) {
+  if (path === '/') {
+    activateHomeTab(router);
+    return;
+  }
+  void router.push(path);
 }
 </script>
 
@@ -73,7 +92,7 @@ function isActive(path: string): boolean {
     flex: 0 0 auto;
     align-items: start;
     min-height: var(--mobile-bottom-nav-height);
-    padding: 6px 6px env(safe-area-inset-bottom);
+    padding: 6px max(6px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(6px, env(safe-area-inset-left));
     border-top: 1px solid var(--border-light);
     background: color-mix(in srgb, var(--surface) 97%, transparent);
     backdrop-filter: blur(16px);

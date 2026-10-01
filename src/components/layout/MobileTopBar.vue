@@ -146,7 +146,7 @@ function goBack() {
     align-items: center;
     gap: 10px;
     min-height: var(--mobile-topbar-height);
-    padding: env(safe-area-inset-top) 10px 0;
+    padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
     border-bottom: 1px solid var(--border-light);
     background: color-mix(in srgb, var(--surface) 96%, transparent);
     backdrop-filter: blur(14px);

@@ -45,6 +45,7 @@ import { getStaticAnimatedImageUrl, isAnimatedImageUrl, isPortraitLongImage } fr
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { getErrorMessage } from '../../utils/errors';
 import { showToast } from '../../utils/toast';
+import { isTouchMobilePlatform } from '../../utils/platform';
 import {
   normalizeFeedImageItems,
   type LivePhotoContextType,
@@ -102,7 +103,9 @@ function openViewer(index: number) {
   const item = images[index];
   if (!item) return;
   // 系统查看器模式：先缓存原图文件，再交给系统默认图片程序。
-  if (settingsStore.settings.imageOpenMode === 'system') {
+  // iOS 上 Rust 端没有对应实现（open_image_in_system_viewer 走的是桌面 opener），
+  // 触摸移动端一律回落到内置查看器，避免每次点图都弹「系统图片查看器打开失败」。
+  if (settingsStore.settings.imageOpenMode === 'system' && !isTouchMobilePlatform()) {
     void CoolapkTauriAPI.openImageInSystemViewer(item.sourceUrl, settingsStore.settings.cachePath)
       .catch((error) => showToast(getErrorMessage(error, '系统图片查看器打开失败'), 'error'));
     return;

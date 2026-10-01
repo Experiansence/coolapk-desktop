@@ -70,6 +70,7 @@ import AppDialog from '../common/AppDialog.vue';
 import AppButton from '../common/AppButton.vue';
 import AppAvatar from '../common/AppAvatar.vue';
 import { showToast } from '../../utils/toast';
+import { isCoarsePointer } from '../../utils/platform';
 
 const props = defineProps<{
   feed: any;
@@ -113,7 +114,8 @@ watch(
       images.value = [];
       uploadingImages.value = false;
       errorMessage.value = '';
-      nextTick(() => messageInput.value?.focus());
+      // 手机上自动抢焦点会立刻顶起软键盘，把被转发的原帖盖住，交给用户自己点输入框。
+      if (!isCoarsePointer()) nextTick(() => messageInput.value?.focus());
     }
   }
 );

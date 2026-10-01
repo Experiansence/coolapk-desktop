@@ -86,6 +86,16 @@ describe('评论完整信息展示', () => {
     expect(wrapper.find('.comment-text').text()).not.toContain('[图片]');
   });
 
+  it('「继续下滑加载更多评论」提示可点，作为观察器失效时的手动兜底', async () => {
+    const wrapper = mountSection({}, { hasMoreComments: true });
+
+    const hint = wrapper.get('.comment-load-more-hint');
+    expect(hint.element.tagName).toBe('BUTTON');
+
+    await hint.trigger('click');
+    expect(wrapper.emitted('load-more-comments')).toHaveLength(1);
+  });
+
   it('楼主筛选只展示楼主评论且保留原始评论总数', async () => {
     const wrapper = mountSection({}, {
       feedUid: 'owner-1',

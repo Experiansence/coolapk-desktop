@@ -44,6 +44,7 @@ import MobileBottomNav from './MobileBottomNav.vue';
 import PageTabBar from './PageTabBar.vue';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
 import { navigateBack } from '../../utils/navigation';
+import { isTouchMobilePlatform } from '../../utils/platform';
 import { useDesktopWindow } from '../../composables/useDesktopWindow';
 import { useSettingsStore } from '../../stores/settings';
 
@@ -53,8 +54,10 @@ const settingsStore = useSettingsStore();
 const mobileNavigationOpen = ref(false);
 const isAndroidApp = isTauri() && /android/i.test(navigator.userAgent);
 const { showWindowControls, usesMacOverlay } = useDesktopWindow();
+// disableAutoMobileMode 是桌面端语义（窄窗口仍保留桌面顶栏与侧边栏）。
+// 手机上窗口永远是窄的，一旦生效会把整个移动外壳删掉，因此触摸移动端一律忽略它。
 const isMobileLayoutDisabled = computed(() => {
-  return !isAndroidApp && Boolean(settingsStore.settings.disableAutoMobileMode);
+  return !isTouchMobilePlatform() && Boolean(settingsStore.settings.disableAutoMobileMode);
 });
 
 function toggleMobileNavigation() {
@@ -153,11 +156,16 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     top: calc(var(--mobile-window-controls-height) + var(--mobile-topbar-height));
   }
 
+  /* 移动端顶栏自身会因为安全区变高（iPhone 上约 99px），横幅必须让开它。 */
+  .app-shell:not(.prevent-mobile-layout):not(.has-mobile-window-controls) :deep(.network-status-banner) {
+    top: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px) + 8px);
+  }
+
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar) {
     display: flex !important;
     position: fixed;
-    top: calc(var(--mobile-topbar-height) + 8px);
-    bottom: calc(var(--mobile-bottom-nav-height) + 8px);
+    top: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px) + 8px);
+    bottom: calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 8px);
     left: 50%;
     z-index: 1001;
     width: min(460px, calc(100vw - 24px)) !important;

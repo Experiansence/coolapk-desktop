@@ -60,4 +60,24 @@ describe('iOS 官方登录页返回入口', () => {
     run();
     expect(roots).toHaveLength(0);
   });
+
+  it('页面能报出安全区时按安全区往下让', () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ height: 59 } as unknown as DOMRect);
+    run();
+    // 59（安全区）+ 8（余量），旧写法会直接落在状态栏下面。
+    expect(document.getElementById('coolapk-ios-login-return')!.style.top).toBe('67px');
+  });
+
+  it('官网没有 viewport-fit 时按屏幕尺寸兜底，不会被状态栏压掉一半', () => {
+    // jsdom 里量不到 env()，正好等价于官网不声明 viewport-fit=cover 的真机情况。
+    vi.spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ height: 0 } as unknown as DOMRect);
+    Object.defineProperty(window, 'screen', {
+      value: { width: 393, height: 852 },
+      configurable: true,
+    });
+    run();
+    expect(document.getElementById('coolapk-ios-login-return')!.style.top).toBe('56px');
+  });
 });

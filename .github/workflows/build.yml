@@ -325,6 +325,46 @@ jobs:
       - name: 初始化 iOS 工程
         run: npm run tauri -- ios init --ci --skip-targets-install
 
+      - name: 注入 iOS 相册权限说明与中文本地化
+        shell: bash
+        run: |
+          plist="$(find src-tauri/gen/apple -type f -path '*_iOS/Info.plist' -print -quit)"
+          if [[ -z "$plist" ]]; then
+            plist="$(find src-tauri/gen/apple -type f -name Info.plist -not -path '*/Frameworks/*' -print -quit)"
+          fi
+          if [[ -z "$plist" ]]; then
+            echo "未找到 iOS 工程 Info.plist" >&2
+            exit 1
+          fi
+          echo "目标 Info.plist: $plist"
+
+          pb=/usr/libexec/PlistBuddy
+          usage='保存图片到相册需要访问照片权限'
+
+          # 先删后加，避免依赖 Set 对不存在键的返回码。
+          set_string() {
+            $pb -c "Delete :$1" "$plist" 2>/dev/null || true
+            $pb -c "Add :$1 string $2" "$plist"
+          }
+
+          # 系统长按菜单（存储到照片）与权限弹窗的语言跟随 App 声明的本地化，
+          # 不写这两项时系统一律按英文兜底。
+          set_string CFBundleDevelopmentRegion zh_CN
+          $pb -c "Delete :CFBundleLocalizations" "$plist" 2>/dev/null || true
+          $pb -c "Add :CFBundleLocalizations array" "$plist"
+          $pb -c "Add :CFBundleLocalizations:0 string zh-Hans" "$plist"
+          $pb -c "Add :CFBundleLocalizations:1 string zh-Hant" "$plist"
+
+          # WKWebView 长按图片的「存储到照片」会直接写相册：缺少下面两条说明时
+          # iOS 会按隐私越权直接终止 App，表现就是点一下即闪退。
+          set_string NSPhotoLibraryAddUsageDescription "$usage"
+          set_string NSPhotoLibraryUsageDescription "$usage"
+
+          plutil -lint "$plist"
+          $pb -c "Print :CFBundleDevelopmentRegion" "$plist"
+          $pb -c "Print :CFBundleLocalizations" "$plist"
+          $pb -c "Print :NSPhotoLibraryAddUsageDescription" "$plist"
+
       - name: 构建未签名 IPA
         run: npm run tauri -- ios build --target aarch64 --no-sign --ci
 
@@ -338,6 +378,21 @@ jobs:
           fi
 
           unzip -t "$ipa"
+
+          # 打进 IPA 的 Info.plist 必须真的带上权限说明，否则真机点「存储到照片」仍会闪退。
+          work="$(mktemp -d)"
+          unzip -q "$ipa" -d "$work"
+          app_plist="$(find "$work/Payload" -maxdepth 2 -name Info.plist -print -quit)"
+          if [[ -z "$app_plist" ]]; then
+            echo "IPA 内未找到 Payload/*.app/Info.plist" >&2
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Print :NSPhotoLibraryAddUsageDescription" "$app_plist" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :NSPhotoLibraryUsageDescription" "$app_plist" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :CFBundleLocalizations:0" "$app_plist" >/dev/null
+          echo "IPA 内 Info.plist 权限与本地化校验通过"
+          rm -rf "$work"
+
           mkdir -p ios-release
           ref_name="${GITHUB_REF_NAME//\//-}"
           cp "$ipa" "ios-release/coolapk-${ref_name}-ios-arm64-unsigned.ipa"
@@ -349,10 +404,42 @@ jobs:
           path: ios-release/*.ipa
           if-no-files-found: error
 
-  android-build:
-    name: Android ARM64 Release
+  # Android 签名 Secrets 探测。
+  #
+  # fork 上没有配置 ANDROID_KEYSTORE_* 四个 Secrets 时，签名准备步骤必然失败，
+  # 整个 run 会变红并持续发失败邮件。Secrets 不能在 job 级 if 里直接读取，
+  # 所以先用一个小 job 把「是否具备签名条件」导出成 output，再由 android-build 消费。
+  # 上游 Secrets 齐全时输出 true，行为与原来完全一致；补齐 Secrets 后无需再改代码。
+  android-signing-check:
+    name: 检查 Android 签名 Secrets
     needs: []
     if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      has_signing: ${{ steps.check.outputs.has_signing }}
+    steps:
+      - name: 探测签名 Secrets
+        id: check
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "has_signing=true" >> "$GITHUB_OUTPUT"
+            echo "Android 签名 Secrets 已配置，将执行 Android Release 构建。"
+          else
+            echo "has_signing=false" >> "$GITHUB_OUTPUT"
+            echo "缺少 Android Release 签名 Secrets，本次跳过 Android Release 构建。" >&2
+          fi
+
+  android-build:
+    name: Android ARM64 Release
+    needs: [android-signing-check]
+    if: ${{ needs.android-signing-check.outputs.has_signing == 'true' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:

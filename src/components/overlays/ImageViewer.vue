@@ -39,22 +39,27 @@
         </div>
 
         <!-- 左右导航 -->
-        <button v-if="currentIndex > 0" class="nav-arrow nav-prev" @click="prev">
+        <button v-if="currentIndex > 0" class="nav-arrow nav-prev" @click="slideTo(-1)">
           <i class="fas fa-chevron-left"></i>
         </button>
 
-        <button v-if="currentIndex < totalCount - 1" class="nav-arrow nav-next" @click="next">
+        <button v-if="currentIndex < totalCount - 1" class="nav-arrow nav-next" @click="slideTo(1)">
           <i class="fas fa-chevron-right"></i>
         </button>
 
         <!-- 主图片显示区 -->
         <div
+          ref="stageRef"
           class="image-stage"
           @dblclick="handleDoubleClick"
           @mousedown="startDrag"
           @mousemove="onDrag"
           @mouseup="stopDrag"
           @mouseleave="stopDrag"
+          @touchstart="onTouchStart"
+          @touchmove="onTouchMove"
+          @touchend="onTouchEnd"
+          @touchcancel="onTouchCancel"
           @wheel.prevent="handleWheel"
         >
           <img
@@ -64,7 +69,7 @@
             alt="Viewer Image"
             class="viewer-img"
             :style="mediaTransformStyle"
-            @load="onImageLoaded"
+            :class="{ 'is-touch-dragging': touchDragging || mediaTransition === 'none', 'is-sliding': mediaTransition === 'smooth' }"
             @dragstart.prevent
           />
           <video
@@ -88,6 +93,17 @@
             <i class="fas fa-spinner fa-spin"></i>
             <span>正在载入高清大图...</span>
           </div>
+          <!-- 切图过渡：旧画面留在这层继续滑出，避免换图瞬间变成硬切。 -->
+          <img
+            v-if="slideGhost"
+            :src="slideGhost.src"
+            class="viewer-ghost"
+            :class="{ 'is-sliding': mediaTransition === 'smooth' }"
+            :style="ghostTransformStyle"
+            alt=""
+            aria-hidden="true"
+            @dragstart.prevent
+          />
         </div>
 
         <!-- 底部一体化灵动毛玻璃控制岛 -->
@@ -148,11 +164,11 @@ import { useAppStore } from '../../stores/app';
 import { useSettingsStore } from '../../stores/settings';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { getHdImageUrl, getOriginalImageUrl } from '../../utils/image';
-import { loadImageResource, normalizeResourceUrl } from '../../utils/resourceCache';
+import { getMemoryCachedResourceSync, loadImageResource, normalizeResourceUrl } from '../../utils/resourceCache';
 import { getErrorMessage } from '../../utils/errors';
 import { showToast } from '../../utils/toast';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
-import { normalizeFeedImageItems, resolveLivePhotoVideo } from '../../utils/livePhoto';
+import { normalizeFeedImageItems, resolveLivePhotoVideo, type FeedImageItem } from '../../utils/livePhoto';
 import { detectLiveVideoCodec, getLiveVideoCodecSupport, waitForDecodedVideoFrame, type LiveVideoCodec } from '../../utils/liveVideoCodec';
 
 const appStore = useAppStore();
@@ -166,7 +182,34 @@ const rotation = ref(0);
 const translateX = ref(0);
 const translateY = ref(0);
 const isDragging = ref(false);
+// 触摸横滑时的实时位移（仅缩放比例为 1 时使用），松手后归零。
+const swipeOffsetX = ref(0);
+// 触摸下滑关闭时的实时位移，松手后归零。
+const swipeOffsetY = ref(0);
+// 触摸滑动期间关闭 transform 过渡，避免跟手位移被 50ms 补间拖出黏滞感。
+const touchDragging = ref(false);
 const savingOriginal = ref(false);
+
+const stageRef = ref<HTMLElement | null>(null);
+/**
+ * 切图过渡状态：
+ * 'none' = 初始摆放（关闭过渡），'smooth' = 正在缓动，null = 默认 50ms 跟手过渡。
+ */
+const mediaTransition = ref<'none' | 'smooth' | null>(null);
+/** 程序化切图位移；手指跟手的位移仍然走 swipeOffsetX。 */
+const slideOffsetX = ref(0);
+
+interface SlideGhost {
+  src: string;
+  offsetX: number;
+  scale: number;
+  rotation: number;
+}
+
+/** 正在滑出的旧画面，与 SLIDE_DURATION_MS / CSS 里的过渡时长一起决定滑出动画。 */
+const slideGhost = ref<SlideGhost | null>(null);
+const SLIDE_DURATION_MS = 280;
+let transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
 const displaySrc = ref<string>('');
 let resolveSequence = 0;
@@ -196,34 +239,58 @@ const currentItem = computed(() => imageItems.value[currentIndex.value] || null)
 const totalCount = computed(() => imageItems.value.length);
 const rawUrl = computed(() => currentItem.value?.sourceUrl || '');
 const mediaTransformStyle = computed(() => ({
-  transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
+  transform: `translate(${translateX.value + swipeOffsetX.value + slideOffsetX.value}px, ${translateY.value + swipeOffsetY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
   cursor: isDragging.value ? 'grabbing' : 'grab',
 }));
+
+/** 幽灵层自带离场时的缩放/旋转：换图那一帧主图的 transform 已经被重置。 */
+const ghostTransformStyle = computed(() => {
+  const ghost = slideGhost.value;
+  if (!ghost) return {};
+  return { transform: `translate(${ghost.offsetX}px, 0) scale(${ghost.scale}) rotate(${ghost.rotation}deg)` };
+});
+
+function itemCoverUrl(item: FeedImageItem): string {
+  return item.coverUrl || item.sourceUrl;
+}
+
+/** 私信图片等走 API 接口的图片（showImage）本身即原图，不做缩略图后缀处理。 */
+function isPassThroughImageUrl(url: string): boolean {
+  return url.includes('/v6/message/showImage') || url.includes('api.coolapk.com');
+}
+
+/**
+ * 该图片首次显示时使用的地址，必须与 loadCurrentMedia 的选择保持一致；
+ * 相邻图片预读也复用这里，避免预读与显示读到两个不同地址而白读一轮。
+ */
+function itemDisplayUrl(item: FeedImageItem): string {
+  const coverUrl = itemCoverUrl(item);
+  if (isPassThroughImageUrl(coverUrl)) return coverUrl;
+  if (item.isLivePhoto) return normalizeResourceUrl(item.sourceUrl || coverUrl);
+  return getHdImageUrl(coverUrl);
+}
+
+/** 该图片的原图地址。 */
+function itemOriginalUrl(item: FeedImageItem): string {
+  if (!item.sourceUrl) return '';
+  if (isPassThroughImageUrl(item.sourceUrl)) return item.sourceUrl;
+  return getOriginalImageUrl(item.sourceUrl);
+}
 
 const currentUrl = computed(() => {
   const item = currentItem.value;
   if (!item) return '';
-  const coverUrl = item.coverUrl || item.sourceUrl;
-  // 私信图片等走 API 接口的图片（showImage）不做缩略图后缀处理
-  if (coverUrl.includes('/v6/message/showImage') || coverUrl.includes('api.coolapk.com')) {
-    return coverUrl;
-  }
-  if (item.isLivePhoto) {
-    return normalizeResourceUrl(rawUrl.value || coverUrl);
-  }
+  // 这一张的原图已经加载过：切回来继续显示原图，不要退回缩略图。
   if (originalLoadedMap.value[currentIndex.value]) {
-    return getOriginalImageUrl(rawUrl.value);
+    const original = itemOriginalUrl(item);
+    if (original) return original;
   }
-  return getHdImageUrl(coverUrl);
+  return itemDisplayUrl(item);
 });
 
 const originalUrl = computed(() => {
-  if (!rawUrl.value) return '';
-  // 私信图片接口本身就返回原图，普通酷安图片则剥离缩略图后缀。
-  if (rawUrl.value.includes('/v6/message/showImage') || rawUrl.value.includes('api.coolapk.com')) {
-    return rawUrl.value;
-  }
-  return getOriginalImageUrl(rawUrl.value);
+  const item = currentItem.value;
+  return item ? itemOriginalUrl(item) : '';
 });
 
 const isCurrentOriginalLoaded = computed(() => Boolean(originalLoadedMap.value[currentIndex.value]));
@@ -241,6 +308,12 @@ async function resolveImageData(url: string): Promise<boolean> {
   }
   if (url.startsWith('data:') || url.startsWith('blob:')) {
     displaySrc.value = url;
+    return true;
+  }
+  // 命中内存缓存时同步贴回，切图不用闪一帧「正在载入高清大图」。
+  const cached = getMemoryCachedResourceSync(url);
+  if (cached) {
+    displaySrc.value = cached;
     return true;
   }
   displaySrc.value = '';
@@ -464,6 +537,7 @@ async function toggleLiveSound() {
 }
 
 watch(viewerData, (val) => {
+  settleTransitionNow();
   if (val) {
     currentIndex.value = Math.min(Math.max(val.currentIndex, 0), Math.max(imageItems.value.length - 1, 0));
     originalLoadedMap.value = {};
@@ -502,12 +576,31 @@ function loadCurrentMedia() {
     clearMediaForNoImageMode();
     return;
   }
-  if (settingsStore.settings.autoLoadOriginalImage) {
+  if (settingsStore.settings.autoLoadOriginalImage && originalUrl.value) {
     void loadOriginal();
   } else if (currentUrl.value) {
     void resolveImageData(currentUrl.value);
   }
   void resolveCurrentLiveVideo();
+  prefetchAdjacentImages();
+}
+
+/**
+ * 预读左右相邻图片：切图时直接用缓存出图，不必等一次完整的原图下载。
+ * 这里只做预热，不参与 displaySrc；同一地址的并发请求由 resourceCache 合并。
+ */
+function prefetchAdjacentImages() {
+  if (noImageMode.value) return;
+  const items = imageItems.value;
+  if (items.length < 2) return;
+  const prefetchOriginal = settingsStore.settings.autoLoadOriginalImage;
+  for (const offset of [-1, 1]) {
+    const item = items[currentIndex.value + offset];
+    if (!item) continue;
+    const url = (prefetchOriginal ? itemOriginalUrl(item) : '') || itemDisplayUrl(item);
+    if (!url || url.startsWith('data:') || url.startsWith('blob:')) continue;
+    void loadImageResource(url, CoolapkTauriAPI.getImageDataUrl).catch(() => undefined);
+  }
 }
 
 watch(currentItem, () => {
@@ -524,12 +617,17 @@ watch(noImageMode, (enabled) => {
 async function loadOriginal() {
   if (noImageMode.value) return;
   const idx = currentIndex.value;
-  if (originalLoadedMap.value[idx] || originalLoadingMap.value[idx]) return;
-
   const itemSourceUrl = rawUrl.value;
   const url = originalUrl.value;
-  if (!itemSourceUrl || !url) return;
 
+  // 没有原图地址（接口本身只给缩略图）时退回当前显示地址，避免切图后空着。
+  if (!itemSourceUrl || !url) {
+    if (currentUrl.value) await resolveImageData(currentUrl.value);
+    return;
+  }
+
+  // 不再用 originalLoadingMap 拦截"同一张图正在加载"：同一地址的并发请求由
+  // resourceCache 合并，而拦截会让「切走再切回」跳过加载，画面停在上一次的结果。
   originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: true };
   try {
     const loaded = await resolveImageData(url);
@@ -541,18 +639,8 @@ async function loadOriginal() {
       originalLoadedMap.value = { ...originalLoadedMap.value, [idx]: true };
     }
   } finally {
-    if (
-      idx === currentIndex.value
-      && currentItem.value?.sourceUrl === itemSourceUrl
-    ) {
-      originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: false };
-    }
-  }
-}
-
-function onImageLoaded() {
-  const idx = currentIndex.value;
-  if (originalLoadingMap.value[idx]) {
+    // 无论成功、失败还是被切图顶掉都要释放标记：只按"当前是否还是这张图"
+    // 清理会让被切走的那张永久停在加载中，之后切回来既不重新加载也不更新画面。
     originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: false };
   }
 }
@@ -562,6 +650,8 @@ function resetTransform() {
   rotation.value = 0;
   translateX.value = 0;
   translateY.value = 0;
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
 }
 
 function rotateRight() {
@@ -592,6 +682,94 @@ function next() {
   }
 }
 
+function slideDistance(): number {
+  const width = stageRef.value?.clientWidth ?? 0;
+  return width > 0 ? width : Math.max(window.innerWidth || 0, 320);
+}
+
+function clearTransitionTimer() {
+  if (transitionTimer !== null) {
+    clearTimeout(transitionTimer);
+    transitionTimer = null;
+  }
+}
+
+/** 过渡结束后复位：清掉幽灵层，恢复默认过渡时长。 */
+function endTransitionLater() {
+  clearTransitionTimer();
+  transitionTimer = setTimeout(() => {
+    transitionTimer = null;
+    mediaTransition.value = null;
+    slideGhost.value = null;
+  }, SLIDE_DURATION_MS + 40);
+}
+
+/** 立即结束进行中的切图/回弹过渡（新手势、关闭、卸载时调用）。 */
+function settleTransitionNow() {
+  clearTransitionTimer();
+  mediaTransition.value = null;
+  slideGhost.value = null;
+  slideOffsetX.value = 0;
+}
+
+/**
+ * 手势结束时把跟手位移归零：同一帧内切到缓动，让画面滑回原位而不是 50ms 硬切。
+ */
+function restoreSwipeOffsets() {
+  const hadOffset = swipeOffsetX.value !== 0 || swipeOffsetY.value !== 0;
+  touchDragging.value = false;
+  if (!hadOffset) {
+    swipeOffsetX.value = 0;
+    swipeOffsetY.value = 0;
+    return;
+  }
+  mediaTransition.value = 'smooth';
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+  endTransitionLater();
+}
+
+/**
+ * 带过渡地切换图片：
+ * 1) 同一帧内以「无过渡」把新画面摆到手指另一侧的屏幕外，避免闪一帧居中画面；
+ * 2) 旧画面交给幽灵层，从手指当前位置继续滑出；
+ * 3) 下一帧打开缓动，两层同时滑动到终点。
+ * 换图本身仍是同步的，计数与画面同一帧生效。
+ */
+function slideTo(direction: 1 | -1, fromOffsetX = 0): boolean {
+  const atEdge = direction === 1
+    ? currentIndex.value >= totalCount.value - 1
+    : currentIndex.value <= 0;
+  if (atEdge) return false;
+
+  const distance = slideDistance();
+  const ghostSrc = displaySrc.value;
+  clearTransitionTimer();
+  slideGhost.value = ghostSrc
+    ? { src: ghostSrc, offsetX: fromOffsetX, scale: scale.value, rotation: rotation.value }
+    : null;
+  // 跟手位移交接给过渡位移：新画面从手指另一侧的屏幕外滑入。
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+  touchDragging.value = false;
+  mediaTransition.value = 'none';
+  slideOffsetX.value = direction * distance;
+
+  if (direction === 1) next();
+  else prev();
+
+  void nextTick(() => {
+    // 读一次布局强制样式刷新，确保缓动从上一帧的位置开始，而不是滑向屏幕外。
+    if (stageRef.value) void stageRef.value.offsetWidth;
+    mediaTransition.value = 'smooth';
+    slideOffsetX.value = 0;
+    const ghost = slideGhost.value;
+    if (ghost) slideGhost.value = { ...ghost, offsetX: -direction * distance };
+    endTransitionLater();
+  });
+  return true;
+}
+
 function zoomIn() {
   scale.value = Math.min(Number((scale.value + 0.25).toFixed(2)), 4);
 }
@@ -606,12 +784,18 @@ function handleWheel(e: WheelEvent) {
   scale.value = Number(newScale.toFixed(2));
 }
 
-function handleDoubleClick() {
+function toggleZoom() {
   if (scale.value === 1) {
     scale.value = 1.8;
   } else {
     resetTransform();
   }
+}
+
+function handleDoubleClick() {
+  // 触摸端已经用 touchend 间隔识别过双击，避免同一次双击被鼠标事件再算一遍。
+  if (Date.now() < suppressDoubleClickUntil) return;
+  toggleZoom();
 }
 
 let dragStartX = 0;
@@ -644,7 +828,198 @@ function stopDrag() {
   }, 50);
 }
 
+/* ------------------------------------------------------------------
+ * 触摸手势（移动端）
+ * 缩放比例为 1 时：单指横滑 = 上一张 / 下一张（跟随位移 + 边界阻尼），
+ * 单指下滑 = 关闭查看器，双击 = 放大 / 还原。
+ * 两指：捏合缩放。
+ * 放大后：单指拖动 = 平移图片，避免和切图冲突。
+ * ------------------------------------------------------------------ */
+const SWIPE_SWITCH_DISTANCE = 56;
+const SWIPE_CLOSE_DISTANCE = 120;
+const SWIPE_AXIS_LOCK_RATIO = 1.15;
+const SWIPE_EDGE_RESISTANCE = 0.28;
+const BACKDROP_TAP_GUARD_MS = 400;
+// 触摸端双击判定窗口；与 utils/homeTab 的 360ms 取值保持同一量级。
+const DOUBLE_TAP_MS = 300;
+const PINCH_MIN_SCALE = 0.3;
+const PINCH_MAX_SCALE = 4;
+
+let touchActive = false;
+let touchMoved = false;
+let touchPanMode = false;
+let touchStartX = 0;
+let touchStartY = 0;
+let suppressBackdropTapUntil = 0;
+let suppressDoubleClickUntil = 0;
+let lastTapAt = 0;
+let pinchActive = false;
+let pinchStartDistance = 0;
+let pinchStartScale = 1;
+
+function touchDistance(a: Touch, b: Touch): number {
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
+function onTouchStart(e: TouchEvent) {
+  // 新手势打断上一段切图过渡，避免两层动画同时跑。
+  settleTransitionNow();
+  touchMoved = false;
+  touchPanMode = false;
+  swipeOffsetX.value = 0;
+  swipeOffsetY.value = 0;
+
+  // 双指：捏合缩放。整段手势结束后才重新接管，避免缩放中途误切图。
+  if (e.touches.length === 2) {
+    touchActive = false;
+    pinchActive = true;
+    touchDragging.value = true;
+    pinchStartDistance = touchDistance(e.touches[0], e.touches[1]);
+    pinchStartScale = scale.value;
+    return;
+  }
+
+  pinchActive = false;
+  if (e.touches.length !== 1) {
+    touchActive = false;
+    touchDragging.value = false;
+    return;
+  }
+  touchActive = true;
+  touchDragging.value = true;
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+  if (scale.value > 1) {
+    touchPanMode = true;
+    isDragging.value = true;
+    startX = touch.clientX - translateX.value;
+    startY = touch.clientY - translateY.value;
+  }
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (pinchActive) {
+    if (e.touches.length !== 2 || pinchStartDistance <= 0) return;
+    if (e.cancelable) e.preventDefault();
+    const distance = touchDistance(e.touches[0], e.touches[1]);
+    if (Math.abs(distance - pinchStartDistance) > 8) touchMoved = true;
+    const next = pinchStartScale * (distance / pinchStartDistance);
+    scale.value = Math.min(Math.max(Number(next.toFixed(2)), PINCH_MIN_SCALE), PINCH_MAX_SCALE);
+    return;
+  }
+
+  if (!touchActive) return;
+  if (e.touches.length !== 1) {
+    touchActive = false;
+    touchDragging.value = false;
+    swipeOffsetX.value = 0;
+    swipeOffsetY.value = 0;
+    return;
+  }
+  const touch = e.touches[0];
+  const dx = touch.clientX - touchStartX;
+  const dy = touch.clientY - touchStartY;
+  if (Math.hypot(dx, dy) > 6) touchMoved = true;
+
+  if (touchPanMode) {
+    if (e.cancelable) e.preventDefault();
+    translateX.value = touch.clientX - startX;
+    translateY.value = touch.clientY - startY;
+    return;
+  }
+
+  if (Math.abs(dy) > Math.abs(dx) * SWIPE_AXIS_LOCK_RATIO) {
+    // 竖向手势：下滑关闭。上滑不接管，留给后续可能加入的手势。
+    swipeOffsetX.value = 0;
+    swipeOffsetY.value = dy > 0 ? dy : 0;
+    if (e.cancelable) e.preventDefault();
+    return;
+  }
+
+  if (Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_LOCK_RATIO) {
+    swipeOffsetX.value = 0;
+    return;
+  }
+  if (e.cancelable) e.preventDefault();
+
+  const atStart = currentIndex.value === 0 && dx > 0;
+  const atEnd = currentIndex.value === totalCount.value - 1 && dx < 0;
+  swipeOffsetX.value = (atStart || atEnd) ? dx * SWIPE_EDGE_RESISTANCE : dx;
+}
+
+function endTouchGesture(commitSwipe: boolean) {
+  const offsetX = swipeOffsetX.value;
+  const offsetY = swipeOffsetY.value;
+  const wasPinching = pinchActive;
+  const wasTouchActive = touchActive;
+  const panned = touchPanMode;
+  pinchActive = false;
+  touchActive = false;
+  touchPanMode = false;
+
+  if (wasPinching) {
+    restoreSwipeOffsets();
+    return;
+  }
+  if (!wasTouchActive) {
+    restoreSwipeOffsets();
+    return;
+  }
+
+  // 纯点按：双击缩放，单击交给 click 逻辑处理（点背景关闭）。
+  // 注意放在平移判断之前：放大状态下单击同样不能移动图片，必须仍然允许双击还原。
+  if (!touchMoved) {
+    if (panned) isDragging.value = false;
+    const now = Date.now();
+    if (now - lastTapAt < DOUBLE_TAP_MS) {
+      lastTapAt = 0;
+      suppressBackdropTapUntil = now + BACKDROP_TAP_GUARD_MS;
+      suppressDoubleClickUntil = now + BACKDROP_TAP_GUARD_MS;
+      toggleZoom();
+    } else {
+      lastTapAt = now;
+    }
+    restoreSwipeOffsets();
+    return;
+  }
+
+  if (panned) {
+    isDragging.value = false;
+    suppressBackdropTapUntil = Date.now() + BACKDROP_TAP_GUARD_MS;
+    restoreSwipeOffsets();
+    return;
+  }
+  // 滑动结束后 WebKit 仍可能补发一次 click，避免被当成"点背景"直接关闭。
+  suppressBackdropTapUntil = Date.now() + BACKDROP_TAP_GUARD_MS;
+
+  // 下滑关闭：画面留在手指松开的位置随遮罩一起淡出，不再弹回中心。
+  if (commitSwipe && offsetY >= SWIPE_CLOSE_DISTANCE) {
+    touchDragging.value = false;
+    close();
+    return;
+  }
+  if (commitSwipe && Math.abs(offsetX) >= SWIPE_SWITCH_DISTANCE) {
+    slideTo(offsetX < 0 ? 1 : -1, offsetX);
+    return;
+  }
+  // 位移不够：缓动回弹。
+  restoreSwipeOffsets();
+}
+
+function onTouchEnd(e: TouchEvent) {
+  // 捏合结束时可能还有一根手指在屏幕上，等全部抬起再复位。
+  if (pinchActive && e.touches.length > 0) return;
+  endTouchGesture(true);
+}
+
+function onTouchCancel() {
+  endTouchGesture(false);
+}
+
 function handleBackdropClick(e: MouseEvent) {
+  if (Date.now() < suppressBackdropTapUntil) return;
+
   if (isDraggedMove) {
     isDraggedMove = false;
     return;
@@ -686,12 +1061,15 @@ async function saveOriginal() {
 function handleKeydown(e: KeyboardEvent) {
   if (!viewerData.value) return;
   if (e.key === 'Escape') close();
-  if (e.key === 'ArrowLeft') prev();
-  if (e.key === 'ArrowRight') next();
+  if (e.key === 'ArrowLeft') slideTo(-1);
+  if (e.key === 'ArrowRight') slideTo(1);
 }
 
 onMounted(() => window.addEventListener('keydown', handleKeydown));
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+  clearTransitionTimer();
+});
 </script>
 
 <style scoped>
@@ -838,6 +1216,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   overflow: hidden;
   position: relative;
   user-select: none;
+  /* 触摸端由脚本接管横滑切图与放大后平移，避免被 WebView 当成滚动/回弹。 */
+  touch-action: none;
 }
 
 .viewer-img {
@@ -851,6 +1231,33 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   border-radius: 4px;
   transition: transform 0.05s ease-out;
   pointer-events: auto;
+}
+
+/* 触摸拖动期间取消过渡，保证位移严格跟手。 */
+.viewer-img.is-touch-dragging {
+  transition: none;
+}
+
+/* 切图/回弹过渡：时长必须与脚本里的 SLIDE_DURATION_MS 保持一致。 */
+.viewer-img.is-sliding,
+.viewer-ghost.is-sliding {
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 切图时继续滑出的旧画面；盒子与 .viewer-img 对齐，盖在新图之上。 */
+.viewer-ghost {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: 90vw;
+  max-height: 88vh;
+  margin: auto;
+  object-fit: contain;
+  display: block;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .viewer-live-video {
@@ -1067,11 +1474,58 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
     animation: none;
     transition: none;
   }
+
+  .viewer-img.is-sliding,
+  .viewer-ghost.is-sliding {
+    transition: none;
+  }
 }
 
 @media (max-width: 720px) {
   .image-viewer-backdrop {
     inset: 0;
+  }
+
+  /* 顶栏落在刘海/灵动岛区域，必须自行让出安全区（与 MobileTopBar 一致）。 */
+  .viewer-topbar {
+    height: auto;
+    min-height: 44px;
+    align-items: center;
+    padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-left)) 0 max(10px, env(safe-area-inset-right));
+  }
+
+  /* 桌面版整排按钮宽度（约 428px）超过手机可用宽度，这里压缩到能完整放下关闭按钮。 */
+  .topbar-actions {
+    gap: 2px;
+  }
+
+  .viewer-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .zoom-text {
+    min-width: 32px;
+    font-size: 12px;
+  }
+
+  .counter-text {
+    font-size: 13px;
+  }
+
+  .nav-arrow {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .nav-prev { left: 8px; }
+  .nav-next { right: 8px; }
+
+  .viewer-bottombar {
+    bottom: calc(16px + env(safe-area-inset-bottom));
   }
 }
 </style>

@@ -27,7 +27,14 @@
       <template v-else-if="imageDataUrl">
         <section class="share-preview-card" aria-label="分享图预览">
           <div class="share-preview-wrap">
-            <img class="share-preview" :src="imageDataUrl" alt="动态分享图预览" />
+            <img
+              class="share-preview"
+              :src="imageDataUrl"
+              alt="动态分享图预览"
+              role="button"
+              title="点击查看大图"
+              @click="openPreviewFullscreen"
+            />
           </div>
         </section>
 
@@ -54,6 +61,7 @@ import type { FeedItem } from '../../types/feed';
 import type { FeedImageInput } from '../../utils/livePhoto';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
+import { useAppStore } from '../../stores/app';
 import { showToast } from '../../utils/toast';
 import AppDialog from '../common/AppDialog.vue';
 import AppButton from '../common/AppButton.vue';
@@ -78,6 +86,7 @@ const emit = defineEmits<{
 }>();
 
 const settingsStore = useSettingsStore();
+const appStore = useAppStore();
 const generating = ref(false);
 const saving = ref(false);
 const imageDataUrl = ref('');
@@ -101,6 +110,15 @@ async function loadHotComments(): Promise<FeedShareComment[]> {
 
 function close() {
   if (!generating.value) emit('update:show', false);
+}
+
+/**
+ * 分享图按 900px 画布生成，弹窗被手机宽度钳到约 320px 后正文只有约 8px，
+ * 交给看图器放大查看。
+ */
+function openPreviewFullscreen() {
+  if (!imageDataUrl.value) return;
+  appStore.openImageViewer([imageDataUrl.value], 0);
 }
 
 async function generate() {
@@ -233,6 +251,7 @@ watch(
   border: 0;
   border-radius: 0;
   box-shadow: none;
+  cursor: zoom-in;
 }
 
 .share-status {
