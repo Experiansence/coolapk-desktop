@@ -315,6 +315,11 @@
 
       <!-- Tab: 应用评论；使用 /v6/apk/commentList 与 /v6/apk/comment，区别于动态讨论接口 -->
       <template v-if="activeDetailTab === 'comments'">
+        <div class="app-feed-sort" role="group" aria-label="应用评论排序">
+          <button v-for="option in appFeedSortOptions" :key="option.value" type="button"
+            :aria-pressed="commentsSort === option.value" :disabled="commentsLoading"
+            @click="selectCommentsSort(option.value)">{{ option.label }}</button>
+        </div>
         <div v-if="commentsLoading && apkComments.length === 0" class="loading-wrapper">
           <LoadingState text="正在加载应用评论..." />
         </div>
@@ -328,6 +333,7 @@
             :feed-id="''"
             :feed-uid="String(appInfo?.creatoruid || '')"
             :comments="apkComments"
+            preserve-api-order
             :loading="false"
             @send-comment="sendAppComment"
           />
@@ -342,6 +348,11 @@
 
       <!-- Tab: 讨论 -->
       <template v-if="activeDetailTab === 'discussions'">
+        <div class="app-feed-sort" role="group" aria-label="应用讨论排序">
+          <button v-for="option in appFeedSortOptions" :key="option.value" type="button"
+            :aria-pressed="discussionsSort === option.value" :disabled="discussionsLoading"
+            @click="selectDiscussionsSort(option.value)">{{ option.label }}</button>
+        </div>
         <div v-if="discussionsLoading && discussionFeeds.length === 0" class="loading-wrapper">
           <LoadingState text="正在加载讨论..." />
         </div>
@@ -533,6 +544,14 @@ const detailTabs = [
 ];
 
 const discussionFeeds = ref<any[]>([]);
+type AppFeedSort = 'lastupdate_desc' | 'dateline_desc' | 'popular';
+const appFeedSortOptions: { value: AppFeedSort; label: string }[] = [
+  { value: 'lastupdate_desc', label: '最近回复' },
+  { value: 'dateline_desc', label: '最新发布' },
+  { value: 'popular', label: '热门' },
+];
+const discussionsSort = ref<AppFeedSort>('lastupdate_desc');
+const commentsSort = ref<AppFeedSort>('dateline_desc');
 const apkComments = ref<any[]>([]);
 const commentsPage = ref(1);
 const commentsLoading = ref(false);
@@ -701,7 +720,7 @@ async function loadDiscussions(reset: boolean = false) {
   discussionsLoading.value = true;
 
   try {
-    const res = await CoolapkTauriAPI.getApkFeeds(packageName.value, 'lastupdate_desc', discussionsPage.value);
+    const res = await CoolapkTauriAPI.getApkFeeds(packageName.value, discussionsSort.value, discussionsPage.value);
     const data = res?.data || [];
     const items = Array.isArray(data) ? data : [];
 
@@ -735,7 +754,7 @@ async function loadApkComments(reset: boolean = false) {
 
   commentsLoading.value = true;
   try {
-    const res = await CoolapkTauriAPI.getApkComments(packageName.value, 'dateline_desc', commentsPage.value);
+    const res = await CoolapkTauriAPI.getApkComments(packageName.value, commentsSort.value, commentsPage.value);
     const data = res?.data || [];
     const items = Array.isArray(data) ? data : [];
     if (items.length === 0) {
@@ -749,6 +768,18 @@ async function loadApkComments(reset: boolean = false) {
   } finally {
     commentsLoading.value = false;
   }
+}
+
+function selectDiscussionsSort(sort: AppFeedSort) {
+  if (discussionsLoading.value || discussionsSort.value === sort) return;
+  discussionsSort.value = sort;
+  void loadDiscussions(true);
+}
+
+function selectCommentsSort(sort: AppFeedSort) {
+  if (commentsLoading.value || commentsSort.value === sort) return;
+  commentsSort.value = sort;
+  void loadApkComments(true);
 }
 
 async function sendAppComment(message: string) {
@@ -1228,6 +1259,52 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.app-feed-sort {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  border-radius: 16px;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  margin-bottom: 12px;
+}
+
+.app-feed-sort button {
+  height: 26px;
+  line-height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 13px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.app-feed-sort button:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.app-feed-sort button[aria-pressed='true'] {
+  background: var(--brand-primary, #10b981);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.3);
+}
+
+.app-feed-sort button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .page-container {
   width: 100%;
   max-width: 820px;

@@ -71,6 +71,23 @@ describe('评论完整信息展示', () => {
     });
   }
 
+  it('官方接口排序模式保留返回顺序，隐藏本地排序且不受全局设置影响', async () => {
+    const wrapper = mountSection({}, {
+      preserveApiOrder: true,
+      comments: [
+        { id: 'old', message: '官方第一条', dateline: 100, likenum: 1 },
+        { id: 'new', message: '官方第二条', dateline: 300, likenum: 99 },
+        { id: 'middle', message: '官方第三条', dateline: 200, likenum: 50 },
+      ],
+    });
+    expect(wrapper.find('.comment-sort').exists()).toBe(false);
+    expect(wrapper.findAll('.comment-text').map(item => item.text())).toEqual(['官方第一条', '官方第二条', '官方第三条']);
+    useSettingsStore().settings.commentDefaultSortMode = 'likes';
+    await flushPromises();
+    expect(wrapper.findAll('.comment-text').map(item => item.text())).toEqual(['官方第一条', '官方第二条', '官方第三条']);
+    wrapper.unmount();
+  });
+
   it('展示设备、认证、楼层、属地和评论图片', () => {
     const wrapper = mountSection();
     expect(wrapper.text()).toContain('LV6');

@@ -7787,7 +7787,7 @@ impl CoolapkClient {
     }
 
     /// 应用所属动态列表（点评/讨论）
-    /// 数据来源: GET /v6/page/dataList?url=#/feed/apkCommentList
+    /// 与官方 AppViewListFragment 一致：GET /v6/apk/commentList，使用 listType 排序。
     pub async fn get_apk_feeds(
         &self,
         package_name: &str,
@@ -7800,11 +7800,10 @@ impl CoolapkClient {
         };
         let raw = self
             .api_get(
-                "/v6/page/dataList",
+                "/v6/apk/commentList",
                 &[
-                    ("url", "#/feed/apkCommentList".to_string()),
                     ("id", package_name.to_string()),
-                    ("sort", sort.to_string()),
+                    ("listType", sort.to_string()),
                     ("page", page.to_string()),
                 ],
             )
