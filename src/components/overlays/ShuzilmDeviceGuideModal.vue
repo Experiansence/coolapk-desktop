@@ -15,7 +15,7 @@
         <div class="banner-text">
           <div class="banner-title">酷安服务端风控拦截</div>
           <div class="banner-desc">
-            {{ shuzilmGuideState.message || '请求被酷安服务端拦截。请在下方粘贴手机官方酷安复制的设备日志，保存后重试。' }}
+            {{ shuzilmGuideState.message || '请求被酷安服务端拦截。请在下方粘贴官方 Android 酷安复制的设备日志或设备 ID，保存后重试。iOS 用户可通过安卓虚拟机获取，具体步骤见下方指引。' }}
           </div>
         </div>
       </div>
@@ -27,7 +27,7 @@
         <div class="banner-text">
           <div class="banner-title">未配置设备 ID</div>
           <div class="banner-desc">
-            请在下方粘贴手机官方酷安复制的设备日志，保存后重试。
+            请在下方粘贴官方 Android 酷安复制的设备日志或设备 ID，保存后重试。iOS 用户可通过安卓虚拟机获取，具体步骤见下方指引。
           </div>
         </div>
       </div>

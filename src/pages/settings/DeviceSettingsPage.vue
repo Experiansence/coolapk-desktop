@@ -33,7 +33,7 @@
       <h4 class="group-title">数盟设备 ID（用于生成 X-App-Device）</h4>
       <div class="setting-card">
         <p class="card-desc">
-          粘贴手机官方酷安复制的完整日志或设备 ID，保存后用于应用请求的设备标识。
+          粘贴官方 Android 酷安复制的完整日志或设备 ID，保存后用于应用请求的设备标识。iOS 官方酷安没有下述获取入口，可在电脑上的安卓虚拟机中安装官方 Android 酷安，获取设备 ID 后传到 iPhone / iPad，手动粘贴到此处并保存。
         </p>
 
         <div class="device-id-input-row">
@@ -42,7 +42,7 @@
               v-model="deviceIdInput"
               type="text"
               class="text-input full-width-input"
-              placeholder="粘贴手机官方日志或输入数盟设备 ID（形如 DU...）"
+              placeholder="粘贴官方 Android 酷安日志或数盟设备 ID（形如 DU...）"
               @input="onDeviceIdInputChange"
             />
             <button
@@ -97,7 +97,7 @@
           <div class="tutorial-header" @click="tutorialExpanded = !tutorialExpanded">
             <div class="tutorial-title">
               <i class="fas fa-mobile-screen-button"></i>
-              <span>手机官方酷安提取步骤指引</span>
+              <span>官方 Android 酷安提取指引（安卓手机 / 安卓虚拟机）</span>
             </div>
             <i :class="['fas', tutorialExpanded ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
           </div>
@@ -106,7 +106,7 @@
             <div class="tut-step">
               <div class="tut-num">1</div>
               <div class="tut-content">
-                打开手机官方酷安 App，依次点击：<strong>【我】</strong>→右上角<strong>【设置】</strong>（齿轮图标）→滑动到最底部点<strong>【关于】</strong>。
+                在安卓手机或安卓虚拟机中打开官方 Android 酷安 App，依次点击：<strong>【我】</strong>→右上角<strong>【设置】</strong>（齿轮图标）→滑动到最底部点<strong>【关于】</strong>。
               </div>
             </div>
             <div class="tut-step">
@@ -128,7 +128,7 @@
             <div class="tut-step">
               <div class="tut-num">4</div>
               <div class="tut-content">
-                复制后回到此处，点击上方的【读取剪贴板】或直接粘贴，确认识别出的设备 ID 后点击【保存】。
+                复制后回到此处，点击上方的【读取剪贴板】或直接粘贴，确认识别出的设备 ID 后点击【保存】。如果是在安卓虚拟机中获取，请先将复制的完整内容传到使用本客户端的设备；iOS 用户在 iPhone / iPad 上手动粘贴并保存。
               </div>
             </div>
           </div>
