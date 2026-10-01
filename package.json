@@ -40,6 +40,7 @@
     "@tauri-apps/plugin-notification": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
     "@tauri-apps/plugin-stronghold": "^2.0.0",
+    "fflate": "^0.8.3",
     "heic-to": "^1.5.2",
     "pinia": "^2.1.7",
     "qrcode": "^1.5.4",

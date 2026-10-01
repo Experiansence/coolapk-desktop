@@ -1,7 +1,7 @@
 <template>
   <div class="settings-section">
     <h3 class="section-title">诊断日志</h3>
-    <p class="description">日志保存在本机，仅在你主动复制、分享或导出时离开应用。每个文件最多 2 MB，最多保留 4 个旧文件。</p>
+    <p class="description">日志保存在本机，仅在你主动复制、导出，或发送勾选“附带诊断日志”的反馈时离开应用。每个文件最多 2 MB，最多保留 4 个旧文件。</p>
 
     <div class="toolbar">
       <AppButton variant="secondary" size="sm" :loading="loading" @click="loadLogs">刷新</AppButton>
@@ -25,6 +25,24 @@
     <p class="meta">{{ snapshot.files.length }} 个文件 · {{ visibleLines.length }} 行结果</p>
     <pre class="log-content custom-scrollbar">{{ visibleLines.length ? visibleLines.join('\n') : '暂无日志' }}</pre>
     <p class="path">日志目录：{{ snapshot.directory || '正在获取…' }}</p>
+    <section class="report-reader">
+      <h4>读取日志图片</h4>
+      <p class="description">粘贴反馈私信中的“诊断日志图片”链接即可读取。也可在浏览器打开该链接，保存 PNG 文件后点“选择原图”。请勿保存聊天缩略图或截图。</p>
+      <div class="toolbar">
+        <input v-model="reportUrl" type="url" class="control search" placeholder="https://image.coolapk.com/feed/…png" aria-label="日志原图地址" />
+        <AppButton variant="secondary" size="sm" :loading="readingReport" :disabled="!reportUrl.trim() || readingReport" @click="readReportUrl">读取链接</AppButton>
+        <label class="control report-file-button">选择原图<input type="file" accept="image/png,.png" :disabled="readingReport" @change="readReportFile" /></label>
+      </div>
+      <p v-if="reportError" class="error-text" role="alert">{{ reportError }}</p>
+      <template v-if="report">
+        <p class="meta">v{{ report.version }} · {{ report.platform }} · {{ formatDiagnosticTime(report.createdAt) }} · 附件校验通过</p>
+        <div class="toolbar">
+          <AppButton variant="secondary" size="sm" @click="copyReport">复制报告日志</AppButton>
+          <AppButton variant="secondary" size="sm" @click="exportReport">导出报告日志</AppButton>
+        </div>
+        <pre class="log-content">{{ report.log }}</pre>
+      </template>
+    </section>
   </div>
 </template>
 
@@ -36,6 +54,55 @@ import AppButton from '../../components/common/AppButton.vue';
 import { requestConfirmation } from '../../utils/confirm';
 import { showToast } from '../../utils/toast';
 import { getVerboseDiagnosticLogging, setVerboseDiagnosticLogging } from '../../utils/diagnosticLogger';
+import { readDiagnosticImageUrl } from '../../utils/feedbackDiagnostics';
+import { MAX_DIAGNOSTIC_IMAGE_BYTES, unpackDiagnosticImage, formatDiagnosticTime, type DiagnosticReport } from '../../utils/diagnosticImage';
+
+const props = withDefaults(defineProps<{ reportUrl?: string }>(), { reportUrl: '' });
+const reportUrl = ref(props.reportUrl);
+const readingReport = ref(false);
+const reportError = ref('');
+const report = ref<DiagnosticReport | null>(null);
+
+async function readReport(loader: () => Promise<DiagnosticReport>) {
+  if (readingReport.value) return;
+  readingReport.value = true;
+  report.value = null;
+  reportError.value = '';
+  try { report.value = await loader(); }
+  catch (cause) { reportError.value = `读取日志附件失败：${String(cause)}`; }
+  finally { readingReport.value = false; }
+}
+
+function readReportUrl() {
+  return readReport(() => readDiagnosticImageUrl(reportUrl.value));
+}
+
+async function readReportFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  await readReport(async () => {
+    if (file.size > MAX_DIAGNOSTIC_IMAGE_BYTES) throw new Error('日志图片超过 2 MB');
+    return unpackDiagnosticImage(new Uint8Array(await file.arrayBuffer()));
+  });
+  input.value = '';
+}
+
+async function copyReport() {
+  if (!report.value) return;
+  try { await copyText(report.value.log); showToast('报告日志已复制'); }
+  catch (cause) { showToast(`复制失败：${String(cause)}`, 'error'); }
+}
+
+async function exportReport() {
+  if (!report.value) return;
+  const content = report.value.log;
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const path = await save({ defaultPath: 'coolapk-feedback-diagnostics.txt', filters: [{ name: '文本日志', extensions: ['txt'] }] });
+    if (path) { await writeTextFile(path, content); showToast('报告日志已导出'); }
+  } catch (cause) { showToast(`导出失败：${String(cause)}，也可以复制报告日志`, 'error'); }
+}
 
 interface DiagnosticSnapshot {
   files: Array<{ name: string; size: number; modifiedAt: number }>;
@@ -141,6 +208,7 @@ async function changeVerbose() {
 
 onMounted(() => {
   void loadLogs();
+  if (props.reportUrl) void readReportUrl();
   void getVerboseDiagnosticLogging().then((value) => { verbose.value = value; });
 });
 </script>
@@ -156,4 +224,8 @@ onMounted(() => {
 .log-content { min-height: 280px; max-height: 60vh; overflow: auto; margin: 0; padding: 14px; background: var(--surface-hover); border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-primary); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .error-text { color: var(--danger); margin: 0; }
 .path { overflow-wrap: anywhere; }
+.report-reader { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 16px; }
+.report-reader h4 { margin: 0; color: var(--text-primary); }
+.report-file-button { display: inline-flex; align-items: center; position: relative; cursor: pointer; }
+.report-file-button input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 </style>

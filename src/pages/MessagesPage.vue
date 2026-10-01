@@ -172,6 +172,10 @@
                   </div>
                 </div>
                 <div class="msg-time">{{ formatMessageTime(getDateline(msg)) }}</div>
+                <button v-if="getDiagnosticLink(getMessageText(msg))" type="button" class="diagnostic-report-action"
+                  @click="router.push({ path: '/settings/diagnostics', query: { report: getDiagnosticLink(getMessageText(msg)) } })">
+                  <i class="fas fa-file-lines"></i> 查看诊断日志
+                </button>
               </div>
               <AppAvatar 
                 v-if="isSelf(msg)" 
@@ -294,6 +298,11 @@
           @dragover.prevent
         ></div>
         
+        <label v-if="isFeedbackCompose" class="feedback-log-option">
+          <input v-model="includeFeedbackLogs" type="checkbox" :disabled="sending || sendingImage" />
+          附带脱敏诊断日志（发送原图链接，持有链接的人可读取）
+        </label>
+        <div v-if="feedbackStage" class="feedback-log-option" role="status">{{ feedbackStage }}</div>
         <div class="input-bottom-bar">
           <div v-if="draftSaved" class="draft-status"><i class="far fa-save"></i> 草稿已自动保存</div>
           <div v-else class="draft-status-placeholder"></div>
@@ -361,6 +370,7 @@ import {
 } from '../utils/messageUnread';
 
 import { DEVELOPER_UID, DEVELOPER_USERNAME } from '../utils/feedback';
+import { DIAGNOSTIC_LINK_LABEL, getDiagnosticLink, uploadFeedbackDiagnosticImage } from '../utils/feedbackDiagnostics';
 
 import { useRoute, useRouter } from 'vue-router';
 import { useAndroidBackButton } from '../utils/androidBackButton';
@@ -441,6 +451,13 @@ const inputText = ref('');
 const draftSaved = ref(false);
 const sending = ref(false);
 const sendingImage = ref(false);
+const includeFeedbackLogs = ref(true);
+const feedbackStage = ref('');
+const feedbackUpload = ref<{ owner: string; url: string } | null>(null);
+const feedbackSent = ref(false);
+const isFeedbackCompose = computed(() => !feedbackSent.value && route.query.feedback === '1'
+  && Boolean(currentSession.value)
+  && String(getSessionPartnerUid(currentSession.value)) === String(route.query.uid || ''));
 const followingPartner = ref(false);
 const confirmingFollow = ref(false);
 
@@ -1142,7 +1159,8 @@ const isSelf = (msg: any) => {
   return String(msg.fromuid) === myUid;
 };
 
-const chatScrollMap = new Map<string, number>();
+const chatScrollMap = new Map<string, { top: number; atBottom: boolean }>();
+let messagePageActive = true;
 
 function getChatHistoryItemId(item: any): string {
   return String(item?.entityId ?? item?.entity_id ?? item?.id ?? '').trim();
@@ -1225,23 +1243,27 @@ function getChatHistoryPagination(sessionKey: string): ChatHistoryPaginationStat
 }
 
 const handleChatScroll = () => {
-  if (!currentSession.value || !chatAreaRef.value) return;
+  if (!messagePageActive || !isChatPositionReady.value || !currentSession.value || !chatAreaRef.value?.isConnected) return;
   const ukey = currentSession.value.ukey || currentSession.value.id;
   if (ukey) {
-    chatScrollMap.set(String(ukey), chatAreaRef.value.scrollTop);
+    const area = chatAreaRef.value;
+    chatScrollMap.set(String(ukey), { top: area.scrollTop, atBottom: area.scrollHeight - area.clientHeight - area.scrollTop <= 32 });
   }
   if (chatAreaRef.value.scrollTop <= 72) void loadMoreHistory();
 };
 
 const scrollToBottom = async () => {
   await nextTick();
+  if (!messagePageActive) return;
+  const sessionKey = getSessionKey(currentSession.value);
+  if (sessionKey) chatScrollMap.set(sessionKey, { top: 0, atBottom: true });
   if (chatAreaRef.value) {
     chatAreaRef.value.scrollTop = chatAreaRef.value.scrollHeight;
     requestAnimationFrame(() => {
-      if (chatAreaRef.value) {
+      if (messagePageActive && getSessionKey(currentSession.value) === sessionKey && chatAreaRef.value?.isConnected) {
         chatAreaRef.value.scrollTop = chatAreaRef.value.scrollHeight;
+        isChatPositionReady.value = true;
       }
-      isChatPositionReady.value = true;
     });
   } else {
     isChatPositionReady.value = true;
@@ -1249,7 +1271,16 @@ const scrollToBottom = async () => {
 };
 
 const restoreScrollPositionOrBottom = async (ukey?: string) => {
-  await scrollToBottom();
+  const saved = ukey ? chatScrollMap.get(ukey) : undefined;
+  if (!saved || saved.atBottom) return scrollToBottom();
+  await nextTick();
+  const restore = () => {
+    if (!messagePageActive || getSessionKey(currentSession.value) !== ukey || !chatAreaRef.value?.isConnected) return;
+    chatAreaRef.value.scrollTop = saved.top;
+    isChatPositionReady.value = true;
+  };
+  restore();
+  requestAnimationFrame(restore);
 };
 
 async function loadMoreHistory() {
@@ -1710,12 +1741,15 @@ watch(
 );
 
 onActivated(() => {
+  messagePageActive = true;
   bindGlobalListeners();
+  if (currentSession.value) void restoreScrollPositionOrBottom(getSessionKey(currentSession.value));
   void loadSessions();
   startMessagePolling();
 });
 
 onDeactivated(() => {
+  messagePageActive = false;
   clearPendingImages();
   unbindGlobalListeners();
   stopMessagePolling();
@@ -1946,7 +1980,9 @@ const sendTextMessage = async (text: string): Promise<boolean> => {
   }
 
   // 调用后台原生 API 发送
-  const sendRes = await CoolapkTauriAPI.sendPrivateMessage(String(targetUid), text);
+  const sendRes = isFeedbackCompose.value
+    ? await CoolapkTauriAPI.sendPrivateMessage(String(targetUid), text, { retry: false })
+    : await CoolapkTauriAPI.sendPrivateMessage(String(targetUid), text);
   const realMsg = Array.isArray(sendRes?.data) ? sendRes.data[0] : null;
 
   // 乐观更新 UI（与酷安 API 字段一致：uid=接收者，fromuid=发送者）
@@ -2004,6 +2040,19 @@ const sendMessage = async () => {
 
   sending.value = true;
   try {
+    const owner = `${currentUserUid.value}:${getConversationKey()}`;
+    let feedbackText = text;
+    if (isFeedbackCompose.value && includeFeedbackLogs.value && text && !getDiagnosticLink(text)) {
+      if (feedbackUpload.value?.owner !== owner) {
+        feedbackStage.value = '正在打包、上传并校验诊断日志原图…';
+        const url = await uploadFeedbackDiagnosticImage();
+        feedbackUpload.value = { owner, url };
+      }
+      // Never send an account's report to a conversation selected while the upload was in flight.
+      if (`${currentUserUid.value}:${getConversationKey()}` !== owner) throw new Error('会话或账号已切换，日志未发送，请在目标会话重试');
+      feedbackText = `${text}\n\n- ${DIAGNOSTIC_LINK_LABEL}${feedbackUpload.value.url}\n- 日志读取：设置 → 诊断日志 → 读取日志图片，粘贴上方链接即可读取`;
+      feedbackStage.value = '日志上传完成，正在发送反馈…';
+    }
     // 1. 发送待发送列表中的所有图片
     while (pendingImages.value.length > 0) {
       const item = pendingImages.value[0];
@@ -2017,7 +2066,13 @@ const sendMessage = async () => {
 
     // 2. 发送文本消息
     if (text) {
-      await sendTextMessage(text);
+      if (`${currentUserUid.value}:${getConversationKey()}` !== owner) throw new Error('会话或账号已切换，请在目标会话重试');
+      await sendTextMessage(feedbackText);
+      feedbackUpload.value = null;
+      if (isFeedbackCompose.value) {
+        // App keys pages by fullPath. Changing the query here would recreate the conversation.
+        feedbackSent.value = true;
+      }
     } else if (editorRef.value) {
       inputText.value = '';
       editorRef.value.innerHTML = '';
@@ -2029,6 +2084,7 @@ const sendMessage = async () => {
       : (err?.message || JSON.stringify(err) || '消息发送失败，请确认网络与账号权限状态');
     showToast(errMsg, 'error');
   } finally {
+    feedbackStage.value = '';
     sending.value = false;
   }
 };
@@ -3126,6 +3182,24 @@ onUnmounted(() => {
   margin: 0 1px;
 }
 
+.feedback-log-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.diagnostic-report-action {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
 .developer-feedback-banner {
   display: flex;
   align-items: flex-start;

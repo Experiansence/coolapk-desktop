@@ -108,6 +108,7 @@
         <p class="guide-item"><strong>📌 支持反馈内容：</strong>功能异常/报错（Bug）、界面样式显示问题、交互体验优化建议、希望新增的专区或功能。</p>
         <p class="guide-item"><strong>💡 高效反馈技巧：</strong>建议附带<strong>具体操作步骤</strong>、<strong>复现条件</strong>或<strong>截图/报错信息</strong>，以便开发者快速定位并排查问题。</p>
         <p class="guide-item"><strong>⚡ 自动附加信息：</strong>通过一键反馈跳转时，会自动预填当前客户端版本号与系统类型，无需手动输入。</p>
+        <p class="guide-item"><strong>📄 诊断日志：</strong>反馈会话可附带脱敏日志的原图链接，可取消勾选。发送前会上传到酷安，持有链接的人可读取；接收者可在“诊断日志”页面输入链接提取文本。</p>
       </div>
     </div>
 

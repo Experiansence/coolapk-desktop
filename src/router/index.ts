@@ -151,7 +151,7 @@ const routes = [
       { path: 'shortcuts', component: ShortcutSettingsPage },
       { path: 'startup', component: StartupSettingsPage },
       { path: 'device', component: DeviceSettingsPage },
-      { path: 'diagnostics', component: DiagnosticsSettingsPage },
+      { path: 'diagnostics', component: DiagnosticsSettingsPage, props: (route: import('vue-router').RouteLocationNormalized) => ({ reportUrl: String(route.query.report || '') }) },
       { path: 'about', component: AboutSettingsPage },
     ]
   }

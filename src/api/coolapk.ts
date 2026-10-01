@@ -715,8 +715,8 @@ export class CoolapkTauriAPI {
     return await invokeNative('delete_message_chat', { ukey });
   }
 
-  static async sendPrivateMessage(uid: string, message: string) {
-    return await invokeNative('send_private_message', { uid, message });
+  static async sendPrivateMessage(uid: string, message: string, options?: { retry: boolean }) {
+    return await invokeNative('send_private_message', { uid, message }, options);
   }
 
   static async likeFeed(feedId: string) {

@@ -49,6 +49,7 @@ export function openFeedbackMessage(
       uid: DEVELOPER_UID,
       username: DEVELOPER_USERNAME,
       initialText,
+      feedback: '1',
       open: String(Date.now()),
     },
   });

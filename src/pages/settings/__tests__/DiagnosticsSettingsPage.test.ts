@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   writeTextFile: vi.fn(),
   confirmation: vi.fn(),
+  readDiagnosticImageUrl: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, isTauri: () => false }));
@@ -16,6 +17,7 @@ vi.mock('../../../utils/diagnosticLogger', () => ({
   setVerboseDiagnosticLogging: vi.fn(),
 }));
 vi.mock('../../../utils/confirm', () => ({ requestConfirmation: mocks.confirmation }));
+vi.mock('../../../utils/feedbackDiagnostics', () => ({ readDiagnosticImageUrl: mocks.readDiagnosticImageUrl }));
 
 import DiagnosticsSettingsPage from '../DiagnosticsSettingsPage.vue';
 
@@ -51,5 +53,26 @@ describe('DiagnosticsSettingsPage', () => {
     await clearButton.trigger('click');
     await flushPromises();
     expect(mocks.invoke).toHaveBeenCalledWith('clear_diagnostic_logs');
+  });
+
+  it('reads a received report and exports it without mixing in local logs', async () => {
+    mocks.readDiagnosticImageUrl.mockResolvedValue({ format: 'coolapk-diagnostics-v1', version: '1.28.0', platform: 'iOS', createdAt: '2026-10-01', log: 'remote diagnostic report' });
+    const wrapper = mount(DiagnosticsSettingsPage, { props: { reportUrl: 'https://image.coolapk.com/feed/test.png' } });
+    await flushPromises();
+    expect(wrapper.find('.report-reader').text()).toContain('附件校验通过');
+    expect(wrapper.find('.report-reader pre').text()).toBe('remote diagnostic report');
+    const exportButton = wrapper.find('.report-reader').findAll('button').find(button => button.text().includes('导出报告日志'))!;
+    await exportButton.trigger('click');
+    await flushPromises();
+    expect(mocks.writeTextFile).toHaveBeenCalledWith('content://documents/diagnostics', 'remote diagnostic report');
+    expect(wrapper.findAll('.log-content')[0]!.text()).toContain('[INFO] app.ready');
+  });
+
+  it('shows a failed original download without claiming successful extraction', async () => {
+    mocks.readDiagnosticImageUrl.mockRejectedValue(new Error('HTTP 567'));
+    const wrapper = mount(DiagnosticsSettingsPage, { props: { reportUrl: 'https://image.coolapk.com/feed/test.png' } });
+    await flushPromises();
+    expect(wrapper.find('.report-reader [role="alert"]').text()).toContain('HTTP 567');
+    expect(wrapper.find('.report-reader pre').exists()).toBe(false);
   });
 });
