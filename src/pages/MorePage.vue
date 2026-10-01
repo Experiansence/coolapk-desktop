@@ -443,6 +443,24 @@ const hubCategories: HubCategory[] = [
       },
     ],
   },
+  {
+    id: 'features',
+    title: '特色功能',
+    desc: '提供面向酷安桌面版的专属实用功能',
+    icon: 'fas fa-wand-magic-sparkles',
+    items: [
+      {
+        id: 'coolapk_cdn_upload',
+        title: '酷安 CDN 文件上传',
+        shortDesc: '上传并获取链接',
+        desc: '将本地文件上传到酷安 CDN，并在上传和下载管理中查看进度、复制上传链接',
+        icon: 'fas fa-cloud-arrow-up',
+        colorClass: 'bg-green',
+        path: '/cdn-upload',
+        tags: ['特色功能', '上传', '文件上传', '酷安 CDN', 'CDN', '链接'],
+      },
+    ],
+  },
 ];
 
 // 计算全部服务数量

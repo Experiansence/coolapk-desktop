@@ -1152,6 +1152,14 @@ export class CoolapkTauriAPI {
     return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid, liveVideoBytes, hdr });
   }
 
+  static async uploadFileToCdn(taskId: string, filePath: string, attempt: number) {
+    return await invokeNative('upload_file_to_cdn', { taskId, filePath, attempt }, { retry: false, timeoutMs: 0 });
+  }
+
+  static async cancelCdnUpload(taskId: string) {
+    return await invoke<boolean>('cancel_cdn_upload', { taskId });
+  }
+
   static async changeAvatar(imageBytes: Uint8Array, fileName: string, contentType: string) {
     return await invokeNative('change_avatar', { imageBytes, fileName, contentType });
   }

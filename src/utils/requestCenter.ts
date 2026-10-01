@@ -58,7 +58,10 @@ export async function requestWithPolicy<T>(label: string, task: () => Promise<T>
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const result = await withTimeout(Promise.resolve().then(task), timeoutMs, label);
+        const request = Promise.resolve().then(task);
+        // A long-running native command (for example a file upload) can opt out of
+        // the UI timeout. Timing out this wrapper does not cancel the native future.
+        const result = timeoutMs === 0 ? await request : await withTimeout(request, timeoutMs, label);
         requestState.lastError = '';
         requestState.lastSuccessAt = Date.now();
         return result;

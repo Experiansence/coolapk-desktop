@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn generic_cdn_upload_uses_known_mime_types_and_keeps_unknown_extensions_uploadable() {
+    assert_eq!(cdn_content_type("package.ZIP"), "application/zip");
+    assert_eq!(cdn_content_type("notes.txt"), "text/plain");
+    assert_eq!(cdn_content_type("report.pdf"), "application/pdf");
+    assert_eq!(cdn_content_type("movie.mov"), "video/quicktime");
+    assert_eq!(cdn_content_type("archive.XZ"), "application/x-xz");
+    assert_eq!(cdn_content_type("disk.iso"), "application/x-iso9660-image");
+    assert_eq!(cdn_content_type("unknown.custom"), "application/octet-stream");
+}
+
+#[test]
 fn test_publish_extras_apk_fields() {
     let options: PublishOptions = serde_json::from_value(json!({"originalType":2,"dyhId":"9","extraUrl":"/goods/detail?id=8"})).unwrap();
     let mut form = build_create_feed_form("正文", None, None);

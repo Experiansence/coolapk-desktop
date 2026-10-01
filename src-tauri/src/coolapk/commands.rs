@@ -4,6 +4,7 @@ use crate::diagnostics::{login_checkpoint, LoginStage};
 use base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NO_PAD}};
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,6 +15,7 @@ pub struct AppState {
     pub client: CoolapkClient,
     pub downloads: DownloadManager,
     pub login_session: Mutex<Option<std::sync::Arc<LoginSession>>>,
+    pub cdn_uploads: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
 }
 
 #[derive(Default)]
@@ -1535,6 +1537,282 @@ pub async fn upload_image(
             hdr.unwrap_or(0),
         )
         .await
+}
+
+fn emit_cdn_upload_progress(
+    app: &tauri::AppHandle,
+    task_id: &str,
+    attempt: u32,
+    file_name: &str,
+    status: &str,
+    uploaded: u64,
+    total: u64,
+    speed: u64,
+    url: Option<&str>,
+    error: Option<&str>,
+) {
+    let _ = app.emit(
+        "cdn-upload-progress",
+        json!({
+            "taskId": task_id,
+            "attempt": attempt,
+            "fileName": file_name,
+            "status": status,
+            "uploaded": uploaded,
+            "total": total,
+            // Bytes per second, measured between emitted progress samples.
+            "speed": speed,
+            "url": url,
+            "error": error,
+        }),
+    );
+}
+
+#[derive(Clone, Copy)]
+struct CdnUploadProgressSample {
+    last_emit_at: Instant,
+    last_emitted_bytes: u64,
+    current_bytes: u64,
+    current_total: u64,
+    current_speed: u64,
+}
+
+async fn wait_cdn_upload_or_cancel<F>(
+    upload: F,
+    cancel_receiver: &mut tokio::sync::watch::Receiver<bool>,
+) -> Option<F::Output>
+where
+    F: std::future::Future,
+{
+    tokio::pin!(upload);
+    tokio::select! {
+        biased;
+        result = &mut upload => Some(result),
+        _ = cancel_receiver.changed() => None,
+    }
+}
+
+#[cfg(test)]
+mod cdn_upload_cancel_tests {
+    use super::wait_cdn_upload_or_cancel;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    struct DropSignal(Arc<AtomicBool>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_drops_the_active_upload_future() {
+        let (sender, mut receiver) = tokio::sync::watch::channel(false);
+        let was_dropped = Arc::new(AtomicBool::new(false));
+        let upload_drop_signal = DropSignal(was_dropped.clone());
+        let upload = async move {
+            let _drop_signal = upload_drop_signal;
+            std::future::pending::<()>().await;
+        };
+        let task = tokio::spawn(async move {
+            wait_cdn_upload_or_cancel(upload, &mut receiver).await
+        });
+
+        sender.send_replace(true);
+
+        assert_eq!(task.await.unwrap(), None);
+        assert!(was_dropped.load(Ordering::SeqCst));
+    }
+}
+
+#[tauri::command]
+pub async fn upload_file_to_cdn(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+    attempt: u32,
+    file_path: String,
+) -> Result<Value, String> {
+    let path = PathBuf::from(file_path);
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "未知文件".to_string());
+
+    let (cancel_sender, mut cancel_receiver) = tokio::sync::watch::channel(false);
+    {
+        let Ok(mut uploads) = state.cdn_uploads.lock() else {
+            return Err("无法访问上传任务列表".to_string());
+        };
+        if uploads.contains_key(&task_id) {
+            return Err("上传任务 ID 已存在".to_string());
+        }
+        uploads.insert(task_id.clone(), cancel_sender.clone());
+    }
+
+    // 将工作放进异步块，确保无论哪条路径结束，外层都会移除活动任务记录。
+    let outcome = async {
+        let metadata = match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => {
+                let error = "请选择一个普通文件".to_string();
+                emit_cdn_upload_progress(
+                    &app, &task_id, attempt, &file_name, "failed", 0, 0, 0, None, Some(&error),
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                let error = format!("读取文件信息失败：{error}");
+                emit_cdn_upload_progress(
+                    &app, &task_id, attempt, &file_name, "failed", 0, 0, 0, None, Some(&error),
+                );
+                return Err(error);
+            }
+        };
+        let total = metadata.len();
+
+        emit_cdn_upload_progress(
+            &app, &task_id, attempt, &file_name, "preparing", 0, total, 0, None, None,
+        );
+
+        let progress_state = std::sync::Arc::new(Mutex::new(CdnUploadProgressSample {
+            last_emit_at: Instant::now(),
+            last_emitted_bytes: 0,
+            current_bytes: 0,
+            current_total: total,
+            current_speed: 0,
+        }));
+        let progress_app = app.clone();
+        let progress_task_id = task_id.clone();
+        let progress_file_name = file_name.clone();
+        let callback_state = progress_state.clone();
+        let upload = state
+            .client
+            .upload_file_with_progress(&path, move |uploaded, reported_total| {
+                let now = Instant::now();
+                let Ok(mut previous) = callback_state.lock() else {
+                    return;
+                };
+                previous.current_bytes = uploaded;
+                previous.current_total = reported_total;
+                let elapsed = now.duration_since(previous.last_emit_at);
+                if elapsed < Duration::from_millis(200) && uploaded < reported_total {
+                    return;
+                }
+                let speed = if elapsed.is_zero() {
+                    0
+                } else {
+                    (uploaded.saturating_sub(previous.last_emitted_bytes) as f64
+                        / elapsed.as_secs_f64())
+                        .round()
+                        .min(u64::MAX as f64) as u64
+                };
+                previous.last_emit_at = now;
+                previous.last_emitted_bytes = uploaded;
+                previous.current_speed = speed;
+                drop(previous);
+
+                emit_cdn_upload_progress(
+                    &progress_app,
+                    &progress_task_id,
+                    attempt,
+                    &progress_file_name,
+                    "uploading",
+                    uploaded,
+                    reported_total,
+                    speed,
+                    None,
+                    None,
+                );
+            });
+        let upload_result = wait_cdn_upload_or_cancel(upload, &mut cancel_receiver).await;
+
+        match upload_result {
+            None => {
+                let (uploaded, reported_total, speed) = progress_state
+                    .lock()
+                    .map(|sample| {
+                        (sample.current_bytes, sample.current_total, sample.current_speed)
+                    })
+                    .unwrap_or((0, total, 0));
+                emit_cdn_upload_progress(
+                    &app,
+                    &task_id,
+                    attempt,
+                    &file_name,
+                    "cancelled",
+                    uploaded,
+                    reported_total,
+                    speed,
+                    None,
+                    None,
+                );
+                Ok(json!({ "code": 499, "status": "cancelled" }))
+            }
+            Some(Ok(response)) => {
+                let url = response
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                emit_cdn_upload_progress(
+                    &app,
+                    &task_id,
+                    attempt,
+                    &file_name,
+                    "completed",
+                    total,
+                    total,
+                    0,
+                    (!url.is_empty()).then_some(url),
+                    None,
+                );
+                Ok(response)
+            }
+            Some(Err(error)) => {
+                let (uploaded, reported_total, speed) = progress_state
+                    .lock()
+                    .map(|sample| {
+                        (sample.current_bytes, sample.current_total, sample.current_speed)
+                    })
+                    .unwrap_or((0, total, 0));
+                emit_cdn_upload_progress(
+                    &app,
+                    &task_id,
+                    attempt,
+                    &file_name,
+                    "failed",
+                    uploaded,
+                    reported_total,
+                    speed,
+                    None,
+                    Some(&error),
+                );
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    if let Ok(mut uploads) = state.cdn_uploads.lock() {
+        uploads.remove(&task_id);
+    }
+    outcome
+}
+
+#[tauri::command]
+pub fn cancel_cdn_upload(state: State<'_, AppState>, task_id: String) -> bool {
+    let Ok(uploads) = state.cdn_uploads.lock() else {
+        return false;
+    };
+    let Some(cancel_sender) = uploads.get(&task_id) else {
+        return false;
+    };
+    cancel_sender.send_replace(true);
+    true
 }
 
 #[tauri::command]

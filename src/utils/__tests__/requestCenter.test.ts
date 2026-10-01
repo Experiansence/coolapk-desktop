@@ -27,4 +27,16 @@ describe('requestCenter', () => {
     }, { retry: false, timeoutMs: 100 })).rejects.toThrow('网络连接失败');
     expect(attempts).toBe(1);
   });
+
+  it('timeoutMs 为 0 时等待长请求完成而不重试', async () => {
+    let attempts = 0;
+    const result = await requestWithPolicy('长任务', async () => {
+      attempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return 'completed';
+    }, { retry: false, timeoutMs: 0 });
+
+    expect(result).toBe('completed');
+    expect(attempts).toBe(1);
+  });
 });

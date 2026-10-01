@@ -3,8 +3,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::header::{COOKIE, HeaderMap, HeaderValue, LOCATION, USER_AGENT};
 use reqwest::{Client, Method};
 use serde_json::{Value, json};
-use std::path::PathBuf;
-use std::sync::RwLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // 可选字段与界面保持一致，未设置时保留普通动态默认值。
@@ -244,6 +245,59 @@ fn build_oss_image_url(prefix: &str, file_name: &str) -> Option<String> {
         Some(format!("{prefix}/{file_name}"))
     } else {
         None
+    }
+}
+
+fn cdn_content_type(file_name: &str) -> &'static str {
+    let extension = file_name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("7z") => "application/x-7z-compressed",
+        Some("aab" | "bin" | "ipa") => "application/octet-stream",
+        Some("apk") => "application/vnd.android.package-archive",
+        Some("avi") => "video/x-msvideo",
+        Some("bz2") => "application/x-bzip2",
+        Some("csv") => "text/csv",
+        Some("deb") => "application/vnd.debian.binary-package",
+        Some("dmg") => "application/x-apple-diskimage",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("epub") => "application/epub+zip",
+        Some("exe") => "application/vnd.microsoft.portable-executable",
+        Some("flac") => "audio/flac",
+        Some("gz") => "application/gzip",
+        Some("gif") => "image/gif",
+        Some("html" | "htm") => "text/html",
+        Some("iso") => "application/x-iso9660-image",
+        Some("jpeg" | "jpg") => "image/jpeg",
+        Some("json") => "application/json",
+        Some("log" | "md" | "txt") => "text/plain",
+        Some("mkv") => "video/x-matroska",
+        Some("m4a") => "audio/mp4",
+        Some("mp3") => "audio/mpeg",
+        Some("mp4") => "video/mp4",
+        Some("msi") => "application/x-msi",
+        Some("mov") => "video/quicktime",
+        Some("pdf") => "application/pdf",
+        Some("png") => "image/png",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("rar") => "application/vnd.rar",
+        Some("rpm") => "application/x-rpm",
+        Some("rtf") => "application/rtf",
+        Some("svg") => "image/svg+xml",
+        Some("tar") => "application/x-tar",
+        Some("wav") => "audio/wav",
+        Some("webp") => "image/webp",
+        Some("webm") => "video/webm",
+        Some("xml") => "application/xml",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("zip") => "application/zip",
+        Some("xz") => "application/x-xz",
+        Some("zst") => "application/zstd",
+        Some("yaml" | "yml") => "application/yaml",
+        Some("ogg") => "audio/ogg",
+        _ => "application/octet-stream",
     }
 }
 
@@ -6190,6 +6244,206 @@ impl CoolapkClient {
             return Ok(json!({ "code": 200, "data": image_url }));
         }
         Err(format!("OSS 直传响应异常: {}", &oss_body))
+    }
+
+    /// 将本地任意文件直接流式上传到酷安 CDN，并在每个读取块上报告真实进度。
+    pub async fn upload_file_with_progress<F>(&self, path: &Path, progress: F) -> Result<Value, String>
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        use base64::Engine as _;
+        use futures_util::TryStreamExt;
+        use md5::{Digest, Md5};
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        use tokio::io::SeekFrom;
+        use tokio_util::io::ReaderStream;
+
+        let metadata = tokio::fs::metadata(path)
+            .await
+            .map_err(|error| format!("读取文件信息失败：{error}"))?;
+        if !metadata.is_file() {
+            return Err("请选择一个普通文件".to_string());
+        }
+        let total = metadata.len();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| "文件名无效或包含不支持的字符".to_string())?
+            .to_string();
+        let my_uid = self
+            .current_uid()
+            .filter(|uid| !uid.trim().is_empty())
+            .ok_or_else(|| "请先登录酷安账号再上传文件".to_string())?;
+
+        // OSS 的 Content-MD5 与上传凭证都要求完整摘要，先分块读取计算，避免把大文件载入内存。
+        let mut source = tokio::fs::File::open(path)
+            .await
+            .map_err(|error| format!("打开文件失败：{error}"))?;
+        let mut hasher = Md5::new();
+        let mut buffer = vec![0u8; 256 * 1024];
+        let mut hashed = 0u64;
+        loop {
+            let read = source
+                .read(&mut buffer)
+                .await
+                .map_err(|error| format!("读取文件失败：{error}"))?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            hashed = hashed.saturating_add(read as u64);
+        }
+        if hashed != total {
+            return Err("上传期间文件大小发生变化，请重新选择文件".to_string());
+        }
+        source
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(|error| format!("重置文件读取位置失败：{error}"))?;
+        let md5_digest = hasher.finalize();
+        let md5_hex = hex::encode(&md5_digest[..]);
+        let content_md5_b64 = base64::engine::general_purpose::STANDARD.encode(&md5_digest[..]);
+
+        let file_list = json!([{
+            "name": file_name.clone(),
+            "resolution": "0x0",
+            "md5": md5_hex,
+            "hdr": 0
+        }])
+        .to_string();
+        let prepare_params = [
+            ("uploadBucket", "image".to_string()),
+            ("uploadDir", "feed".to_string()),
+            ("is_anonymous", "0".to_string()),
+            ("uploadFileList", file_list),
+            ("toUid", my_uid),
+            ("feed_type", "feed".to_string()),
+        ];
+        let prepared = self
+            .api_post("/v6/upload/ossUploadPrepare", &[], &prepare_params)
+            .await?;
+        let data = prepared
+            .get("data")
+            .filter(|data| !data.is_null())
+            .ok_or_else(|| {
+                let message = prepared
+                    .get("message")
+                    .or_else(|| prepared.get("error"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("酷安服务端未返回上传凭证");
+                format!("酷安不接受此文件或暂时无法上传：{message}")
+            })?;
+        let file_info = data
+            .get("fileInfo")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .ok_or_else(|| "上传凭证中缺少文件信息".to_string())?;
+        let prepare_info = data
+            .get("uploadPrepareInfo")
+            .ok_or_else(|| "酷安服务端未返回 OSS 上传参数".to_string())?;
+        let upload_file_name = file_info
+            .get("uploadFileName")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let existing_url = file_info
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.trim().is_empty())
+            .map(str::to_string);
+        if let Some(url) = existing_url {
+            return Ok(json!({ "code": 200, "data": url }));
+        }
+
+        let field = |name: &str| {
+            prepare_info
+                .get(name)
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| format!("上传凭证缺少 {name}"))
+        };
+        if upload_file_name.is_empty() {
+            return Err("上传凭证缺少 uploadFileName".to_string());
+        }
+        let bucket = field("bucket")?;
+        let endpoint = field("endPoint")?;
+        let access_key_id = field("accessKeyId")?;
+        let access_key_secret = field("accessKeySecret")?;
+        let security_token = field("securityToken")?;
+        let image_prefix = prepare_info
+            .get("uploadImagePrefix")
+            .and_then(Value::as_str)
+            .filter(|prefix| !prefix.trim().is_empty())
+            .unwrap_or("http://image.coolapk.com")
+            .trim_end_matches('/');
+
+        let content_type = cdn_content_type(&file_name);
+        let now = chrono::Utc::now()
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        let callback = "eyJjYWxsYmFja0JvZHlUeXBlIjoiYXBwbGljYXRpb25cL2pzb24iLCJjYWxsYmFja0hvc3QiOiJhcGkuY29vbGFway5jb20iLCJjYWxsYmFja1VybCI6Imh0dHBzOlwvXC9hcGkuY29vbGFway5jb21cL3Y2XC9jYWxsYmFja1wvbW9iaWxlT3NzVXBsb2FkU3VjY2Vzc0NhbGxiYWNrP2NoZWNrQXJ0aWNsZUNvdmVyUmVzb2x1dGlvbj0wJnZlcnNpb25Db2RlPTIxMDIwMzEiLCJjYWxsYmFja0JvZHkiOiJ7XCJidWNrZXRcIjoke2J1Y2tldH0sXCJvYmplY3RcIjoke29iamVjdH0sXCJoYXNQcm9jZXNzXCI6JHt4OnZhcjF9fSJ9";
+        let callback_var = "eyJ4OnZhcjEiOiJmYWxzZSJ9";
+        let resource = format!("/{bucket}/{upload_file_name}");
+        let canonical = format!(
+            "PUT\n{content_md5_b64}\n{content_type}\n{now}\nx-oss-callback:{callback}\nx-oss-callback-var:{callback_var}\nx-oss-security-token:{security_token}\n{resource}"
+        );
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        type HmacSha1 = Hmac<Sha1>;
+        let mut mac = HmacSha1::new_from_slice(access_key_secret.as_bytes())
+            .map_err(|error| error.to_string())?;
+        mac.update(canonical.as_bytes());
+        let signature = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let authorization = format!("OSS {access_key_id}:{signature}");
+
+        let endpoint = endpoint
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        let oss_url = format!("https://{bucket}.{endpoint}/{upload_file_name}");
+        let uploaded = Arc::new(AtomicU64::new(0));
+        let progress = Arc::new(progress);
+        progress(0, total);
+        let stream = ReaderStream::with_capacity(source, 256 * 1024).map_ok({
+            let uploaded = Arc::clone(&uploaded);
+            let progress = Arc::clone(&progress);
+            move |chunk| {
+                let current = uploaded
+                    .fetch_add(chunk.len() as u64, Ordering::Relaxed)
+                    .saturating_add(chunk.len() as u64);
+                // A full body has only been handed to the HTTP client at this point;
+                // reserve 100% for the OSS success response.
+                progress(current.min(total.saturating_sub(1)), total);
+                chunk
+            }
+        });
+        // This request carries short-lived OSS credentials. The redirect-disabled client
+        // prevents those headers from being forwarded to a different host.
+        let response = self
+            .redirect_client
+            .put(&oss_url)
+            .header("Authorization", authorization)
+            .header("Content-MD5", content_md5_b64)
+            .header("Content-Type", content_type)
+            .header("Content-Length", total.to_string())
+            .header("Date", now)
+            .header("x-oss-callback", callback)
+            .header("x-oss-callback-var", callback_var)
+            .header("x-oss-security-token", security_token)
+            .body(reqwest::Body::wrap_stream(stream))
+            .send()
+            .await
+            .map_err(|error| format!("上传到酷安 CDN 失败：{error}"))?;
+        if !response.status().is_success() {
+            return Err(format!("OSS 上传失败（HTTP {}）", response.status()));
+        }
+        if uploaded.load(Ordering::Relaxed) != total {
+            return Err("文件未完整传输到 OSS，请重试".to_string());
+        }
+        let url = build_oss_image_url(image_prefix, &upload_file_name)
+            .ok_or_else(|| "上传成功但酷安没有返回有效文件链接".to_string())?;
+        Ok(json!({ "code": 200, "data": url }))
     }
 
     /// 视频使用与封面同一组 OSS 凭证，签名中不包含图片专用回调。

@@ -58,6 +58,7 @@ use coolapk::commands::{
     unfavorite_apk, unfavorite_feed, unfollow_collection, unfollow_dyh, unfollow_live, unfollow_tag,
     update_collection_item,
     unfollow_user, unlike_collection, unlike_feed, unlike_reply, update_device_profile, upload_image,
+    upload_file_to_cdn, cancel_cdn_upload,
     vote_goods_list_item,
 };
 use download_manager::DownloadManager;
@@ -780,6 +781,7 @@ pub fn run() {
         client,
         downloads: DownloadManager::new(),
         login_session: std::sync::Mutex::new(None),
+        cdn_uploads: std::sync::Mutex::new(std::collections::HashMap::new()),
     };
 
     let builder = tauri::Builder::default()
@@ -1334,6 +1336,8 @@ pub fn run() {
             delete_reply,
             create_forward,
             upload_image,
+            upload_file_to_cdn,
+            cancel_cdn_upload,
             get_black_list,
             get_ignore_list,
             get_limit_list,

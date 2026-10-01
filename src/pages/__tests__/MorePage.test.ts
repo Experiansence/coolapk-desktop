@@ -24,6 +24,24 @@ describe('MorePage.vue', () => {
     expect(wrapper.text()).toContain('二手市场');
     expect(wrapper.text()).toContain('应用');
     expect(wrapper.text()).toContain('下载');
+
+    const downloadEntry = wrapper.find('.featured-section').findAll('.featured-btn-item')
+      .find((item) => item.text().trim() === '下载');
+    expect(downloadEntry).toBeDefined();
+
+    const featuresSection = wrapper.findAll('.category-section')
+      .find((section) => section.find('.section-title').text().includes('特色功能'));
+    expect(featuresSection).toBeDefined();
+    expect(featuresSection!.text()).toContain('酷安 CDN 文件上传');
+  });
+
+  it('特色功能上传卡片会进入独立的文件选择页', async () => {
+    const wrapper = mount(MorePage);
+    const featuresSection = wrapper.findAll('.category-section')
+      .find((section) => section.find('.section-title').text().includes('特色功能'));
+    await featuresSection!.find('.hub-card-item').trigger('click');
+
+    expect(mockPush).toHaveBeenCalledWith('/cdn-upload');
   });
 
   it('filters items correctly when searching', async () => {
