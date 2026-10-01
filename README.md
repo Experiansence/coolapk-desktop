@@ -39,8 +39,6 @@
 
 ![界面预览 3](docs/screenshots/3.png)
 
-![界面预览 4](docs/screenshots/4.png)
-
 ![界面预览 5](docs/screenshots/5.png)
 
 ![界面预览 6](docs/screenshots/6.png)
@@ -56,6 +54,14 @@
    <img alt="Star 走势趋势图" src="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date" />
  </picture>
 </a>
+
+## 贡献者
+
+[![贡献者](https://contrib.rocks/image?repo=daimiaopeng/coolapk-desktop)](https://github.com/daimiaopeng/coolapk-desktop/graphs/contributors)
+
+## 下载量统计图
+
+[![下载量统计图](https://release-monitor.com/chart/daimiaopeng/coolapk-desktop.svg?stable=5)](https://release-monitor.com/#/daimiaopeng/coolapk-desktop)
 
 ## 功能
 
@@ -80,6 +86,7 @@
 - 客户端标识在每次启动时临时生成，不使用开发者或用户的固定设备指纹。
 - 应用会直接访问 `api.coolapk.com`、酷安图片/静态资源域名；不会向第三方字体或图标 CDN 发起请求。
 - 请勿在 Issue、日志或截图中提交真实 Cookie、私信和其他个人数据。
+- 一键私信反馈可取消勾选“附带脱敏诊断日志”。勾选时，最近最多 512 KB 的脱敏日志会以最高等级 DEFLATE 压缩为标准 ZIP，追加到 64×64 PNG 小图，避免此前大图触发的水印与重新编码。上传后会下载文件，逐字节验证与上传前一致，再在文字私信中发送图片链接。持有链接的人可读取附件；接收者可点击“查看诊断日志”，或在设置 → 诊断日志中粘贴私信链接、选择浏览器从该链接保存的 PNG，提取、复制或导出文本。新文件也可改为 .zip 后用解压软件打开。缩略图和截图无法提取附件。
 
 详见 [SECURITY.md](SECURITY.md)。
 
