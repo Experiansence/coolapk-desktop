@@ -11,6 +11,10 @@ export function getFeedbackTemplate(): string {
     // Android UA 同时包含 Linux，必须先识别 Android。
     if (/android/i.test(ua)) {
       osName = 'Android';
+    } else if (/iphone|ipad|ipod/i.test(ua)
+      || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) {
+      // iOS UA 包含 Mac OS；iPad 桌面模式会使用 Macintosh UA。
+      osName = 'iOS';
     } else if (ua.includes('Macintosh') || ua.includes('Mac OS')) {
       osName = 'macOS';
     } else if (ua.includes('Linux')) {

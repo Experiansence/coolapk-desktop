@@ -10,8 +10,22 @@ describe('feedback utils', () => {
     ['Mozilla/5.0 (X11; Linux x86_64)', 'Linux'],
     ['Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Windows'],
     ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'macOS'],
+    ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', 'iOS'],
+    ['Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)', 'iOS'],
+    ['Mozilla/5.0 (iPod touch; CPU iPhone OS 15_0 like Mac OS X)', 'iOS'],
   ])('系统识别：%s → %s', (userAgent, osName) => {
     vi.stubGlobal('navigator', { userAgent });
+    expect(getFeedbackTemplate()).toContain(`- 操作系统：${osName}\n`);
+  });
+
+  it.each([
+    [5, 'iOS'],
+    [0, 'macOS'],
+  ])('Macintosh UA 的触摸点数为 %s 时识别为 %s', (maxTouchPoints, osName) => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      maxTouchPoints,
+    });
     expect(getFeedbackTemplate()).toContain(`- 操作系统：${osName}\n`);
   });
 
