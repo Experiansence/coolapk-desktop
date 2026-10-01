@@ -32,6 +32,9 @@
       "desktop": {
         "schemes": ["coolmarket"]
       }
+    },
+    "macos-fps": {
+      "enabled": true
     }
   },
   "bundle": {
