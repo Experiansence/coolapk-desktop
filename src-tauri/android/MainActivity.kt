@@ -10,15 +10,32 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Android WebView 的 CSS safe-area 可能为 0，原生预留系统栏及刘海区域。
+        val content = findViewById<View>(android.R.id.content)
+        val safeAreaTypes = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+            val bars = insets.getInsets(safeAreaTypes)
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // 已由父容器预留，避免 WebView 再次添加安全区；保留键盘等其他 inset。
+            WindowInsetsCompat.Builder(insets)
+                .setInsets(safeAreaTypes, Insets.NONE)
+                .setInsetsIgnoringVisibility(safeAreaTypes, Insets.NONE)
+                .build()
+        }
+        ViewCompat.requestApplyInsets(content)
     }
 
     private fun updateFile(path: String): File {

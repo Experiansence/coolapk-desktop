@@ -1,7 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { DEVELOPER_UID, getFeedbackTemplate, openFeedbackMessage } from '../feedback';
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe('feedback utils', () => {
+  it.each([
+    ['Mozilla/5.0 (Linux; Android 14)', 'Android'],
+    ['Mozilla/5.0 (Linux; android 14)', 'Android'],
+    ['Mozilla/5.0 (X11; Linux x86_64)', 'Linux'],
+    ['Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Windows'],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'macOS'],
+  ])('系统识别：%s → %s', (userAgent, osName) => {
+    vi.stubGlobal('navigator', { userAgent });
+    expect(getFeedbackTemplate()).toContain(`- 操作系统：${osName}\n`);
+  });
+
   it('开发者 UID 正确', () => {
     expect(DEVELOPER_UID).toBe('1451266');
   });

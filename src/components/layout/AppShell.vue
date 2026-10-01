@@ -43,7 +43,9 @@ import MobileTopBar from './MobileTopBar.vue';
 import MobileBottomNav from './MobileBottomNav.vue';
 import PageTabBar from './PageTabBar.vue';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
-import { navigateBack } from '../../utils/navigation';
+import { createAndroidRootBackHandler } from '../../utils/androidRootBack';
+import { CoolapkTauriAPI } from '../../api/coolapk';
+import { showToast } from '../../utils/toast';
 import { isTouchMobilePlatform } from '../../utils/platform';
 import { useDesktopWindow } from '../../composables/useDesktopWindow';
 import { useSettingsStore } from '../../stores/settings';
@@ -68,14 +70,18 @@ function closeMobileNavigation() {
   mobileNavigationOpen.value = false;
 }
 
+const rootBack = createAndroidRootBackHandler(router, () => CoolapkTauriAPI.quitApp(), showToast);
+useAndroidBackButton(() => true, rootBack.handle);
 useAndroidBackButton(() => mobileNavigationOpen.value, closeMobileNavigation);
-useAndroidBackButton(() => true, () => navigateBack(router));
 
 function handleMobileNavigationKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeMobileNavigation();
 }
 
-watch(() => route.fullPath, closeMobileNavigation);
+watch(() => route.fullPath, () => {
+  closeMobileNavigation();
+  rootBack.reset();
+});
 
 onMounted(() => window.addEventListener('keydown', handleMobileNavigationKeydown));
 onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKeydown));

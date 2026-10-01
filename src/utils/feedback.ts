@@ -8,7 +8,10 @@ export function getFeedbackTemplate(): string {
   let osName = 'Windows';
   if (typeof navigator !== 'undefined') {
     const ua = navigator.userAgent;
-    if (ua.includes('Macintosh') || ua.includes('Mac OS')) {
+    // Android UA 同时包含 Linux，必须先识别 Android。
+    if (/android/i.test(ua)) {
+      osName = 'Android';
+    } else if (ua.includes('Macintosh') || ua.includes('Mac OS')) {
       osName = 'macOS';
     } else if (ua.includes('Linux')) {
       osName = 'Linux';

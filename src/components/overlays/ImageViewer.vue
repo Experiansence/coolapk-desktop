@@ -1084,6 +1084,7 @@ onUnmounted(() => {
 }
 
 .viewer-topbar {
+  flex-shrink: 0;
   height: 56px;
   padding: 0 var(--space-5);
   display: flex;
@@ -1100,6 +1101,7 @@ onUnmounted(() => {
 }
 
 .counter-text {
+  white-space: nowrap;
   font-size: var(--font-size-sub, 14px);
   font-weight: var(--font-weight-medium, 500);
 }
@@ -1491,15 +1493,21 @@ onUnmounted(() => {
     height: auto;
     min-height: 44px;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
     padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-left)) 0 max(10px, env(safe-area-inset-right));
   }
 
   /* 桌面版整排按钮宽度（约 428px）超过手机可用宽度，这里压缩到能完整放下关闭按钮。 */
   .topbar-actions {
     gap: 2px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
   }
 
   .viewer-btn {
+    flex-shrink: 0;
     width: 32px;
     height: 32px;
     font-size: 14px;
