@@ -18,6 +18,9 @@ pub struct PublishOptions {
     pub sub_data: Option<String>,
     pub visible_status: Option<i32>,
     pub large_cover: Option<bool>,
+    pub html_article: Option<bool>,
+    pub message_title: Option<String>,
+    pub message_cover: Option<String>,
     pub original_type: Option<u32>,
     pub extra_url: Option<String>,
     pub dyh_id: Option<String>,
@@ -30,6 +33,14 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
     let target_id = options.target_id.as_deref().unwrap_or("");
     if options.visible_status.is_some_and(|status| status != 1 && status != -1) { return Err("动态可见范围无效".to_string()); }
     if options.original_type.is_some_and(|status| status > 3) { return Err("内容声明无效".to_string()); }
+    if options.html_article == Some(true) {
+        if options.large_cover == Some(true) { return Err("图文发布不能同时设置大图封面模式".to_string()); }
+        if !options.message_title.as_deref().is_some_and(|title| !title.trim().is_empty()) { return Err("图文标题不能为空".to_string()); }
+    } else if options.message_title.as_deref().is_some_and(|title| !title.trim().is_empty())
+        || options.message_cover.as_deref().is_some_and(|cover| !cover.trim().is_empty())
+    {
+        return Err("图文标题和题图仅支持图文发布".to_string());
+    }
     if options.extra_url.as_ref().is_some_and(|url| url.len() > 4096 || url.starts_with("javascript:") || url.starts_with("data:")) { return Err("附加内容链接无效".to_string()); }
     if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
     if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
@@ -66,7 +77,10 @@ fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &Publi
             "targetType" => *value = target_type.to_string(),
             "targetId" => *value = target_id.to_string(),
             "publish_status" if options.visible_status.is_some() => *value = if options.visible_status == Some(-1) { "1" } else { "0" }.to_string(),
+            "is_html_article" if options.html_article == Some(true) => *value = "1".to_string(),
             "is_html_article" if options.large_cover.is_some() => *value = if options.large_cover == Some(true) { "2" } else { "0" }.to_string(),
+            "message_title" if options.message_title.is_some() => *value = options.message_title.clone().unwrap_or_default(),
+            "message_cover" if options.message_cover.is_some() => *value = options.message_cover.clone().unwrap_or_default(),
             "original_type" if options.original_type.is_some() => *value = options.original_type.unwrap_or(0).to_string(),
             "extra_url" if options.extra_url.is_some() => *value = options.extra_url.clone().unwrap_or_default(),
             "media_url" if options.media_url.is_some() => *value = options.media_url.clone().unwrap_or_default(),
@@ -3869,8 +3883,8 @@ impl CoolapkClient {
         wrap_api_data(self.api_get("/v6/feed/changeDetail", &[("id", feed_id.to_string()), ("rid", String::new()), ("noticeId", String::new()), ("fromApi", String::new())]).await?)
     }
 
-    /// 与 APK 的 FeedMultiPart 一样保留原动态字段，只替换正文和图片。
-    pub async fn update_feed(&self, feed_id: &str, message: &str, pic: &str, post_token: Option<&str>) -> Result<Value, String> {
+    /// 与 APK 的 FeedMultiPart 一样保留原动态字段；图文标题和题图由正文模型单独提交。
+    pub async fn update_feed(&self, feed_id: &str, message: &str, pic: &str, post_token: Option<&str>, options: Option<&PublishOptions>) -> Result<Value, String> {
         let detail = self.get_editable_feed(feed_id).await?;
         let original = detail.get("data").ok_or_else(|| "获取可编辑动态失败".to_string())?;
         let original_id = original.get("id").map(value_to_string).unwrap_or_default();
@@ -3879,11 +3893,41 @@ impl CoolapkClient {
             if parse_u64_val(allowed) != Some(1) { return Err("此动态当前不允许编辑或编辑次数已用尽".to_string()); }
         }
         let feed_type = original.get("feedType").or_else(|| original.get("feed_type")).and_then(Value::as_str).unwrap_or("feed");
-        if feed_type != "feed" { return Err("目前只支持重新编辑普通动态".to_string()); }
         let original_obj = original.as_object().ok_or_else(|| "动态格式无效".to_string())?;
-        if get_u64_by_keys(original_obj, &["isHtmlArticle", "is_html_article"]) > 0 || get_u64_by_keys(original_obj, &["mediaType", "media_type"]) > 0 || original.get("mediaUrl").or_else(|| original.get("media_url")).and_then(Value::as_str).is_some_and(|value| !value.is_empty()) { return Err("目前只支持重新编辑普通图文动态".to_string()); }
-        if message.trim().is_empty() && pic.trim().is_empty() { return Err("动态内容不能为空".to_string()); }
-        if message.chars().count() > 1000 { return Err("动态内容超过 1000 字".to_string()); }
+        let original_article_type = get_u64_by_keys(original_obj, &["isHtmlArticle", "is_html_article"]);
+        if feed_type != "feed" && original_article_type != 1 { return Err("目前只支持重新编辑普通动态和图文".to_string()); }
+        if get_u64_by_keys(original_obj, &["mediaType", "media_type"]) > 0 || original.get("mediaUrl").or_else(|| original.get("media_url")).and_then(Value::as_str).is_some_and(|value| !value.is_empty()) { return Err("暂不支持重新编辑视频动态".to_string()); }
+        let is_article_update = options.is_some_and(|value| value.html_article == Some(true));
+        if (original_article_type == 1) != is_article_update { return Err("重新编辑时不能改变动态类型".to_string()); }
+        if original_article_type != 0 && original_article_type != 1 { return Err("暂不支持重新编辑大封面动态".to_string()); }
+        if is_article_update {
+            let article_options = options.expect("article update options checked above");
+            if pic.trim().len() > 0 { return Err("图文正文图片必须保存在正文模型中".to_string()); }
+            if !article_options.message_title.as_deref().is_some_and(|title| !title.trim().is_empty()) { return Err("图文标题不能为空".to_string()); }
+            let models: Value = serde_json::from_str(message).map_err(|_| "图文正文格式无效".to_string())?;
+            let models = models.as_array().ok_or_else(|| "图文正文格式无效".to_string())?;
+            let mut body_text_length = 0usize;
+            let mut has_text = false;
+            for model in models {
+                match model.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        let text = model.get("message").and_then(Value::as_str).ok_or_else(|| "图文文字段落格式无效".to_string())?;
+                        has_text |= !text.trim().is_empty();
+                        body_text_length += text.chars().count();
+                    }
+                    Some("image") => {
+                        if !model.get("url").and_then(Value::as_str).is_some_and(|url| !url.trim().is_empty()) { return Err("图文正文图片地址缺失".to_string()); }
+                    }
+                    Some("card") | Some("shareUrl") | Some("else") => {},
+                    _ => return Err("图文包含不支持的内容模型，为避免保存时丢失，已停止修改".to_string()),
+                }
+            }
+            if !has_text { return Err("图文正文不能为空".to_string()); }
+            if body_text_length > 12_000 { return Err("图文正文超过 12000 字".to_string()); }
+        } else {
+            if message.trim().is_empty() && pic.trim().is_empty() { return Err("动态内容不能为空".to_string()); }
+            if message.chars().count() > 1000 { return Err("动态内容超过 1000 字".to_string()); }
+        }
 
         let mut form = build_create_feed_form(message, Some(pic), None);
         for (key, value) in &mut form {
@@ -3903,6 +3947,18 @@ impl CoolapkClient {
             };
             if let Some(raw) = source_keys.iter().find_map(|source_key| original.get(*source_key).filter(|value| !value.is_null())) {
                 *value = if let Some(flag) = raw.as_bool() { if flag { "1" } else { "0" }.to_string() } else { value_to_string(raw) };
+            }
+        }
+        if is_article_update {
+            let article_options = options.expect("article update options checked above");
+            for (key, value) in &mut form {
+                match *key {
+                    "pic" => value.clear(),
+                    "is_html_article" => *value = "1".to_string(),
+                    "message_title" => *value = article_options.message_title.clone().unwrap_or_default(),
+                    "message_cover" => *value = article_options.message_cover.clone().unwrap_or_default(),
+                    _ => {},
+                }
             }
         }
         for (key, source_keys) in [("province", &["province"][..]), ("city_code", &["city_code", "cityCode"][..])] {
@@ -7013,8 +7069,8 @@ impl CoolapkClient {
     }
 
     /// 发布动态（需登录）
-    /// 官方客户端要求 POST application/x-www-form-urlencoded：
-    /// message / type=feed / is_html_article=0 / pic / _v2_post_token。
+    /// 官方客户端要求 POST application/x-www-form-urlencoded；普通动态默认 is_html_article=0，
+    /// 图文文章使用 is_html_article=1，大封面动态沿用 is_html_article=2。
     pub async fn create_feed(
         &self,
         message: &str,

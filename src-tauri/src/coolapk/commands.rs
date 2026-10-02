@@ -1042,8 +1042,15 @@ pub async fn get_editable_feed(state: State<'_, AppState>, feed_id: String) -> R
 }
 
 #[tauri::command]
-pub async fn update_feed(state: State<'_, AppState>, feed_id: String, message: String, pic: String, post_token: Option<String>) -> Result<Value, String> {
-    state.client.update_feed(&feed_id, &message, &pic, post_token.as_deref()).await
+pub async fn update_feed(
+    state: State<'_, AppState>,
+    feed_id: String,
+    message: String,
+    pic: String,
+    post_token: Option<String>,
+    options: Option<crate::coolapk::client::PublishOptions>,
+) -> Result<Value, String> {
+    state.client.update_feed(&feed_id, &message, &pic, post_token.as_deref(), options.as_ref()).await
 }
 
 #[tauri::command]

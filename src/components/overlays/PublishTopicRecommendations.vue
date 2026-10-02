@@ -33,8 +33,32 @@ watch(() => props.refresh, async () => { const uid = props.uid; const value = aw
 .recommendations { display: flex; gap: 12px; margin-top: 12px; min-width: 0; align-items: center; }
 .recommendations-track { display: flex; gap: 8px; min-width: 0; flex: 1; overflow-x: auto; padding: 3px 2px 5px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
 .recommendations-track:hover { scrollbar-color: var(--border) transparent; }
-button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; max-width: 220px; padding: 6px 10px; border: 1px solid var(--border-light); border-radius: var(--radius-pill); background: var(--background); color: var(--text-secondary); font-size: 12px; line-height: 18px; transition: background-color .15s, border-color .15s, color .15s; }
-button:hover { background: var(--brand-soft); border-color: var(--brand-primary); color: var(--brand-primary); }
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 220px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+button:hover {
+  background: var(--brand-soft);
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  transform: translateY(-1.5px);
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.15);
+}
+button:active {
+  transform: scale(0.95);
+}
 button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 1px; }
 .topic-symbol { color: var(--brand-primary); font-size: 14px; font-weight: 600; }
 .topic-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

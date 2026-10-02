@@ -1268,8 +1268,8 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_editable_feed', { feedId }, { retry: false, kind: 'feed' });
   }
 
-  static async updateFeed(feedId: string, message: string, pic: string, postToken?: string) {
-    return await invokeNative('update_feed', { feedId, message, pic, postToken });
+  static async updateFeed(feedId: string, message: string, pic: string, postToken?: string, options?: PublishOptions) {
+    return await invokeNative('update_feed', { feedId, message, pic, postToken, options });
   }
 
   static async saveCookie(cookieStr: string) {

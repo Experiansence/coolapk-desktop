@@ -16,6 +16,9 @@ export interface PublishOptions {
   subData?: string;
   visibleStatus?: 1 | -1;
   largeCover?: boolean;
+  htmlArticle?: boolean;
+  messageTitle?: string;
+  messageCover?: string;
   originalType?: 0 | 1 | 2 | 3;
   extraUrl?: string;
   dyhId?: string;

@@ -1,6 +1,20 @@
 <template>
   <section class="target-picker">
-    <div class="target-current"><button type="button" class="publish-setting-row" @click="expanded = true"><PublishIcon name="add" class="setting-icon" /><span class="setting-title">{{ modelValue?.title || '发布到' }}</span><span class="setting-value" :class="{ selected: modelValue }">{{ modelValue ? '更换板块' : '选择合适的板块会有更多的赞' }}</span><i class="fas fa-chevron-right setting-arrow"></i></button><button v-if="modelValue" type="button" class="target-remove" aria-label="移除发布板块" @click="emit('update:modelValue', null)"><PublishIcon name="close" /></button></div>
+    <div class="target-current" :class="{ 'has-target': !!modelValue }">
+      <button type="button" class="publish-setting-row" :class="{ 'is-selected': !!modelValue }" @click="expanded = true">
+        <AppImage v-if="modelValue?.logo" :src="modelValue.logo" class="target-current-logo" alt="板块图标" />
+        <span v-else-if="modelValue" class="target-current-icon">
+          <i :class="modelValue.type === 'tag' ? 'fas fa-hashtag' : modelValue.type === 'apk' ? 'fas fa-th-large' : 'fas fa-mobile-alt'"></i>
+        </span>
+        <PublishIcon v-else name="add" class="setting-icon" />
+        <span class="setting-title">{{ modelValue?.title || '发布到' }}</span>
+        <span class="setting-value" :class="{ selected: modelValue }">{{ modelValue ? '更换板块' : '选择合适的板块会有更多的赞' }}</span>
+        <i class="fas fa-chevron-right setting-arrow"></i>
+      </button>
+      <button v-if="modelValue" type="button" class="target-remove" aria-label="移除发布板块" title="移除板块" @click="emit('update:modelValue', null)">
+        <PublishIcon name="close" />
+      </button>
+    </div>
     <PublishOptionSheet :is-open="expanded" title="发布到" @close="expanded = false">
       <div class="publish-search"><i class="fas fa-search"></i><input v-model="query" aria-label="搜索发布板块" placeholder="搜索话题、应用或产品" /></div>
       <div class="tabs publish-picker-tabs"><button v-for="tab in tabs" :key="tab.type" type="button" :class="{ active: type === tab.type }" @click="type = tab.type">{{ tab.title }}</button></div>
@@ -49,7 +63,7 @@ async function load(reset: boolean) {
     const items: PublishTarget[] = type.value === 'tag' ? normalizePublishTopics(response.data).map((topic) => ({ ...topic, type: 'tag' })) : (Array.isArray(response.data) ? response.data : []).flatMap((item: any) => {
       const id = String(type.value === 'apk' ? item.targetId || item.id || '' : item.id || '');
       const title = String(item.appName || item.title || item.name || '');
-      return id && title ? [{ type: type.value, id, title, logo: item.logo }] : [];
+      return id && title ? [{ type: type.value, id, title, logo: item.logo || item.icon || item.pic || item.apkRomIcon || item.cover }] : [];
     });
     const previous = reset ? [] : targets.value;
     targets.value = [...new Map([...previous, ...items].map((item) => [item.id, item])).values()];
@@ -82,8 +96,62 @@ onBeforeUnmount(() => { ++revision; clearTimeout(timer); });
 defineExpose({ openPicker: (targetType: PublishTarget['type'] = 'tag') => { type.value = targetType; expanded.value = true; } });
 </script>
 <style scoped>
-.target-current { display: flex; align-items: center; }
-.target-remove { padding: 10px; color: var(--text-tertiary); }
-.target-logo { width: 36px; height: 36px; border-radius: 8px; }
-@media (max-width: 600px) { .target-current .publish-setting-row { height: 56px; padding: 0 16px; border: 0; } .target-current .setting-icon { width: 32px; height: 32px; padding: 4px; } .target-current .setting-value { font-size: 12px; } .target-remove { padding-right: 16px; } .target-remove .publish-icon { width: 16px; height: 16px; } }
+.target-current {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 4px;
+}
+.target-current-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+.target-current-logo :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.target-current-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--brand-soft);
+  color: var(--brand-primary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.target-remove {
+  padding: 8px;
+  color: var(--text-tertiary);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+}
+.target-remove:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+  transform: scale(1.1);
+}
+.target-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+@media (max-width: 600px) {
+  .target-current .publish-setting-row { height: 46px; }
+  .target-current-logo { width: 26px; height: 26px; }
+  .target-remove { padding: 8px 12px; }
+}
 </style>

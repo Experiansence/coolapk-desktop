@@ -13,7 +13,7 @@ export function normalizePublishTopics(value: unknown): PublishTopic[] {
       if (Array.isArray(item.data)) visit(item.data);
       const title = String(item.title || item.tag || item.entityTitle || '').replace(/^#|#$/g, '').trim();
       if (!title || !item.id || (item.entityType && !['topic', 'feedTopic', 'tag'].includes(item.entityType))) continue;
-      result.set(String(item.id), { id: String(item.id), title, logo: item.logo });
+      result.set(String(item.id), { id: String(item.id), title, logo: item.logo || item.icon || item.pic || item.cover });
     }
   }
   visit(value);

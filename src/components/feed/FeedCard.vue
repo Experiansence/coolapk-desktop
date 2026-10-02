@@ -376,7 +376,32 @@ watch(authorUid, (newUid) => {
   if (newUid) preloadUserProfile(newUid);
 });
 
-const feedImages = computed<FeedImageInput[]>(() => extractFeedImageInputs(props.feed));
+const feedImages = computed<FeedImageInput[]>(() => {
+  const feed = props.feed as FeedItem & Record<string, unknown>;
+  const isArticle = feed.feedType === 'feedArticle'
+    || feed.feed_type === 'feedArticle'
+    || Number(feed.isHtmlArticle ?? feed.is_html_article ?? 0) === 1;
+
+  if (isArticle) {
+    const rawModels = feed.message_raw_output ?? feed.messageRawOutput;
+    let models: unknown = rawModels;
+    if (typeof models === 'string') {
+      try { models = JSON.parse(models); } catch { models = null; }
+    }
+    if (Array.isArray(models)) {
+      const articleImages = models.flatMap((model): string[] => {
+        if (!model || typeof model !== 'object') return [];
+        const image = model as Record<string, unknown>;
+        return image.type === 'image' && typeof image.url === 'string' && image.url.trim()
+          ? [image.url]
+          : [];
+      });
+      if (articleImages.length) return articleImages;
+    }
+  }
+
+  return extractFeedImageInputs(props.feed);
+});
 
 const secondHandInfo = computed<Record<string, any> | null>(() => {
   const raw = (props.feed as any).ershou_info || (props.feed as any).ershouInfo || (props.feed as any).second_hand_info || (props.feed as any).secondHandInfo;
