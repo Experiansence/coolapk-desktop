@@ -2719,12 +2719,21 @@ fn validate_custom_dir(value: &str, label: &str) -> Result<PathBuf, String> {
 }
 
 fn user_save_dir(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Result<PathBuf, String> {
+    // Android 先在应用目录落盘，再通过 MediaStore/系统保存器导出；跨设备导入的桌面路径不适用。
+    #[cfg(target_os = "android")]
+    {
+        let _ = custom_dir;
+        return app.path().download_dir().map_err(|error| error.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
     if let Some(custom_dir) = custom_dir.map(str::trim).filter(|value| !value.is_empty()) {
         return validate_custom_dir(custom_dir, "自定义下载目录");
     }
     app.path()
         .download_dir()
         .map_err(|_| "无法获取系统下载目录，请在设置中选择下载目录".to_string())
+    }
 }
 
 /// 返回当前平台实际使用的下载目录，便于设置页展示真实路径。
@@ -4096,6 +4105,8 @@ const IMAGE_CACHE_CONTAINER: &str = "CoolapkDesktopCache";
 const IMAGE_CACHE_MAGIC: &str = "COOLAPK_IMAGE_CACHE_V1";
 
 fn image_cache_root(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Result<PathBuf, String> {
+    #[cfg(target_os = "android")]
+    let custom_dir = { let _ = custom_dir; None::<&str> };
     let base = custom_dir
         .map(str::trim)
         .filter(|value| !value.is_empty())

@@ -8,11 +8,11 @@
         <div class="row-info">
           <span class="row-label">默认保存目录</span>
           <span class="row-sub">
-            {{ displayDownloadPath }}（用于导出数据等文件保存；留空则使用系统下载目录）
+            {{ isAndroid ? '图片保存到相册，文件保存到下载目录；Android 7–9 保存时选择位置' : `${displayDownloadPath}（用于导出数据等文件保存；留空则使用系统下载目录）` }}
           </span>
         </div>
         <div class="row-actions">
-          <AppButton variant="secondary" size="sm" @click="chooseDownloadDir">更改目录</AppButton>
+          <AppButton v-if="!isAndroid" variant="secondary" size="sm" @click="chooseDownloadDir">更改目录</AppButton>
           <AppButton
             v-if="settingsStore.settings.downloadPath"
             variant="ghost"
@@ -90,11 +90,11 @@
         <div class="row-info">
           <span class="row-label">图片缓存目录</span>
           <span class="row-sub cache-path">{{ cacheDirectoryText }}</span>
-          <span class="row-sub">自定义目录中会创建应用专用的图片缓存子目录；WebView 系统缓存位置不变</span>
+          <span class="row-sub">{{ isAndroid ? '缓存保存在应用目录，可在下方清理' : '自定义目录中会创建应用专用的图片缓存子目录；WebView 系统缓存位置不变' }}</span>
         </div>
         <div class="row-actions">
           <AppButton variant="ghost" size="sm" @click="openCacheDir">打开目录</AppButton>
-          <AppButton variant="secondary" size="sm" @click="chooseCacheDir">更改目录</AppButton>
+          <AppButton v-if="!isAndroid" variant="secondary" size="sm" @click="chooseCacheDir">更改目录</AppButton>
           <AppButton
             v-if="settingsStore.settings.cachePath"
             variant="ghost"
@@ -198,6 +198,7 @@ import { clearResourceCache, clearResourceMemoryCache } from '../../utils/resour
 
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
+const isAndroid = /android/i.test(navigator.userAgent);
 
 const historyExporting = ref(false);
 const historyExportResult = ref('');
