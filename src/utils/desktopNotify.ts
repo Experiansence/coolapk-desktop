@@ -42,6 +42,11 @@ function playNotificationSound() {
 export async function desktopNotify(options: DesktopNotifyOptions, sound = false) {
   try {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
+    // Android 未授权时发送通知可能成功返回，却被系统丢弃，必须先申请权限。
+    if (/android/i.test(navigator.userAgent)) {
+      const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification');
+      if (!(await isPermissionGranted()) && (await requestPermission()) !== 'granted') return;
+    }
     const notificationPromise = invoke('send_desktop_notification', {
       title: options.title,
       body: options.body || null,
