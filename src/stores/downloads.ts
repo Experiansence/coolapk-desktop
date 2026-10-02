@@ -17,6 +17,7 @@ type NativeDownloadEvent = {
   speed?: number;
   path?: string;
   partialPath?: string;
+  publicPath?: string;
   error?: string;
 };
 
@@ -41,6 +42,7 @@ function readTasks(): DownloadTask[] {
         downloadDir: typeof item.downloadDir === 'string' ? item.downloadDir : '',
         targetPath: typeof item.targetPath === 'string' ? item.targetPath : '',
         partialPath: typeof item.partialPath === 'string' ? item.partialPath : '',
+        publicPath: typeof item.publicPath === 'string' ? item.publicPath : '',
         status: ACTIVE_STATUSES.includes(item.status) ? 'paused' : item.status,
         downloaded: Number(item.downloaded) || 0,
         total: Number(item.total) || 0,
@@ -144,6 +146,7 @@ export const useDownloadStore = defineStore('downloads', () => {
     if (status === 'paused') patch.speed = 0;
     if (event.path) patch.targetPath = event.path;
     if (event.partialPath) patch.partialPath = event.partialPath;
+    if (event.publicPath) patch.publicPath = event.publicPath;
     if (event.error) patch.error = event.error;
     if (status === 'completed') {
       patch.completedAt = now();
@@ -218,6 +221,7 @@ export const useDownloadStore = defineStore('downloads', () => {
         total: Number(result?.total) || task.total,
         targetPath: result?.path || task.targetPath,
         partialPath: result?.partialPath || task.partialPath,
+        publicPath: result?.publicPath || task.publicPath,
         completedAt: status === 'completed' ? now() : task.completedAt,
         error: '',
       });
@@ -327,9 +331,13 @@ export const useDownloadStore = defineStore('downloads', () => {
     if (task.status === 'downloading') await cancel(taskId);
     if (deleteFile) {
       try {
-        await CoolapkTauriAPI.deleteApkDownloadFile(task.targetPath, task.partialPath, task.downloadDir);
+        await CoolapkTauriAPI.deleteApkDownloadFile(task.targetPath, task.partialPath, task.downloadDir, task.publicPath);
       } catch (error) {
         // 跨平台迁移后旧绝对路径可能已经不属于当前系统，删除记录不能被这个历史路径阻塞。
+        if (task.publicPath) {
+          showToast(`删除安装包失败，已保留下载记录：${String(error)}`, 'error');
+          return;
+        }
         console.warn('删除下载文件失败，将继续删除任务记录:', error);
       }
     }

@@ -2303,18 +2303,26 @@ async fn run_apk_download(
     tokio::fs::rename(&partial, &target)
         .await
         .map_err(|error| format!("保存安装包失败：{error}"))?;
+    #[cfg(not(target_os = "android"))]
+    let published_path: Option<String> = None;
     #[cfg(target_os = "android")]
-    if let Err(error) = publish_user_file(app, &target).await {
+    let published_path = match publish_user_file(app, &target).await {
+        Ok(location) => Some(location),
+        Err(error) => {
         // 原始安装包仍可安装、打开或再次导出，不把已经完成的下载标记为失败。
         log::warn!("安装包已下载，公共目录保存失败：{error}");
         let _ = app.emit("android-file-save-error", &error);
-    }
+        None
+        }
+    };
     let speed = downloaded / started_at.elapsed().as_secs().max(1);
+    let mut completed = download_event_payload(task_id, "completed", downloaded, total, speed, &target, &partial, None);
+    completed["publicPath"] = json!(published_path);
     let _ = app.emit(
         "apk-download-progress",
-        download_event_payload(task_id, "completed", downloaded, total, speed, &target, &partial, None),
+        completed,
     );
-    Ok(json!({ "status": "completed", "downloaded": downloaded, "total": total, "path": target, "partialPath": partial }))
+    Ok(json!({ "status": "completed", "downloaded": downloaded, "total": total, "path": target, "partialPath": partial, "publicPath": published_path }))
 }
 
 #[tauri::command]
@@ -2394,7 +2402,15 @@ pub async fn delete_apk_download_file(
     target_path: Option<String>,
     partial_path: Option<String>,
     dir: Option<String>,
+    public_path: Option<String>,
 ) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    if let Some(location) = public_path.filter(|value| !value.is_empty()) {
+        let result = call_android_update_method(&app, "deletePublishedApk", location).await?;
+        if result != "deleted" { return Err(result.trim_start_matches("error:").to_string()); }
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = public_path;
     let target_dir = user_save_dir(&app, dir.as_deref())?;
     for raw_path in [target_path, partial_path]
         .into_iter()
@@ -4464,6 +4480,9 @@ async fn publish_user_file(app: &tauri::AppHandle, path: &Path) -> Result<String
             status = call_android_update_method(app, "takeSavedFileResult", String::new()).await?;
         }
         if !status.starts_with("content://") { return Err(status.trim_start_matches("error:").to_string()); }
+        if !path.extension().is_some_and(|extension| ["apk", "xapk", "apks"].iter().any(|allowed| extension.eq_ignore_ascii_case(allowed))) {
+            let _ = tokio::fs::remove_file(path).await;
+        }
         Ok(status)
     }
     #[cfg(not(target_os = "android"))]

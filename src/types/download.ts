@@ -13,6 +13,7 @@ export interface DownloadTask {
   extraAnalysisData: string;
   downloadDir: string;
   targetPath: string;
+  publicPath?: string;
   partialPath: string;
   status: DownloadStatus;
   downloaded: number;

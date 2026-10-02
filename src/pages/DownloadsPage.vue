@@ -250,10 +250,10 @@
             <div
               v-if="task.targetPath && task.status === 'completed'"
               class="download-completed-path"
-              :title="task.targetPath"
+              :title="isAndroid ? task.fileName : task.targetPath"
             >
               <i class="fas fa-folder"></i>
-              <span>{{ task.targetPath }}</span>
+              <span>{{ isAndroid ? (task.publicPath ? '已保存到公共目录' : '已保存到应用目录') : task.targetPath }}</span>
             </div>
           </div>
 
@@ -475,7 +475,7 @@ async function removeTask(task: DownloadTask) {
     task.status !== 'completed' ||
     (await requestConfirmation({
       title: '删除下载记录',
-      message: '是否同时删除电脑上已保存的安装包文件？',
+      message: isAndroid ? '是否同时删除应用目录和公共下载目录中的安装包文件？' : '是否同时删除电脑上已保存的安装包文件？',
       confirmText: '删除文件',
       danger: true,
     }));

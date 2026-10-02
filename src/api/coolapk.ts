@@ -1218,6 +1218,7 @@ export class CoolapkTauriAPI {
       total?: number;
       path?: string;
       partialPath?: string;
+      publicPath?: string;
     }>('start_apk_download', {
       taskId: options.taskId,
       packageName: options.packageName,
@@ -1240,11 +1241,12 @@ export class CoolapkTauriAPI {
     return await invoke<void>('cancel_apk_download', { taskId });
   }
 
-  static async deleteApkDownloadFile(targetPath?: string, partialPath?: string, dir?: string) {
+  static async deleteApkDownloadFile(targetPath?: string, partialPath?: string, dir?: string, publicPath?: string) {
     return await invoke<void>('delete_apk_download_file', {
       targetPath: targetPath || '',
       partialPath: partialPath || '',
       dir: dir || '',
+      publicPath: publicPath || '',
     });
   }
 

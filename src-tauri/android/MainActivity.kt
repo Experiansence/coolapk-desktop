@@ -12,9 +12,11 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import android.provider.DocumentsContract
 import android.view.View
 import android.webkit.MimeTypeMap
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
@@ -45,20 +47,50 @@ class MainActivity : TauriActivity() {
     @Volatile private var pendingSave: File? = null
     @Volatile private var saveResult: String = "pending"
 
-    @Deprecated("Activity result bridge for Android 7–9")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 48113) return
+    private fun rememberPublishedApk(file: File, uri: Uri) {
+        if (file.extension.lowercase() !in listOf("apk", "xapk", "apks")) return
+        val preferences = getSharedPreferences("published-apks", MODE_PRIVATE)
+        val locations = preferences.getStringSet("locations", emptySet())!!.toMutableSet()
+        locations.add(uri.toString())
+        preferences.edit().putStringSet("locations", locations).apply()
+    }
+
+    @Keep
+    fun deletePublishedApk(location: String): String = try {
+        val preferences = getSharedPreferences("published-apks", MODE_PRIVATE)
+        val locations = preferences.getStringSet("locations", emptySet())!!.toMutableSet()
+        require(locations.contains(location)) { "只能删除本应用导出的安装包" }
+        val uri = Uri.parse(location)
+        require(uri.scheme == "content") { "安装包地址无效" }
+        if (DocumentsContract.isDocumentUri(this, uri)) require(DocumentsContract.deleteDocument(contentResolver, uri)) { "无法删除所选目录中的安装包" }
+        else contentResolver.delete(uri, null, null)
+        locations.remove(location)
+        preferences.edit().putStringSet("locations", locations).apply()
+        "deleted"
+    } catch (error: java.io.FileNotFoundException) { "deleted" }
+    catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    private val saveLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        completeDocumentSave(result.resultCode, result.data)
+    }
+
+    private fun completeDocumentSave(resultCode: Int, data: Intent?) {
         val file = pendingSave ?: return
         Thread {
-        saveResult = try {
+        val result = try {
             val uri = data?.data
             require(resultCode == Activity.RESULT_OK && uri != null) { "已取消保存" }
-            contentResolver.openOutputStream(uri!!)?.use { output -> file.inputStream().use { it.copyTo(output) } }
+            contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
                 ?: throw IllegalStateException("无法写入所选文件")
+            if (file.extension.lowercase() in listOf("apk", "xapk", "apks")) {
+                val flags = (data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                contentResolver.takePersistableUriPermission(uri, flags)
+                rememberPublishedApk(file, uri)
+            }
             uri.toString()
         } catch (error: Exception) { "error:${error.message}" }
         pendingSave = null
+        saveResult = result
         }.start()
     }
 
@@ -74,15 +106,15 @@ class MainActivity : TauriActivity() {
         pendingSave = file
         saveResult = "pending"
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            try { saveLauncher.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = mime
                 putExtra(Intent.EXTRA_TITLE, file.name)
-            }, 48113)
+            }) } catch (error: Exception) { pendingSave = null; throw error }
             "pending"
         } else {
             Thread {
-            saveResult = try {
+            val result = try {
             val image = mime.startsWith("image/")
             val collection = if (image) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val values = ContentValues().apply {
@@ -96,10 +128,12 @@ class MainActivity : TauriActivity() {
                 contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
                     ?: throw IllegalStateException("无法写入公共文件")
                 contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                rememberPublishedApk(file, uri)
                 uri.toString()
             } catch (error: Exception) { contentResolver.delete(uri, null, null); throw error }
             } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
             pendingSave = null
+            saveResult = result
             }.start()
             "pending"
         }
