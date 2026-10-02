@@ -2648,6 +2648,23 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+@media (max-width: 720px) {
+  .collection-hero-card { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: 12px; padding: 16px; }
+  .hero-cover-container { width: 56px; height: 56px; border-radius: 10px; }
+  .hero-title { font-size: 18px; overflow-wrap: anywhere; }
+  .hero-title-row { gap: 6px; }
+  .hero-stats { gap: 6px; }
+  .stat-pill { padding: 4px 8px; white-space: nowrap; }
+  .hero-actions-toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+  .toolbar-btn { min-height: 44px; }
+  .toolbar-btn.btn-more { width: 44px; height: 44px; }
+  .collection-breadcrumb { min-width: 0; }
+  .breadcrumb-back-btn { flex-shrink: 0; min-height: 44px; }
+  .breadcrumb-title { min-width: 0; }
+  .collection-content-search { flex-wrap: wrap; }
+  .collection-content-search-input { width: 100%; min-width: 0; }
+}
+
 .loading-wrapper,
 .error-wrapper,
 .empty-wrapper {
