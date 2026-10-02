@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   cancelApkDownload: vi.fn().mockResolvedValue(undefined),
   deleteApkDownloadFile: vi.fn().mockResolvedValue(undefined),
   openApkDownloadDirectory: vi.fn().mockResolvedValue(undefined),
+  installApkDownload: vi.fn().mockResolvedValue('started'),
 }));
 
 vi.mock('../../api/coolapk', () => ({ CoolapkTauriAPI: mocks }));
@@ -18,6 +19,16 @@ import { useDownloadStore } from '../downloads';
 import { useSettingsStore } from '../settings';
 
 describe('下载管理队列', () => {
+  it('仅将已完成的 APK 交给安装器，跳过拆分安装包和未完成任务', async () => {
+    const store = useDownloadStore();
+    const task = { status: 'completed', targetPath: '/downloads/app.apk' } as any;
+    await store.install(task);
+    expect(mocks.installApkDownload).toHaveBeenCalledWith('/downloads/app.apk');
+    mocks.installApkDownload.mockClear();
+    await store.install({ ...task, status: 'downloading' });
+    await store.install({ ...task, targetPath: '/downloads/app.xapk' });
+    expect(mocks.installApkDownload).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());

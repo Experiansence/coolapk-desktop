@@ -119,6 +119,26 @@ class MainActivity : TauriActivity() {
         "opened"
     } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
 
+    @Keep
+    fun installDownloadedApk(path: String): String = try {
+        val file = localFile(path)
+        require(file.isFile && file.extension.equals("apk", true)) { "系统安装器只支持 APK；拆分安装包请使用对应安装工具" }
+        launchApkInstaller(FileProvider.getUriForFile(this, "$packageName.fileprovider", file))
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    private fun launchApkInstaller(uri: Uri): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return "permission_required"
+        }
+        startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            clipData = ClipData.newRawUri("安装包", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        })
+        return "started"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

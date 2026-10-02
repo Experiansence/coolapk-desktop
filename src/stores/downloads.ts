@@ -341,6 +341,16 @@ export const useDownloadStore = defineStore('downloads', () => {
     await CoolapkTauriAPI.openApkDownloadDirectory(task.downloadDir);
   }
 
+  async function install(task: DownloadTask) {
+    if (task.status !== 'completed' || !task.targetPath || !/\.apk$/i.test(task.targetPath)) return;
+    try {
+      const result = await CoolapkTauriAPI.installApkDownload(task.targetPath);
+      if (result === 'permission_required') showToast('请允许安装未知应用，返回后再次点击安装', 'info', 6000);
+    } catch (error) {
+      showToast(`启动安装失败：${String(error)}`, 'error');
+    }
+  }
+
   async function openDirectory(dir?: string) {
     const target = dir || useSettingsStore().settings.downloadPath || '';
     await CoolapkTauriAPI.openApkDownloadDirectory(target);
@@ -390,6 +400,7 @@ export const useDownloadStore = defineStore('downloads', () => {
     remove,
     open,
     openDirectory,
+    install,
     pauseAll,
     resumeAll,
     clearHistory,

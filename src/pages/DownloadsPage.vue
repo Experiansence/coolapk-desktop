@@ -298,6 +298,9 @@
 
             <!-- 已完成：打开位置 / 删除 -->
             <template v-else-if="task.status === 'completed'">
+              <AppButton v-if="isAndroid && /\.apk$/i.test(task.targetPath)" variant="primary" size="sm" icon="fas fa-download" @click="downloadStore.install(task)">
+                安装
+              </AppButton>
               <AppButton variant="secondary" size="sm" icon="fas fa-folder-open" @click="downloadStore.open(task)">
                 文件位置
               </AppButton>
@@ -351,6 +354,7 @@ import { requestConfirmation } from '../utils/confirm';
 import type { DownloadStatus, DownloadTask } from '../types/download';
 
 const route = useRoute();
+const isAndroid = /android/i.test(navigator.userAgent);
 const router = useRouter();
 const downloadStore = useDownloadStore();
 const uploadStore = useUploadStore();

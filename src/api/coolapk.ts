@@ -1339,6 +1339,10 @@ export class CoolapkTauriAPI {
     return await invoke<string>('save_image', { url, dir: dir || '' });
   }
 
+  static async installApkDownload(path: string) {
+    return await invoke<string>('install_apk_download', { path });
+  }
+
   static async saveImageDataUrl(dataUrl: string, fileName: string, dir?: string) {
     return await invoke<string>('save_image_data_url', { dataUrl, fileName, dir: dir || '' });
   }

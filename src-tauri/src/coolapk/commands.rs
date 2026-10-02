@@ -2416,6 +2416,25 @@ pub async fn delete_apk_download_file(
 }
 
 #[tauri::command]
+pub async fn install_apk_download(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let file = std::fs::canonicalize(&path).map_err(|_| "安装包不存在，请重新下载".to_string())?;
+        let directory = user_save_dir(&app, None)?.canonicalize().map_err(|error| error.to_string())?;
+        if file.parent() != Some(directory.as_path()) || !file.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("apk")) {
+            return Err("只能安装应用下载目录内的 APK；拆分安装包请使用对应安装工具".to_string());
+        }
+        let result = call_android_update_method(&app, "installDownloadedApk", file.to_string_lossy().to_string()).await?;
+        match result.as_str() {
+            "started" | "permission_required" => Ok(result),
+            _ => Err(result.trim_start_matches("error:").to_string()),
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, path); Err("此安装入口仅支持 Android".to_string()) }
+}
+
+#[tauri::command]
 pub async fn open_apk_download_directory(
     app: tauri::AppHandle,
     dir: Option<String>,
