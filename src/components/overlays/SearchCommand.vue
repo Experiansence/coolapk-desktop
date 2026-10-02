@@ -19,7 +19,7 @@
               @keydown="handleInputKeydown"
             />
             <button type="button" class="clear-btn" v-if="query" aria-label="清空搜索" @click="query = ''"><i class="fas fa-times"></i></button>
-            <kbd class="esc-kbd">ESC</kbd>
+            <kbd v-if="showShortcutHints" class="esc-kbd">ESC</kbd>
             <button type="button" class="mobile-search-cancel" @click="appStore.closeSearch">取消</button>
           </div>
 
@@ -34,7 +34,7 @@
               <span class="direct-feed-title">打开酷安动态</span>
               <span class="direct-feed-route">{{ directFeedRoute }}</span>
             </span>
-            <kbd>Enter</kbd>
+            <kbd v-if="showShortcutHints">Enter</kbd>
           </button>
 
           <button
@@ -48,7 +48,7 @@
               <span class="direct-feed-title">打开酷安收藏单</span>
               <span class="direct-feed-route">{{ directCollectionRoute }}</span>
             </span>
-            <kbd>Enter</kbd>
+            <kbd v-if="showShortcutHints">Enter</kbd>
           </button>
 
           <div v-if="searchSuggestions.length > 0 && query" class="suggestion-list custom-scrollbar">
@@ -112,8 +112,8 @@
                 </div>
               </div>
             </div>
-            <div v-if="query && searchSuggestions.length" class="search-keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd> 选择联想项 <kbd>Enter</kbd> 搜索或打开 <kbd>Esc</kbd> 关闭</div>
-            <div v-else-if="query && results.length" class="search-keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd> 选择结果 <kbd>Enter</kbd> 打开 <kbd>Esc</kbd> 关闭</div>
+            <div v-if="showShortcutHints && query && searchSuggestions.length" class="search-keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd> 选择联想项 <kbd>Enter</kbd> 搜索或打开 <kbd>Esc</kbd> 关闭</div>
+            <div v-else-if="showShortcutHints && query && results.length" class="search-keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd> 选择结果 <kbd>Enter</kbd> 打开 <kbd>Esc</kbd> 关闭</div>
           </div>
         </div>
       </div>
@@ -125,6 +125,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/app';
+import { useShortcutHints } from '../../composables/useShortcutHints';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
 import LoadingState from '../common/LoadingState.vue';
@@ -145,6 +146,7 @@ import {
 import { normalizeCoolapkCollectionLink, normalizeCoolapkDeepLink, normalizeCoolapkFeedLink, normalizeCoolapkRoute } from '../../utils/coolapkRoute';
 
 const appStore = useAppStore();
+const showShortcutHints = useShortcutHints();
 const router = useRouter();
 
 const query = ref('');

@@ -34,7 +34,7 @@
             >
               <i :class="savingOriginal ? 'fas fa-circle-notch fa-spin' : 'fas fa-download'"></i>
             </button>
-            <button class="viewer-btn" title="关闭 (Esc)" @click="close"><i class="fas fa-times"></i></button>
+            <button class="viewer-btn" :title="showShortcutHints ? '关闭 (Esc)' : '关闭'" @click="close"><i class="fas fa-times"></i></button>
           </div>
         </div>
 
@@ -161,6 +161,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../../stores/app';
+import { useShortcutHints } from '../../composables/useShortcutHints';
 import { useSettingsStore } from '../../stores/settings';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { getHdImageUrl, getOriginalImageUrl } from '../../utils/image';
@@ -172,6 +173,7 @@ import { normalizeFeedImageItems, resolveLivePhotoVideo, type FeedImageItem } fr
 import { detectLiveVideoCodec, getLiveVideoCodecSupport, waitForDecodedVideoFrame, type LiveVideoCodec } from '../../utils/liveVideoCodec';
 
 const appStore = useAppStore();
+const showShortcutHints = useShortcutHints();
 const settingsStore = useSettingsStore();
 const noImageMode = computed(() => settingsStore.settings.noImageMode);
 

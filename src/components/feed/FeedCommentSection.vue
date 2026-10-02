@@ -27,7 +27,7 @@
       <button
         type="button"
         class="comment-toolbar-collapse-btn"
-        title="收起评论 (Esc)"
+        :title="showShortcutHints ? '收起评论 (Esc)' : '收起评论'"
         aria-label="收起评论"
         @click.stop="$emit('collapse')"
       >
@@ -159,7 +159,7 @@
           <button
             type="button"
             class="composer-tool-btn"
-            :title="`添加图片 (最多9张，支持直接${formatShortcut('Ctrl+V')}粘贴截图)`"
+            :title="showShortcutHints ? `添加图片 (最多9张，支持直接${formatShortcut('Ctrl+V')}粘贴截图)` : '添加图片 (最多9张)'"
             aria-label="添加图片"
             :disabled="sending"
             @click="triggerImageSelect"
@@ -531,6 +531,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
+import { useShortcutHints } from '../../composables/useShortcutHints';
 import AppAvatar from '../common/AppAvatar.vue';
 import UserHoverCard from '../user/UserHoverCard.vue';
 import Button from '../ui/Button.vue';
@@ -624,6 +625,7 @@ const emit = defineEmits<{
 const authStore = useAuthStore();
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
+const showShortcutHints = useShortcutHints();
 
 const inputMsg = ref('');
 const sending = ref(false);

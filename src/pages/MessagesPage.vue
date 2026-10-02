@@ -261,7 +261,7 @@
             <button 
               class="toolbar-btn fullscreen-btn" 
               :class="{ 'is-active': isInputFullscreen }"
-              :title="isInputFullscreen ? '退出全屏编辑 (Esc)' : '全屏展开编辑'" 
+              :title="isInputFullscreen ? (showShortcutHints ? '退出全屏编辑 (Esc)' : '退出全屏编辑') : '全屏展开编辑'"
               @click="toggleInputFullscreen"
             >
               <i :class="isInputFullscreen ? 'fas fa-compress-alt' : 'fas fa-expand-alt'"></i>
@@ -290,7 +290,7 @@
           ref="editorRef"
           class="message-rich-editor"
           contenteditable="true"
-          :data-placeholder="isInputFullscreen ? '在此全屏编辑消息内容，支持快捷粘贴或输入长篇文本（按 Esc 退出全屏）...' : '发消息... (支持直接粘贴图片)'"
+          :data-placeholder="isInputFullscreen ? (showShortcutHints ? '在此全屏编辑消息内容，支持快捷粘贴或输入长篇文本（按 Esc 退出全屏）...' : '在此全屏编辑消息内容...') : '发消息... (支持直接粘贴图片)'"
           @input="handleEditorInput"
           @keydown="handleKeydown"
           @paste="handlePaste"
@@ -348,6 +348,7 @@ import { useAuthStore } from '../stores/auth';
 import { useAppStore } from '../stores/app';
 import { useNotificationStore } from '../stores/notifications';
 import { useSettingsStore } from '../stores/settings';
+import { useShortcutHints } from '../composables/useShortcutHints';
 import AppAvatar from '../components/common/AppAvatar.vue';
 import AppImage from '../components/common/AppImage.vue';
 import LoadingState from '../components/common/LoadingState.vue';
@@ -381,6 +382,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const settingsStore = useSettingsStore();
+const showShortcutHints = useShortcutHints();
 const currentUserUid = computed(() => authStore.user?.uid || '');
 
 const isDeveloperSession = computed(() => {

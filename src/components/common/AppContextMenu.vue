@@ -21,7 +21,7 @@
         >
           <i :class="item.icon"></i>
           <span>{{ item.label }}</span>
-          <kbd v-if="item.shortcut">{{ item.shortcut }}</kbd>
+          <kbd v-if="showShortcutHints && item.shortcut">{{ item.shortcut }}</kbd>
         </button>
       </template>
     </div>
@@ -39,6 +39,7 @@ import { openFeedDetail } from '../../utils/feedNavigation';
 import { showToast } from '../../utils/toast';
 import { getOriginalImageUrl } from '../../utils/image';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
+import { useShortcutHints } from '../../composables/useShortcutHints';
 import { refreshPageTabGeneration } from '../../utils/pageTabs';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
 
@@ -85,6 +86,7 @@ const appStore = useAppStore();
 const pageTabsStore = usePageTabsStore();
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
+const showShortcutHints = useShortcutHints();
 const menu = ref<MenuData | null>(null);
 
 const menuStyle = computed(() => ({

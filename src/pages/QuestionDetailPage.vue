@@ -118,7 +118,7 @@
           @keydown.ctrl.enter.prevent="submitAnswer"
         ></textarea>
         <p v-if="answerError" class="answer-error">{{ answerError }}</p>
-        <p v-else class="answer-hint">Ctrl + Enter 发布回答</p>
+        <p v-else-if="showShortcutHints" class="answer-hint">Ctrl + Enter 发布回答</p>
       </div>
       <template #footer>
         <AppButton variant="ghost" :disabled="answerPending" @click="closeAnswerDialog">取消</AppButton>
@@ -139,6 +139,7 @@ import LoadingState from '../components/common/LoadingState.vue';
 import QuestionAnswerCard from '../components/question/QuestionAnswerCard.vue';
 import QuestionHeaderCard from '../components/question/QuestionHeaderCard.vue';
 import { useAppStore } from '../stores/app';
+import { useShortcutHints } from '../composables/useShortcutHints';
 import { useAuthStore } from '../stores/auth';
 import { getErrorMessage } from '../utils/errors';
 import {
@@ -163,6 +164,7 @@ const props = defineProps<{
 }>();
 
 const appStore = useAppStore();
+const showShortcutHints = useShortcutHints();
 const authStore = useAuthStore();
 const questionId = computed(() => String(props.questionId || '').trim());
 

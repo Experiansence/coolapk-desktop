@@ -53,7 +53,7 @@
       <div class="search-input-wrapper" @click="appStore.openSearch">
         <i class="fas fa-search search-icon"></i>
         <span class="placeholder-text">搜索应用、动态、用户、话题</span>
-        <kbd class="shortcut-kbd">{{ formatShortcut('Ctrl+K') }}</kbd>
+        <kbd v-if="showShortcutHints" class="shortcut-kbd">{{ formatShortcut('Ctrl+K') }}</kbd>
       </div>
       <AppIconButton
         :icon="isDark ? 'fas fa-sun' : 'fas fa-moon'"
@@ -361,6 +361,7 @@ import AppAvatar from '../common/AppAvatar.vue';
 import BackToTop from '../common/BackToTop.vue';
 import WindowControls from './WindowControls.vue';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
+import { useShortcutHints } from '../../composables/useShortcutHints';
 import { useDesktopWindow } from '../../composables/useDesktopWindow';
 import { refreshPageTabGeneration } from '../../utils/pageTabs';
 
@@ -372,6 +373,7 @@ const notificationStore = useNotificationStore();
 const pageTabsStore = usePageTabsStore();
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
+const showShortcutHints = useShortcutHints();
 const {
   isMaximized,
   usesMacOverlay,

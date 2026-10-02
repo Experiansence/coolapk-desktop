@@ -52,7 +52,7 @@
       <h4 class="group-title">页面缩放与字号</h4>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">界面缩放比例 ({{ formatShortcut('Ctrl + / -') }})</span>
+          <span class="row-label">界面缩放比例<span v-if="showShortcutHints"> ({{ formatShortcut('Ctrl + / -') }})</span></span>
           <span class="row-sub">
             {{ settingsStore.settings.zoomManuallySet ? `手动缩放 ${settingsStore.settings.zoom}%` : '默认 100%：系统显示缩放已自动适配，无需额外放大' }}
           </span>
@@ -273,11 +273,13 @@ import type { AccentColor, FeedDensity } from '../../types/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 import { moreNavs } from '../../config/navigation';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
+import { useShortcutHints } from '../../composables/useShortcutHints';
 import { showToast } from '../../utils/toast';
 import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
+const showShortcutHints = useShortcutHints();
 const fontPickerOpening = ref(false);
 const isAndroidTauri = isTauri() && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
 // 该开关是桌面端语义（窄窗口是否保留桌面外壳）；手机上窗口永远是窄的，开关会毁掉移动外壳，直接不展示。
