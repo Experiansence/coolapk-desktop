@@ -1014,8 +1014,18 @@ pub async fn get_product_detail_by_name(
 }
 
 #[tauri::command]
-pub async fn get_load_config(state: State<'_, AppState>) -> Result<Value, String> {
-    state.client.get_load_config().await
+pub async fn get_load_config(state: State<'_, AppState>, refresh: Option<bool>) -> Result<Value, String> {
+    state.client.get_my_profile_cards(refresh.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn get_my_card_manager(state: State<'_, AppState>) -> Result<Value, String> {
+    state.client.get_my_card_manager().await
+}
+
+#[tauri::command]
+pub async fn update_my_card_config(state: State<'_, AppState>, config_json: String) -> Result<Value, String> {
+    state.client.update_my_card_config(&config_json).await
 }
 
 #[tauri::command]
@@ -1210,6 +1220,11 @@ pub async fn get_public_user_space(state: State<'_, AppState>, uid: String) -> R
 #[tauri::command]
 pub async fn get_user_profile(state: State<'_, AppState>, uid: String) -> Result<Value, String> {
     state.client.get_user_profile(&uid).await
+}
+
+#[tauri::command]
+pub async fn get_my_profile(state: State<'_, AppState>, uid: String) -> Result<Value, String> {
+    state.client.get_my_profile(&uid).await
 }
 
 #[tauri::command]

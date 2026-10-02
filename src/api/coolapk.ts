@@ -598,6 +598,10 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_user_profile', { uid });
   }
 
+  static async getMyProfile(uid: string) {
+    return await invokeNative('get_my_profile', { uid });
+  }
+
   static async getPublicUserProfile(uid: string) {
     return await invokeNative('get_public_user_profile', { uid });
   }
@@ -1097,8 +1101,16 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_product_detail_by_name', { name });
   }
 
-  static async getLoadConfig() {
-    return await invokeNative('get_load_config');
+  static async getLoadConfig(refresh = false) {
+    return await invokeNative('get_load_config', { refresh });
+  }
+
+  static async getMyCardManager() {
+    return await invokeNative('get_my_card_manager');
+  }
+
+  static async updateMyCardConfig(configJson: string) {
+    return await invokeNative('update_my_card_config', { configJson }, { retry: false });
   }
 
   static async getHomeTabConfig(reset = false) {

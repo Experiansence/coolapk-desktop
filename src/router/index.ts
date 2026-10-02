@@ -52,6 +52,7 @@ import DigitalPage from '../pages/DigitalPage.vue';
 import MyProductsPage from '../pages/MyProductsPage.vue';
 import ProductComparePage from '../pages/ProductComparePage.vue';
 import MorePage from '../pages/MorePage.vue';
+import MyProfilePage from '../pages/MyProfilePage.vue';
 import SettingsLayout from '../pages/settings/SettingsLayout.vue';
 import ProfileSettingsPage from '../pages/settings/ProfileSettingsPage.vue';
 import AccountSettingsPage from '../pages/settings/AccountSettingsPage.vue';
@@ -84,6 +85,7 @@ const routes = [
   { path: '/collection/:collectionId', redirect: (to: any) => ({ path: '/favorites', query: { collectionId: to.params.collectionId } }) },
   { path: '/my-likes', name: 'MyLikes', component: MyLikesPage },
   { path: '/more', name: 'More', component: MorePage },
+  { path: '/me', name: 'MyProfile', component: MyProfilePage },
   { path: '/my', name: 'My', component: MoreWorkspacePage },
   { path: '/followed-nodes', name: 'FollowedNodes', component: MoreDataPage, meta: { mode: 'nodes' } },
   { path: '/followed-topics', name: 'FollowedTopics', component: MoreDataPage, meta: { mode: 'topics' } },

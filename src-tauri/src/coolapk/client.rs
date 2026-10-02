@@ -4332,6 +4332,13 @@ impl CoolapkClient {
         self.get_user_data("/v6/user/profile", uid, false).await
     }
 
+    pub async fn get_my_profile(&self, uid: &str) -> Result<Value, String> {
+        wrap_api_data(self.api_get("/v6/user/profile", &[
+            ("uid", uid.to_string()), ("installTime", "0".to_string()),
+            ("showSettingTab", "1".to_string()),
+        ]).await?)
+    }
+
     pub async fn get_public_user_profile(&self, uid: &str) -> Result<Value, String> {
         self.get_user_data("/v6/user/profile", uid, true).await
     }
@@ -5499,13 +5506,32 @@ impl CoolapkClient {
     /// 加载个人页卡片配置
     /// 数据来源: GET /v6/account/loadConfig?key=my_page_card_config
     pub async fn get_load_config(&self) -> Result<Value, String> {
+        self.get_my_profile_cards(false).await
+    }
+
+    pub async fn get_my_profile_cards(&self, refresh: bool) -> Result<Value, String> {
         wrap_api_data(
             self.api_get(
                 "/v6/account/loadConfig",
-                &[("key", "my_page_card_config".to_string())],
+                &[("key", "my_page_card_config".to_string()), ("refresh", if refresh { "1" } else { "0" }.to_string())],
             )
             .await?,
         )
+    }
+
+    /// 官方个人中心卡片管理清单，包含已添加和未添加的卡片。
+    pub async fn get_my_card_manager(&self) -> Result<Value, String> {
+        wrap_api_data(self.api_get("/v6/account/myPageCardManage", &[("key", "my_page_card_config".to_string())]).await?)
+    }
+
+    /// 与官方卡片管理一致，保存 show/hide ID 顺序。
+    pub async fn update_my_card_config(&self, config_json: &str) -> Result<Value, String> {
+        let config: Value = serde_json::from_str(config_json).map_err(|_| "卡片配置格式错误".to_string())?;
+        for key in ["show", "hide"] {
+            let ids = config.get(key).and_then(Value::as_array).ok_or_else(|| "卡片配置必须包含 show/hide 列表".to_string())?;
+            if ids.iter().any(|id| id.as_u64().is_none()) { return Err("卡片 ID 必须为非负整数".to_string()); }
+        }
+        wrap_api_data(self.api_post("/v6/account/updateConfig", &[], &[("key", "my_page_card_config".to_string()), ("value", config_json.to_string())]).await?)
     }
 
     /// 加载 APK 首页栏目配置。

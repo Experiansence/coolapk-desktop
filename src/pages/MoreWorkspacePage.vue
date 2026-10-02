@@ -89,7 +89,7 @@ function selectSection(key: string) {
 
 watch(() => route.query.section, (section) => {
   if (section) selectSection(String(section));
-});
+}, { immediate: true });
 
 watch(visibleMoreNavs, (items) => {
   if (!items.some((item) => item.key === activeSection.value)) activeSection.value = items[0]?.key || 'my_likes';

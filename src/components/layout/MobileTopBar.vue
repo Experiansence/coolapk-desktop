@@ -1,5 +1,5 @@
 <template>
-  <header class="mobile-top-bar" :class="{ 'is-macos': macOverlay }">
+  <header class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me' }">
     <button
       v-if="route.path !== '/'"
       type="button"
@@ -136,6 +136,7 @@ function goBack() {
 }
 
 @media (max-width: 720px) {
+  .mobile-top-bar.is-profile-page { display: none; }
   .mobile-top-bar {
     display: flex;
     flex: 0 0 auto;

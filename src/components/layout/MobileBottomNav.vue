@@ -1,5 +1,5 @@
 <template>
-  <nav class="mobile-bottom-nav" aria-label="移动端主导航">
+  <nav class="mobile-bottom-nav" :class="{ 'profile-navigation': route.path === '/me' }" aria-label="移动端主导航">
     <button
       v-for="item in leftItems"
       :key="item.path"
@@ -34,38 +34,24 @@
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/app';
-import { useAuthStore } from '../../stores/auth';
 import { activateHomeTab } from '../../utils/homeTab';
 
 const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
-const authStore = useAuthStore();
 
 const leftItems = [
   { path: '/', label: '首页', icon: 'fas fa-house' },
   { path: '/digital', label: '数码', icon: 'fas fa-microchip' },
 ];
 
-const profilePath = computed(() => {
-  const uid = String(authStore.user?.uid || '').trim();
-  return uid ? `/user/${encodeURIComponent(uid)}` : '/more';
-});
-
 const rightItems = computed(() => [
   { path: '/discover', label: '发现', icon: 'fas fa-compass' },
-  { path: profilePath.value, label: '我的', icon: 'fas fa-user' },
+  { path: '/me', label: '我的', icon: 'fas fa-user' },
 ]);
 
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/';
-  if (path.startsWith('/user/')) {
-    // 「我的」只在本人主页高亮，访问他人主页时不能把这一格点亮。
-    const ownUid = String(authStore.user?.uid || '').trim();
-    if (!ownUid) return false;
-    const ownPath = `/user/${encodeURIComponent(ownUid)}`;
-    return route.path === ownPath || route.path.startsWith(`${ownPath}/`);
-  }
   return route.path === path || route.path.startsWith(`${path}/`);
 }
 
@@ -88,6 +74,19 @@ function activate(path: string) {
 }
 
 @media (max-width: 720px) {
+  .mobile-bottom-nav.profile-navigation {
+    position: absolute;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    left: max(20px, env(safe-area-inset-left));
+    right: max(20px, env(safe-area-inset-right));
+    border: 1px solid var(--border-light);
+    border-radius: 40px;
+    box-shadow: 0 8px 24px #0000000c;
+    padding: 4px;
+  }
+  .profile-navigation .mobile-nav-item { border-radius: 28px; }
+  .profile-navigation .mobile-nav-item.active { background: var(--surface-hover); }
+  .profile-navigation .mobile-publish { border-radius: 28px; }
   .mobile-bottom-nav {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));

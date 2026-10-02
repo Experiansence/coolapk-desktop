@@ -93,12 +93,17 @@ describe('MobileBottomNav 首页手势', () => {
     expect(refreshSpy).not.toHaveBeenCalled();
   });
 
-  it('本人主页高亮「我的」，他人主页不高亮', async () => {
+  it('登录前后「我的」均进入个人中心，只有个人中心高亮', async () => {
+    const anonymous = mountNav();
+    await navButton(anonymous, '我的').trigger('click');
+    expect(routerMock.push).toHaveBeenLastCalledWith('/me');
     useAuthStore().user = { uid: '12345', username: '自己' } as never;
-
-    routerMock.currentRoute.value.path = '/user/12345';
+    await navButton(mountNav(), '我的').trigger('click');
+    expect(routerMock.push).toHaveBeenLastCalledWith('/me');
+    routerMock.currentRoute.value.path = '/me';
     expect(navButton(mountNav(), '我的').classes()).toContain('active');
-
+    routerMock.currentRoute.value.path = '/user/12345';
+    expect(navButton(mountNav(), '我的').classes()).not.toContain('active');
     routerMock.currentRoute.value.path = '/user/99999';
     expect(navButton(mountNav(), '我的').classes()).not.toContain('active');
   });
@@ -109,7 +114,7 @@ describe('MobileBottomNav 首页手势', () => {
     const wrapper = mountNav();
     const profileButton = wrapper.findAll('.mobile-nav-item').find((item) => item.text().includes('我的'));
 
-    // 未登录时「我的」指向 /more，不会误命中 /user/ 路径。
+    // 「我的」统一指向 /me，不会误命中 /user/ 路径。
     expect(profileButton?.classes()).not.toContain('active');
   });
 });
