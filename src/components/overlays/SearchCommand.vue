@@ -12,12 +12,15 @@
               ref="searchInput"
               v-model="query"
               type="text"
+              enterkeyhint="search"
+              aria-label="搜索应用、动态、用户、话题"
               placeholder="搜索应用、动态、用户、话题..."
               class="search-input"
               @keydown="handleInputKeydown"
             />
-            <button class="clear-btn" v-if="query" @click="query = ''"><i class="fas fa-times"></i></button>
+            <button type="button" class="clear-btn" v-if="query" aria-label="清空搜索" @click="query = ''"><i class="fas fa-times"></i></button>
             <kbd class="esc-kbd">ESC</kbd>
+            <button type="button" class="mobile-search-cancel" @click="appStore.closeSearch">取消</button>
           </div>
 
           <button
@@ -88,7 +91,7 @@
             </div>
 
             <div v-else-if="query && results.length === 0 && searchSuggestions.length" class="search-submit-prompt">
-              暂无即时搜索结果，按 Enter 查看完整结果
+              暂无即时搜索结果，提交搜索查看完整结果
             </div>
             <div v-else-if="query && results.length === 0" class="empty-wrapper">
               <EmptyState title="未找到相关结果" />
@@ -181,6 +184,8 @@ watch(() => appStore.isSearchOpen, (open) => {
     void nextTick(async () => {
       if (appStore.isSearchOpen) searchInput.value?.focus();
     });
+  } else {
+    searchInput.value?.blur();
   }
 });
 
@@ -396,6 +401,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown));
 
 .search-input-header {
   height: 56px;
+  flex-shrink: 0;
   padding: 0 var(--space-4);
   display: flex;
   align-items: center;
@@ -410,6 +416,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown));
 
 .search-input {
   flex: 1;
+  min-width: 0;
   font-size: var(--font-size-title-sm);
   color: var(--text-primary);
 }
@@ -425,6 +432,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown));
 
 .search-results {
   flex: 1;
+  min-height: 0;
   padding: var(--space-4);
   overflow-y: auto;
 }
@@ -570,5 +578,51 @@ onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mobile-search-cancel { display: none; }
+
+@media (max-width: 720px) {
+  .search-backdrop { backdrop-filter: none; }
+  .search-modal-wrapper {
+    top: var(--app-viewport-top, 0px);
+    height: var(--app-viewport-height, 100dvh);
+    bottom: auto;
+    padding-top: 0;
+  }
+  .search-modal {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .search-input-header {
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+  .search-input { font-size: 16px; height: 44px; }
+  .search-modal kbd, .search-keyboard-hint { display: none; }
+  .mobile-search-cancel, .clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    touch-action: manipulation;
+  }
+  .mobile-search-cancel:active, .clear-btn:active { background: var(--surface-hover); }
+  .suggestion-item, .result-item { min-height: 44px; }
+  .suggestion-list { max-height: min(200px, 35%); flex-shrink: 0; }
+  .search-modal-wrapper.scale-dialog-enter-from,
+  .search-modal-wrapper.scale-dialog-leave-to { transform: translateY(8px); }
 }
 </style>
