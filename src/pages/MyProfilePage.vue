@@ -129,7 +129,7 @@ async function showQr() {
 
 <style scoped>
 .my-profile-page { --profile-background: #f2f2f6; width: 100%; height: 100%; overflow-y: auto; background: var(--profile-background); padding: 0 max(8px, env(safe-area-inset-right)) 100px max(8px, env(safe-area-inset-left)); color: var(--text-primary); }
-:global([data-theme="dark"]) .my-profile-page { --profile-background: var(--background); }
+:global([data-theme="dark"] .my-profile-page) { --profile-background: var(--background); }
 button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; touch-action: manipulation; }
 button:active { opacity: .65; }
 .profile-toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; gap: 0; height: 64px; align-items: center; padding-top: env(safe-area-inset-top); color: #757575; background: var(--profile-background); }
