@@ -172,6 +172,7 @@ export interface AppSettings {
   notifyAt: boolean;
   notifyPm: boolean;
   desktopNotifications: boolean;
+  androidBackgroundNotifications: boolean;
   notificationSound: boolean;
   notificationPollInterval: number;
   externalLinkMode: ExternalLinkMode;

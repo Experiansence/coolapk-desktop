@@ -4510,7 +4510,7 @@ async fn install_update_android(app: tauri::AppHandle, installer_path: String) -
 }
 
 #[cfg(target_os = "android")]
-async fn call_android_update_method(
+pub(crate) async fn call_android_update_method(
     app: &tauri::AppHandle,
     method: &'static str,
     argument: String,

@@ -135,6 +135,13 @@ function ensureAndroidProject() {
 
   const loginActivityMarker = 'android:name=".LoginActivity"';
   let manifest = readFileSync(androidManifest, 'utf8');
+  for (const permission of ['FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_DATA_SYNC']) {
+    const tag = `<uses-permission android:name="android.permission.${permission}" />`;
+    if (!manifest.includes(tag)) manifest = manifest.replace('</manifest>', `    ${tag}\n</manifest>`);
+  }
+  if (!manifest.includes('android:name=".BackgroundNotificationService"')) {
+    manifest = manifest.replace('</application>', '    <service android:name=".BackgroundNotificationService" android:exported="false" android:foregroundServiceType="dataSync" />\n    </application>');
+  }
   manifest = setAndroidApplicationAttribute(manifest, 'android:icon', '@mipmap/ic_launcher');
   manifest = setAndroidApplicationAttribute(manifest, 'android:roundIcon', '@mipmap/ic_launcher_round');
   const installPermission = '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />';
@@ -165,6 +172,7 @@ ${closingTag}`);
   }
   mkdirSync(androidActivityDir, { recursive: true });
   copyFileSync(join(root, 'src-tauri', 'android', 'MainActivity.kt'), join(androidActivityDir, 'MainActivity.kt'));
+  copyFileSync(join(root, 'src-tauri', 'android', 'BackgroundNotificationService.kt'), join(androidActivityDir, 'BackgroundNotificationService.kt'));
   copyFileSync(join(root, 'src-tauri', 'android', 'LoginActivity.kt'), join(androidActivityDir, 'LoginActivity.kt'));
 }
 

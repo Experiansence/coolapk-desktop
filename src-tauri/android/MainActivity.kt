@@ -17,12 +17,31 @@ import android.webkit.MimeTypeMap
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    override fun onStart() { super.onStart(); BackgroundNotificationService.mainVisible = true }
+    override fun onStop() { BackgroundNotificationService.mainVisible = false; super.onStop() }
+
+    @Keep
+    fun setBackgroundNotifications(enabled: String): String = try {
+        val intent = Intent(this, BackgroundNotificationService::class.java)
+        BackgroundNotificationService.failure = null
+        if (enabled == "true") { ContextCompat.startForegroundService(this, intent); "started" }
+        else { stopService(intent); "stopped" }
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    @Keep
+    fun backgroundNotificationState(unused: String): String = when {
+        BackgroundNotificationService.failure != null -> "error:${BackgroundNotificationService.failure}"
+        !BackgroundNotificationService.active -> "stopped"
+        BackgroundNotificationService.mainVisible -> "foreground"
+        else -> "background"
+    }
     @Volatile private var pendingSave: File? = null
     @Volatile private var saveResult: String = "pending"
 

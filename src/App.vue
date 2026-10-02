@@ -186,6 +186,9 @@ import {
 import { renderReleaseMarkdown } from './utils/markdown';
 import { handleAnchorClick } from './utils/anchorClick';
 import { desktopNotify } from './utils/desktopNotify';
+import { showToast } from './utils/toast';
+import { setupAndroidBackgroundNotifications } from './utils/androidBackgroundNotifications';
+import { useNotificationStore } from './stores/notifications';
 import { registerGlobalHotkeys } from './utils/hotkeys';
 import { CoolapkTauriAPI } from './api/coolapk';
 import { clearResourceCache } from './utils/resourceCache';
@@ -541,10 +544,22 @@ async function restorePendingUpdate(): Promise<boolean> {
 }
 
 const handleCheckForUpdate = () => void checkForUpdate(true);
+let unregisterAndroidBackground: (() => void) | null = null;
+let unregisterAndroidCounts: (() => void) | null = null;
+let unregisterAndroidError: (() => void) | null = null;
 
 onMounted(() => {
   void downloadStore.initialize();
   authStore.initAuth();
+  unregisterAndroidBackground = setupAndroidBackgroundNotifications(() => settingsStore.settings, () => String(authStore.user?.uid || ''));
+  if (/android/i.test(navigator.userAgent)) {
+    void listen('android-background-notification-count', event => {
+      useNotificationStore().applyServerResponse(event.payload);
+    }).then(unlisten => { unregisterAndroidCounts = unlisten; });
+    void listen<string>('android-background-notification-error', event => {
+      showToast(event.payload, 'info', 6000);
+    }).then(unlisten => { unregisterAndroidError = unlisten; });
+  }
   unregisterViewport = setupViewportHeight();
   unregisterKeyboardAssist = setupKeyboardScrollAssist();
   window.addEventListener('resize', settingsStore.refreshAutoZoom);
@@ -590,6 +605,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  unregisterAndroidBackground?.();
+  unregisterAndroidCounts?.();
+  unregisterAndroidError?.();
   window.removeEventListener('check-for-update', handleCheckForUpdate);
   window.removeEventListener('resize', settingsStore.refreshAutoZoom);
   unregisterHotkeys?.();

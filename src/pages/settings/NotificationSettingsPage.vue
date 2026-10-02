@@ -28,13 +28,20 @@
     </div>
 
     <div class="setting-group">
-      <h4 class="group-title">桌面通知</h4>
+      <h4 class="group-title">{{ isAndroid ? '系统通知' : '桌面通知' }}</h4>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">系统桌面通知</span>
-          <span class="row-sub">应用在后台或最小化到托盘时，通过系统通知气泡提醒新消息</span>
+          <span class="row-label">{{ isAndroid ? '系统通知' : '系统桌面通知' }}</span>
+          <span class="row-sub">{{ isAndroid ? '通过系统通知提醒新消息，需要允许通知权限' : '应用在后台或最小化到托盘时，通过系统通知气泡提醒新消息' }}</span>
         </div>
         <AppSwitch v-model="settingsStore.settings.desktopNotifications" />
+      </div>
+      <div v-if="isAndroid && settingsStore.settings.desktopNotifications" class="setting-row">
+        <div class="row-info">
+          <span class="row-label">后台消息检查</span>
+          <span class="row-sub">开启后显示常驻通知，切到后台仍检查消息。系统省电或服务时限可能暂停检查，重新打开应用后恢复；退出账号或关闭此开关即停止。</span>
+        </div>
+        <AppSwitch v-model="settingsStore.settings.androidBackgroundNotifications" />
       </div>
       <div v-if="settingsStore.settings.desktopNotifications" class="setting-row">
         <div class="row-info">
@@ -68,6 +75,7 @@ import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 
 const settingsStore = useSettingsStore();
+const isAndroid = /android/i.test(navigator.userAgent);
 </script>
 
 <style scoped>

@@ -1353,6 +1353,7 @@ pub fn run() {
             delete_apk_download_file,
             open_apk_download_directory,
             install_apk_download,
+            coolapk::android_notifications::configure_android_background_notifications,
             get_hot_topics,
             get_picture_list,
             get_update_list,

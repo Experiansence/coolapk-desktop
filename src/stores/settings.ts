@@ -160,6 +160,7 @@ const defaultSettings: AppSettings = {
   notifyAt: true,
   notifyPm: true,
   desktopNotifications: false,
+  androidBackgroundNotifications: false,
   notificationSound: true,
   notificationPollInterval: 1,
   externalLinkMode: 'internal',
@@ -305,6 +306,7 @@ export function normalizeSettings(value: unknown): AppSettings {
   result.notifyAt = readBoolean(source.notifyAt, result.notifyAt);
   result.notifyPm = readBoolean(source.notifyPm, result.notifyPm);
   result.desktopNotifications = readBoolean(source.desktopNotifications, result.desktopNotifications);
+  result.androidBackgroundNotifications = readBoolean(source.androidBackgroundNotifications, result.androidBackgroundNotifications);
   result.notificationSound = readBoolean(source.notificationSound, result.notificationSound);
   result.notificationPollInterval = [1, 5, 10, 30].includes(Number(source.notificationPollInterval)) ? Number(source.notificationPollInterval) : result.notificationPollInterval;
   result.blockedKeywords = Array.isArray(source.blockedKeywords) ? [...new Set(source.blockedKeywords.filter((item): item is string => typeof item === 'string' && item.trim().length > 0))] : result.blockedKeywords;
