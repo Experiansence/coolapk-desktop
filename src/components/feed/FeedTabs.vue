@@ -10,7 +10,7 @@
         <span class="tab-label">{{ tab.title }}</span>
         <span v-if="props.wrap && activeKey === getTabKey(tab)" class="coolapk-tab-indicator" aria-hidden="true"></span>
       </button>
-      <span v-if="!props.wrap" class="coolapk-tab-indicator sliding-indicator" :style="indicatorStyle" aria-hidden="true"></span>
+      <span v-if="!props.wrap" class="coolapk-tab-indicator sliding-indicator" :class="{ 'follows-pager': props.swipeProgress !== undefined }" :style="indicatorStyle" aria-hidden="true"></span>
     </div>
 
     <!-- 官方右侧 ☰ 频道管理按钮 -->
@@ -52,6 +52,7 @@ const props = withDefaults(defineProps<{
   wrap?: boolean;
   activeSubTabKey?: string;
   managerTabs?: ConfigPageTab[];
+  swipeProgress?: number;
 }>(), {
   showManage: true,
   managerMode: 'editable',
@@ -77,8 +78,12 @@ async function alignActiveTab() {
   const container = tabsContainer.value;
   const activeTab = container?.querySelector<HTMLElement>('.tab-item.is-active');
   if (!container || !activeTab || !container.clientWidth) return;
+  const buttons = Array.from(container.querySelectorAll<HTMLElement>('.tab-item'));
+  const progress = Math.max(0, Math.min(buttons.length - 1, props.swipeProgress ?? buttons.indexOf(activeTab)));
+  const from = buttons[Math.floor(progress)] || activeTab, to = buttons[Math.ceil(progress)] || from;
+  const center = (button: HTMLElement) => button.offsetLeft + (button.offsetWidth - 22) / 2;
   indicatorStyle.value = {
-    transform: `translate3d(${activeTab.offsetLeft + (activeTab.offsetWidth - 22) / 2}px, 0, 0)`,
+    transform: `translate3d(${center(from) + (center(to) - center(from)) * (progress % 1)}px, 0, 0)`,
     opacity: 1,
   };
   if (props.wrap) return;
@@ -94,6 +99,7 @@ async function alignActiveTab() {
 }
 
 watch(() => [props.activeKey, props.tabs, props.wrap], () => { void alignActiveTab(); }, { immediate: true, deep: true });
+watch(() => props.swipeProgress, () => { void alignActiveTab(); });
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined' && tabsContainer.value) {
     resizeObserver = new ResizeObserver(() => { void alignActiveTab(); });
@@ -237,4 +243,5 @@ function handleWheel(e: WheelEvent) {
     opacity: 1;
   }
 }
+.sliding-indicator.follows-pager { transition: none; }
 </style>
