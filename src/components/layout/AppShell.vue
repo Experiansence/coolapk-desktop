@@ -137,11 +137,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
 @media (max-width: 720px) {
   .app-shell:not(.prevent-mobile-layout) {
     position: relative;
-  }
-
-  /* 为悬浮底栏留出空间，列表末尾和页面操作仍能完整滚动到可见区域。 */
-  .app-shell:not(.prevent-mobile-layout) .app-body {
-    padding-bottom: calc(var(--mobile-bottom-nav-height) + max(20px, env(safe-area-inset-bottom)) + 8px);
+    --mobile-bottom-overlay-space: calc(var(--mobile-bottom-nav-height) + max(20px, env(safe-area-inset-bottom)) + 8px);
   }
 
   .app-shell:not(.prevent-mobile-layout) :deep(.top-bar),

@@ -957,7 +957,7 @@ onBeforeUnmount(() => { productObserver?.disconnect(); dynamicCategoryObserver?.
 .digital-side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .digital-side-count { color: var(--text-tertiary); font-size: 11px; }
 .digital-state, .digital-result-state { display: grid; place-items: center; flex: 1 1 auto; min-height: 220px; }
-.digital-content, .digital-server-content { min-width: 0; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--surface-hover); }
+.digital-content, .digital-server-content { min-width: 0; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--surface-hover); padding-bottom: var(--mobile-bottom-overlay-space, 0px); }
 .digital-server-content { flex: 1 1 0; }
 .digital-server-list { display: flex; flex-direction: column; gap: 14px; max-width: 1280px; padding: 16px 22px 28px; margin: 0 auto; }
 .digital-result-list.grid, .digital-server-list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); align-content: start; }

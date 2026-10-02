@@ -365,7 +365,7 @@ onMounted(() => { void loadConfig(); });
   .discover-content.has-goods-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 860px) {
-  .discover-scroll-container { padding-top: 12px; }
+  .discover-scroll-container { padding-top: 12px; padding-bottom: max(48px, var(--mobile-bottom-overlay-space, 0px)); }
   .discover-content.has-dyh-grid { grid-template-columns: 1fr; }
   .discover-content.has-goods-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
