@@ -32,14 +32,6 @@
     inset: -8px;
   }
 
-  /* 移动端顶栏按钮 40px → 44px */
-  html body .mobile-top-bar .mobile-icon-button::after,
-  html body .mobile-top-bar .mobile-brand::after {
-    content: '';
-    position: absolute;
-    inset: -2px;
-  }
-
   html body .mobile-top-bar .mobile-icon-button,
   html body .mobile-top-bar .mobile-brand {
     position: relative;

@@ -13,10 +13,14 @@
       <img src="../../assets/coolapk-logo-rounded.png" alt="" />
     </div>
 
-    <strong class="mobile-page-title">{{ pageTitle }}</strong>
+    <button v-if="route.path === '/'" type="button" class="mobile-search-entry" aria-label="搜索" @click="appStore.openSearch">
+      <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+      <span>搜索你感兴趣的内容</span>
+    </button>
+    <strong v-else class="mobile-page-title">{{ pageTitle }}</strong>
 
     <div class="mobile-top-actions">
-      <button type="button" class="mobile-icon-button" aria-label="搜索" @click="appStore.openSearch">
+      <button v-if="route.path !== '/'" type="button" class="mobile-icon-button" aria-label="搜索" @click="appStore.openSearch">
         <i class="fas fa-magnifying-glass"></i>
       </button>
       <button type="button" class="mobile-icon-button has-badge" aria-label="通知" @click="router.push('/notifications')">
@@ -24,15 +28,6 @@
         <span v-if="notificationStore.notificationCount" class="mobile-badge">
           {{ notificationStore.notificationCount > 99 ? '99+' : notificationStore.notificationCount }}
         </span>
-      </button>
-      <button
-        v-if="!route.path.startsWith('/settings')"
-        type="button"
-        class="mobile-icon-button"
-        aria-label="设置"
-        @click="router.push('/settings')"
-      >
-        <i class="fas fa-gear"></i>
       </button>
       <button
         type="button"
@@ -52,6 +47,7 @@ import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/app';
 import { useNotificationStore } from '../../stores/notifications';
+import { navigateBack } from '../../utils/navigation';
 
 defineProps<{ navigationOpen: boolean; macOverlay: boolean }>();
 const emit = defineEmits<{ toggleNavigation: [] }>();
@@ -130,8 +126,7 @@ const pageTitle = computed(() => {
 });
 
 function goBack() {
-  if (window.history.length > 1) router.back();
-  else void router.push('/');
+  navigateBack(router);
 }
 </script>
 
@@ -145,12 +140,11 @@ function goBack() {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-height: var(--mobile-topbar-height);
     padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
     border-bottom: 1px solid var(--border-light);
-    background: color-mix(in srgb, var(--surface) 96%, transparent);
-    backdrop-filter: blur(14px);
+    background: var(--surface);
     z-index: 30;
   }
 
@@ -166,9 +160,9 @@ function goBack() {
   .mobile-icon-button {
     display: grid;
     place-items: center;
-    width: 40px;
-    height: 40px;
-    flex: 0 0 40px;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
   }
 
   .mobile-brand img {
@@ -189,6 +183,33 @@ function goBack() {
 
   .mobile-icon-button:active {
     background: var(--surface-hover);
+  }
+
+  .mobile-search-entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 22px;
+    background: var(--surface-hover);
+    color: var(--text-tertiary);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .mobile-search-entry span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-search-entry:active {
+    background: var(--background-secondary);
   }
 
   .mobile-page-title {
