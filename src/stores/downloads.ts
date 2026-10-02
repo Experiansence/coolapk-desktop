@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { CoolapkTauriAPI } from '../api/coolapk';
+import { showToast } from '../utils/toast';
 import { useSettingsStore } from './settings';
 import type { DownloadStatus, DownloadTask } from '../types/download';
 
@@ -98,6 +99,7 @@ export const useDownloadStore = defineStore('downloads', () => {
   const runningIds = new Set<string>();
   let initialized = false;
   let eventUnlisten: UnlistenFn | null = null;
+  let saveErrorUnlisten: UnlistenFn | null = null;
   let pumpQueued = false;
 
   const activeTasks = computed(() => tasks.value.filter((task) => ACTIVE_STATUSES.includes(task.status)));
@@ -155,6 +157,11 @@ export const useDownloadStore = defineStore('downloads', () => {
   async function initialize() {
     if (initialized) return;
     initialized = true;
+    if (/android/i.test(navigator.userAgent)) {
+      saveErrorUnlisten = await listen<string>('android-file-save-error', (event) => {
+        showToast(`安装包已下载到应用目录，保存到公共目录失败：${event.payload}`, 'error', 6000);
+      });
+    }
     // 应用重启后原生下载通道已经不存在，恢复成暂停状态，保留 .part 文件供继续下载。
     for (const task of tasks.value) {
       if (ACTIVE_STATUSES.includes(task.status)) task.status = 'paused';

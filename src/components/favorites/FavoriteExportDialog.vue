@@ -622,6 +622,8 @@ async function startExport() {
               controller.signal.throwIfAborted();
               const dataUrl = await CoolapkTauriAPI.getImageDataUrl(url);
               controller.signal.throwIfAborted();
+              // Android 导出的 HTML 是公共目录中的单个文档，内嵌图片避免私有目录引用失效。
+              if (/android/i.test(navigator.userAgent)) return dataUrl;
               const directory = kind === 'emoji' ? emojiDirectory : kind === 'avatar' ? avatarDirectory : photoDirectory;
               const prefix = kind === 'emoji' ? 'emoji' : kind === 'avatar' ? 'avatar' : 'image';
               const savedPath = await CoolapkTauriAPI.saveImageDataUrl(

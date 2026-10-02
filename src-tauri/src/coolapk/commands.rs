@@ -2303,6 +2303,12 @@ async fn run_apk_download(
     tokio::fs::rename(&partial, &target)
         .await
         .map_err(|error| format!("保存安装包失败：{error}"))?;
+    #[cfg(target_os = "android")]
+    if let Err(error) = publish_user_file(app, &target).await {
+        // 原始安装包仍可安装、打开或再次导出，不把已经完成的下载标记为失败。
+        log::warn!("安装包已下载，公共目录保存失败：{error}");
+        let _ = app.emit("android-file-save-error", &error);
+    }
     let speed = downloaded / started_at.elapsed().as_secs().max(1);
     let _ = app.emit(
         "apk-download-progress",
@@ -2752,7 +2758,7 @@ pub async fn save_image(
         .map_err(|error| format!("创建图片保存目录失败：{error}"))?;
     let target_path = save_image_bytes(&target_dir, &file_name, &bytes).await?;
 
-    Ok(target_path.to_string_lossy().to_string())
+    publish_user_file(&app, &target_path).await
 }
 
 /// 保存前端生成的 Base64 分享图，目录为空时使用系统下载目录。
@@ -2776,7 +2782,7 @@ pub async fn save_image_data_url(
         .await
         .map_err(|error| format!("创建分享图保存目录失败：{error}"))?;
     let target_path = save_image_bytes(&target_dir, &file_name, &bytes).await?;
-    Ok(target_path.to_string_lossy().to_string())
+    publish_user_file(&app, &target_path).await
 }
 
 /// 下载图片到应用缓存后交给系统默认图片查看器，避免把 HTTPS 地址交给浏览器。
@@ -4043,7 +4049,7 @@ pub async fn download_update(
 
 /// 将文本内容以 JSON 形式导出到指定目录（dir 为空时使用系统下载目录），返回完整保存路径
 #[tauri::command]
-pub fn export_json_file(
+pub async fn export_json_file(
     app: tauri::AppHandle,
     file_name: String,
     content: String,
@@ -4067,7 +4073,7 @@ pub fn export_json_file(
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建导出目录失败：{e}"))?;
     let path = next_available_file_path(&dir, &safe_name);
     std::fs::write(&path, content).map_err(|e| e.to_string())?;
-    Ok(path.to_string_lossy().to_string())
+    publish_user_file(&app, &path).await
 }
 
 fn dir_total_size(dir: &std::path::Path) -> u64 {
@@ -4412,6 +4418,28 @@ pub fn take_update_install_error(app: tauri::AppHandle) -> Result<Option<String>
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn publish_user_file(app: &tauri::AppHandle, path: &Path) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        static SAVE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _save_guard = SAVE_LOCK.lock().await;
+        let mut status = call_android_update_method(app, "publishSavedFile", path.to_string_lossy().to_string()).await?;
+        let started = Instant::now();
+        while status == "pending" {
+            if started.elapsed() > Duration::from_secs(300) { return Err("等待保存位置超时，文件仍保留在应用目录".to_string()); }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            status = call_android_update_method(app, "takeSavedFileResult", String::new()).await?;
+        }
+        if !status.starts_with("content://") { return Err(status.trim_start_matches("error:").to_string()); }
+        Ok(status)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Ok(path.to_string_lossy().to_string())
     }
 }
 

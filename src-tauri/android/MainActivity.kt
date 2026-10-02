@@ -5,6 +5,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.app.AlertDialog
+import android.app.Activity
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -22,6 +23,69 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    @Volatile private var pendingSave: File? = null
+    @Volatile private var saveResult: String = "pending"
+
+    @Deprecated("Activity result bridge for Android 7–9")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 48113) return
+        val file = pendingSave ?: return
+        Thread {
+        saveResult = try {
+            val uri = data?.data
+            require(resultCode == Activity.RESULT_OK && uri != null) { "已取消保存" }
+            contentResolver.openOutputStream(uri!!)?.use { output -> file.inputStream().use { it.copyTo(output) } }
+                ?: throw IllegalStateException("无法写入所选文件")
+            uri.toString()
+        } catch (error: Exception) { "error:${error.message}" }
+        pendingSave = null
+        }.start()
+    }
+
+    @Keep
+    fun takeSavedFileResult(unused: String): String = saveResult
+
+    @Keep
+    fun publishSavedFile(path: String): String = try {
+        val file = localFile(path)
+        require(file.isFile && file.length() > 0) { "保存文件为空" }
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+        require(pendingSave == null) { "请先完成当前保存" }
+        pendingSave = file
+        saveResult = "pending"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mime
+                putExtra(Intent.EXTRA_TITLE, file.name)
+            }, 48113)
+            "pending"
+        } else {
+            Thread {
+            saveResult = try {
+            val image = mime.startsWith("image/")
+            val collection = if (image) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, if (image) Environment.DIRECTORY_PICTURES + "/Coolapk/" else Environment.DIRECTORY_DOWNLOADS + "/")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(collection, values) ?: throw IllegalStateException("无法创建公共文件")
+            try {
+                contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
+                    ?: throw IllegalStateException("无法写入公共文件")
+                contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                uri.toString()
+            } catch (error: Exception) { contentResolver.delete(uri, null, null); throw error }
+            } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+            pendingSave = null
+            }.start()
+            "pending"
+        }
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
     private fun localFile(path: String): File {
         val file = File(path).canonicalFile
         val roots = listOfNotNull(filesDir, cacheDir, getExternalFilesDir(null)).map { it.canonicalFile }
