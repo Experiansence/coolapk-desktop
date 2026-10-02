@@ -1,5 +1,5 @@
 <template>
-  <nav class="mobile-bottom-nav" :class="{ 'profile-navigation': route.path === '/me' }" aria-label="移动端主导航">
+  <nav class="mobile-bottom-nav" aria-label="移动端主导航">
     <button
       v-for="item in leftItems"
       :key="item.path"
@@ -74,7 +74,7 @@ function activate(path: string) {
 }
 
 @media (max-width: 720px) {
-  .mobile-bottom-nav.profile-navigation {
+  .mobile-bottom-nav {
     position: absolute;
     bottom: max(20px, env(safe-area-inset-bottom));
     left: max(20px, env(safe-area-inset-left));
@@ -83,18 +83,11 @@ function activate(path: string) {
     border-radius: 40px;
     box-shadow: 0 8px 24px #0000000c;
     padding: 4px;
-  }
-  .profile-navigation .mobile-nav-item { border-radius: 28px; }
-  .profile-navigation .mobile-nav-item.active { background: var(--surface-hover); }
-  .profile-navigation .mobile-publish { border-radius: 28px; }
-  .mobile-bottom-nav {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     flex: 0 0 auto;
     align-items: center;
     min-height: var(--mobile-bottom-nav-height);
-    padding: 4px max(6px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
-    border-top: 1px solid var(--border-light);
     background: var(--surface);
     z-index: 30;
   }
@@ -118,7 +111,7 @@ function activate(path: string) {
     min-width: 0;
     min-height: 48px;
     padding: 3px 2px;
-    border-radius: 12px;
+    border-radius: 28px;
     font-size: 11px;
     font-weight: 600;
   }
@@ -130,6 +123,7 @@ function activate(path: string) {
 
   .mobile-nav-item.active {
     color: var(--brand-primary);
+    background: var(--surface-hover);
   }
 
   .mobile-publish {
@@ -138,7 +132,7 @@ function activate(path: string) {
     width: 48px;
     height: 44px;
     margin: 0 auto;
-    border-radius: 14px;
+    border-radius: 28px;
     background: var(--brand-primary);
     color: #fff;
     box-shadow: 0 5px 16px color-mix(in srgb, var(--brand-primary) 35%, transparent);
