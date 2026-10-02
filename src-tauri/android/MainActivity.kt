@@ -13,6 +13,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.view.View
 import android.webkit.MimeTypeMap
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +27,21 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    @Keep
+    fun getUploadFileName(location: String): String {
+        val uri = Uri.parse(location)
+        require(uri.scheme == "content") { "只接受文件选择器返回的 content URI" }
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0) {
+                    val name = cursor.getString(column)
+                    if (!name.isNullOrBlank()) return name
+                }
+            }
+        }
+        throw IllegalArgumentException("无法读取所选文件名，请重新选择文件")
+    }
     @Keep
     fun showCoolNotification(payload: String): String = try {
         CoolNotificationHandler.show(this, org.json.JSONObject(payload))

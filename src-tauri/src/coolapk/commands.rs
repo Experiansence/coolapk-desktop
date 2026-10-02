@@ -1658,8 +1658,8 @@ pub async fn upload_file_to_cdn(
     attempt: u32,
     file_path: String,
 ) -> Result<Value, String> {
-    let path = PathBuf::from(file_path);
-    let file_name = path
+    let original_path = PathBuf::from(&file_path);
+    let fallback_name = original_path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.trim().is_empty())
@@ -1678,6 +1678,20 @@ pub async fn upload_file_to_cdn(
 
     // 将工作放进异步块，确保无论哪条路径结束，外层都会移除活动任务记录。
     let outcome = async {
+        let source = match super::upload_source::resolve(&app, &file_path).await {
+            Ok(source) => source,
+            Err(error) => {
+                emit_cdn_upload_progress(
+                    &app, &task_id, attempt, &fallback_name, "failed", 0, 0, 0, None, Some(&error),
+                );
+                return Err(error);
+            }
+        };
+        let path = &source.path;
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| fallback_name.clone());
         let metadata = match std::fs::metadata(&path) {
             Ok(metadata) if metadata.is_file() => metadata,
             Ok(_) => {
