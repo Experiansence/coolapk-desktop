@@ -23,6 +23,7 @@ export function setupAndroidBackgroundNotifications(settings: () => AppSettings,
       await invoke('configure_android_background_notifications', { config: {
         enabled, uid: uid(), intervalMinutes: value.notificationPollInterval,
         notifyReplies: value.notifyReplies, notifyAt: value.notifyAt, notifyPm: value.notifyPm,
+        sound: Boolean(value.notificationSound),
       } });
     }).catch((error) => {
       settings().androidBackgroundNotifications = false;
@@ -31,7 +32,7 @@ export function setupAndroidBackgroundNotifications(settings: () => AppSettings,
   };
   const stop = watch(() => {
     const value = settings();
-    return [uid(), value.androidBackgroundNotifications, value.desktopNotifications, value.notificationPollInterval, value.notifyReplies, value.notifyAt, value.notifyPm];
+    return [uid(), value.androidBackgroundNotifications, value.desktopNotifications, value.notificationPollInterval, value.notifyReplies, value.notifyAt, value.notifyPm, value.notificationSound];
   }, synchronize, { immediate: true });
   document.addEventListener('visibilitychange', handleVisibility);
   function handleVisibility() { if (document.visibilityState === 'visible') synchronize(); }

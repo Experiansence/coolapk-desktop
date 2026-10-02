@@ -21,6 +21,7 @@ describe('Android 通知授权', () => {
     mocks.request.mockResolvedValue('granted');
     await desktopNotify({ title: '通知' });
     expect(mocks.request).toHaveBeenCalledOnce();
-    expect(mocks.invoke).toHaveBeenCalledWith('send_desktop_notification', { title: '通知', body: null });
+    expect(mocks.invoke).toHaveBeenCalledWith('send_desktop_notification', { title: '通知', body: null,
+      android: { category: 'comment', route: '/notifications', avatar: '', sound: false } });
   });
 });

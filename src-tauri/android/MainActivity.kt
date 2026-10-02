@@ -26,6 +26,11 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    @Keep
+    fun showCoolNotification(payload: String): String = try {
+        CoolNotificationHandler.show(this, org.json.JSONObject(payload))
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
     override fun onStart() { super.onStart(); BackgroundNotificationService.mainVisible = true }
     override fun onStop() { BackgroundNotificationService.mainVisible = false; super.onStop() }
 

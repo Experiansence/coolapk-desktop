@@ -172,6 +172,7 @@ ${closingTag}`);
   }
   mkdirSync(androidActivityDir, { recursive: true });
   copyFileSync(join(root, 'src-tauri', 'android', 'MainActivity.kt'), join(androidActivityDir, 'MainActivity.kt'));
+  copyFileSync(join(root, 'src-tauri', 'android', 'CoolNotificationHandler.kt'), join(androidActivityDir, 'CoolNotificationHandler.kt'));
   copyFileSync(join(root, 'src-tauri', 'android', 'BackgroundNotificationService.kt'), join(androidActivityDir, 'BackgroundNotificationService.kt'));
   copyFileSync(join(root, 'src-tauri', 'android', 'LoginActivity.kt'), join(androidActivityDir, 'LoginActivity.kt'));
 }

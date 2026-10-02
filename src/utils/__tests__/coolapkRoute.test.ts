@@ -19,6 +19,14 @@ describe('酷安应用路由', () => {
 });
 
 describe('酷安站内路由', () => {
+  it('通知点击支持冷启动和已有实例的私信、通知、动态路由', () => {
+    expect(normalizeCoolapkDeepLink('coolmarket://com.coolapk.desktop/messages?uid=123')).toBe('/messages?uid=123');
+    expect(normalizeCoolapkDeepLink('coolmarket://com.coolapk.desktop/notifications')).toBe('/notifications');
+    expect(normalizeCoolapkDeepLink('coolmarket://com.coolapk.desktop/feed/123?rid=45')).toBe('/feed/123?rid=45');
+    expect(normalizeCoolapkDeepLink('coolmarket://com.coolapk.desktop/settings')).toBeNull();
+    expect(normalizeCoolapkDeepLink('coolmarket://com.coolapk.desktop.evil/messages')).toBeNull();
+    expect(normalizeCoolapkDeepLink('coolmarket://user@com.coolapk.desktop/messages')).toBeNull();
+  });
   it('只把酷安动态详情链接识别为可直达动态', () => {
     expect(normalizeCoolapkFeedLink('https://www.coolapk.com/#/feed/73789197?rid=12')).toBe('/feed/73789197?rid=12');
     expect(normalizeCoolapkFeedLink('coolmarket://m.coolapk.com/feed/73789197')).toBe('/feed/73789197');

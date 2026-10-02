@@ -669,8 +669,19 @@ async fn send_desktop_notification(
     app: tauri::AppHandle,
     title: String,
     body: Option<String>,
+    android: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    #[cfg(mobile)]
+    #[cfg(target_os = "android")]
+    {
+        let mut payload = android.unwrap_or_else(|| serde_json::json!({}));
+        payload["title"] = serde_json::json!(title);
+        payload["body"] = serde_json::json!(body.unwrap_or_default());
+        let result = coolapk::commands::call_android_update_method(&app, "showCoolNotification", payload.to_string()).await?;
+        return if let Some(error) = result.strip_prefix("error:") { Err(error.into()) } else { Ok(()) };
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = android;
+    #[cfg(target_os = "ios")]
     {
         use tauri_plugin_notification::NotificationExt;
 

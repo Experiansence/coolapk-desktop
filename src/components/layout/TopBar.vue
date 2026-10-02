@@ -330,6 +330,7 @@ import { useNotificationStore } from '../../stores/notifications';
 import { usePageTabsStore } from '../../stores/pageTabs';
 import { useSettingsStore } from '../../stores/settings';
 import { CoolapkTauriAPI } from '../../api/coolapk';
+import { androidNotificationContent } from '../../utils/androidNotificationContent';
 import { desktopNotify } from '../../utils/desktopNotify';
 import {
   getNotificationCategoryCountsFromItems,
@@ -544,7 +545,7 @@ async function fetchNotificationCount(): Promise<boolean | null> {
       isDesktopNotificationEnabledFor(increasedCategories)
     ) {
       void desktopNotify(
-        {
+        /android/i.test(navigator.userAgent) ? await androidNotificationContent(increasedCategories.filter(category => isDesktopNotificationEnabledFor([category])), String(authStore.user?.uid || ''), count) : {
           title: '酷安新通知',
           body: `你有 ${count} 条未读通知，点击查看详情。`,
         },

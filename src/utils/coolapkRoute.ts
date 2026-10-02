@@ -81,6 +81,13 @@ export function normalizeCoolapkDeepLink(href: string): string | null {
 
   try {
     const parsed = new URL(raw);
+    if (parsed.protocol === 'coolmarket:' && parsed.hostname === 'com.coolapk.desktop'
+      && !parsed.username && !parsed.password && !parsed.port && !parsed.hash) {
+      if (/^\/(notifications|messages)$/.test(parsed.pathname) || /^\/feed\/\d+$/.test(parsed.pathname)) {
+        return `${parsed.pathname}${parsed.search}`;
+      }
+      return null;
+    }
     if (parsed.protocol.toLowerCase() !== 'coolmarket:' || !COOLAPK_DEEP_LINK_HOST_RE.test(parsed.hostname) || parsed.username || parsed.password || parsed.port) return null;
     const webHost = COOLAPK_HOST_RE.test(parsed.hostname) ? parsed.hostname : 'www.coolapk.com';
     return normalizeCoolapkRoute(`https://${webHost}${parsed.pathname}${parsed.search}${parsed.hash}`);
