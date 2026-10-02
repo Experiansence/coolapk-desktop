@@ -2410,13 +2410,13 @@ pub async fn delete_apk_download_file(
 }
 
 #[tauri::command]
-pub fn open_apk_download_directory(
+pub async fn open_apk_download_directory(
     app: tauri::AppHandle,
     dir: Option<String>,
 ) -> Result<(), String> {
     let target_dir = user_save_dir(&app, dir.as_deref())?;
     std::fs::create_dir_all(&target_dir).map_err(|error| format!("创建下载目录失败：{error}"))?;
-    opener::open(&target_dir).map_err(|error| format!("打开下载位置失败：{error}"))?;
+    open_local_path(&app, &target_dir).await?;
     Ok(())
 }
 
@@ -2819,7 +2819,7 @@ pub async fn open_image_in_system_viewer(
     } else {
         save_image_bytes(&target_dir, &file_name, &bytes).await?
     };
-    opener::open(&target_path).map_err(|error| format!("打开系统图片查看器失败：{error}"))?;
+    open_local_path(&app, &target_path).await?;
     Ok(target_path.to_string_lossy().to_string())
 }
 
@@ -4338,13 +4338,13 @@ pub fn clean_expired_cache(
 
 /// 打开当前图片缓存目录，方便用户查看实际落盘文件。
 #[tauri::command]
-pub fn open_cache_directory(
+pub async fn open_cache_directory(
     app: tauri::AppHandle,
     cache_dir: Option<String>,
 ) -> Result<String, String> {
     let image = image_cache_root(&app, cache_dir.as_deref())?;
     std::fs::create_dir_all(&image).map_err(|e| format!("创建缓存目录失败：{e}"))?;
-    opener::open(&image).map_err(|e| format!("打开缓存目录失败：{e}"))?;
+    open_local_path(&app, &image).await?;
     Ok(image.to_string_lossy().to_string())
 }
 
@@ -4412,6 +4412,19 @@ pub fn take_update_install_error(app: tauri::AppHandle) -> Result<Option<String>
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn open_local_path(app: &tauri::AppHandle, path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = call_android_update_method(app, "openLocalPath", path.to_string_lossy().to_string()).await?;
+        if status == "opened" { Ok(()) } else { Err(status.trim_start_matches("error:").to_string()) }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        opener::open(path).map_err(|error| format!("打开文件位置失败：{error}"))
     }
 }
 

@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
+import android.app.AlertDialog
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -11,6 +12,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.View
+import android.webkit.MimeTypeMap
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
@@ -20,6 +22,39 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    private fun localFile(path: String): File {
+        val file = File(path).canonicalFile
+        val roots = listOfNotNull(filesDir, cacheDir, getExternalFilesDir(null)).map { it.canonicalFile }
+        require(roots.any { file == it || file.path.startsWith(it.path + File.separator) }) { "文件不在应用目录内" }
+        require(file.exists()) { "文件不存在" }
+        return file
+    }
+
+    private fun showLocalFile(file: File) {
+        if (file.isDirectory) {
+            val children = file.listFiles()?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name }) ?: emptyList()
+            AlertDialog.Builder(this).setTitle(file.name)
+                .setItems(children.map { if (it.isDirectory) "📁 ${it.name}" else it.name }.toTypedArray()) { _, index ->
+                    try { showLocalFile(localFile(children[index].path)) }
+                    catch (error: Exception) { AlertDialog.Builder(this).setMessage(error.message).setPositiveButton("确定", null).show() }
+                }.setNegativeButton("关闭", null).show()
+        } else {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                clipData = ClipData.newRawUri(file.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        }
+    }
+
+    @Keep
+    fun openLocalPath(path: String): String = try {
+        showLocalFile(localFile(path))
+        "opened"
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

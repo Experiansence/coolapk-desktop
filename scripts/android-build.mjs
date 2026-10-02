@@ -153,6 +153,11 @@ ${closingTag}`);
   }
   writeFileSync(androidManifest, manifest, 'utf8');
   let filePaths = readFileSync(androidFilePaths, 'utf8');
+  const localFilesPath = '<files-path name="coolapk_files" path="." /><external-files-path name="coolapk_external_files" path="." />';
+  if (!filePaths.includes('name="coolapk_files"')) {
+    filePaths = filePaths.replace('</paths>', `    ${localFilesPath}\n</paths>`);
+    writeFileSync(androidFilePaths, filePaths, 'utf8');
+  }
   const updatePath = '<files-path name="coolapk_updates" path="coolapk-desktop-update/" />';
   if (!filePaths.includes(updatePath)) {
     filePaths = filePaths.replace('</paths>', `    ${updatePath}\n</paths>`);
