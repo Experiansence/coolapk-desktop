@@ -265,7 +265,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, nextTick, onUnmounted, onActivated, onDeactivated } from 'vue';
+import { computed, ref, watch, onMounted, nextTick, onUnmounted, onActivated, onDeactivated, inject } from 'vue';
+import { feedPageVisibleKey } from '../../utils/feedPageVisibility';
 import { useRouter } from 'vue-router';
 import type { FeedItem } from '../../types/feed';
 import FeedHeader from './FeedHeader.vue';
@@ -1062,11 +1063,14 @@ watch(() => settingsStore.settings.commentDefaultSortMode, (sortMode) => {
 });
 
 const cardRef = ref<HTMLElement | null>(null);
+const pageVisible = inject(feedPageVisibleKey, ref(true));
+const componentActive = ref(true);
 const isCommentsFloatingVisible = ref(false);
 const floatingCollapseStyle = ref<{ bottom: string; right: string }>({ bottom: '32px', right: '32px' });
 
 function updateFloatingCollapse() {
   if (
+    !pageVisible.value || !componentActive.value ||
     hasBlockingOverlay.value ||
     !showComments.value ||
     props.detailMode ||
@@ -1086,7 +1090,7 @@ function updateFloatingCollapse() {
   const windowWidth = window.innerWidth;
 
   // 只要动态卡片或评论区正在当前视口中展示
-  const isInViewport = rect.top < windowHeight - 80 && rect.bottom > 120;
+  const isInViewport = isCommentHostVisible(cardRef.value) && rect.top < windowHeight - 80 && rect.bottom > 120;
 
   if (isInViewport) {
     isCommentsFloatingVisible.value = true;
@@ -1192,7 +1196,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       activeCommentsUnregister?.();
-      activeCommentsUnregister = registerOpenComments(props.feed.id, handleCollapseComments, () => isCommentHostVisible(cardRef.value));
+      activeCommentsUnregister = registerOpenComments(props.feed.id, handleCollapseComments, () => pageVisible.value && componentActive.value && isCommentHostVisible(cardRef.value));
       if (!props.detailMode) {
         bindScrollListener();
         void nextTick(updateFloatingCollapse);
@@ -1225,17 +1229,24 @@ watch(
 );
 
 onDeactivated(() => {
+  componentActive.value = false;
   // 页面离开 / 被 keep-alive 缓存休眠时隐藏
   isCommentsFloatingVisible.value = false;
   unbindScrollListener();
 });
 
 onActivated(() => {
+  componentActive.value = true;
   // 页面重新恢复显示时如果评论仍然打开则重新计算
-  if (showComments.value && !props.detailMode) {
+  if (pageVisible.value && showComments.value && !props.detailMode) {
     bindScrollListener();
     void nextTick(updateFloatingCollapse);
   }
+});
+
+watch(pageVisible, (visible) => {
+  if (!visible) { isCommentsFloatingVisible.value = false; unbindScrollListener(); }
+  else if (componentActive.value && showComments.value && !props.detailMode) { bindScrollListener(); void nextTick(updateFloatingCollapse); }
 });
 
 onUnmounted(() => {

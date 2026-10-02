@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
+import { feedPageVisibleKey } from '../../../utils/feedPageVisibility';
 
 const mocks = vi.hoisted(() => ({
   getFeedChangeHistory: vi.fn(),
@@ -756,6 +757,32 @@ describe('评论区收起定位', () => {
     expect(wrapper.find('.stub-comments').exists()).toBe(false);
     wrapper.unmount();
     host.remove();
+  });
+
+  it('切到其他栏目隐藏浮动按钮，返回时保留评论并恢复按钮', async () => {
+    const pageVisible = ref(true), host = document.createElement('div');
+    document.body.appendChild(host);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 10, y: 100, left: 10, right: 300, top: 100, bottom: 500, width: 290, height: 400, toJSON: () => ({}) } as DOMRect);
+    mocks.getFeedReplies.mockResolvedValue({ data: [{ id: 'reply-1', message: '评论' }] });
+    const wrapper = mount(FeedCard, {
+      attachTo: host,
+      props: { feed: { id: 'visibility-feed', username: '作者', message: '正文' } },
+      global: { provide: { [feedPageVisibleKey as symbol]: pageVisible }, stubs: {
+        FeedHeader: true, FeedContent: true, FeedImageGrid: true, FeedVideoCard: true,
+        FeedActionBar: { template: '<button class="open" @click="$emit(\'open-comment\')">评论</button>' },
+        FeedCommentSection: { template: '<div class="comments-preserved"></div>' },
+        ForwardDialog: true, AppDialog: true, LoadingState: true, FeedShareImageDialog: true,
+        FeedInteractionListDialog: true, FeedCollectionPickerDialog: true,
+      } },
+    });
+    await wrapper.find('.open').trigger('click'); await flushPromises(); window.dispatchEvent(new Event('scroll')); await flushPromises();
+    expect(document.querySelector('.global-floating-comment-collapse')).not.toBeNull();
+    pageVisible.value = false; await flushPromises(); window.dispatchEvent(new Event('scroll')); await flushPromises();
+    expect(document.querySelector('.global-floating-comment-collapse')).toBeNull();
+    expect(wrapper.find('.comments-preserved').exists()).toBe(true);
+    pageVisible.value = true; await flushPromises();
+    expect(document.querySelector('.global-floating-comment-collapse')).not.toBeNull();
+    wrapper.unmount(); host.remove();
   });
 
   it('当卡片靠近屏幕右侧时悬浮收起评论按钮自动上移避让回到顶部按钮', async () => {
