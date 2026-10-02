@@ -1,0 +1,7 @@
+{
+  "plugins": {
+    "deep-link": {
+      "mobile": [{ "scheme": ["coolmarket"], "appLink": false }]
+    }
+  }
+}

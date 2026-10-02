@@ -98,6 +98,8 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 async function focusMainWindow() {
+  // Android 由深链 Intent 激活 Activity，不调用桌面窗口聚焦接口。
+  if (/android/i.test(navigator.userAgent)) return;
   try {
     const mainWindow = getCurrentWindow();
     await mainWindow.show();
