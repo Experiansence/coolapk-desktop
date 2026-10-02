@@ -37,14 +37,4 @@
     position: relative;
   }
 
-  /* 底栏「发布」按钮 48x38 → 上下各扩 3px */
-  html body .mobile-bottom-nav .mobile-publish {
-    position: relative;
-  }
-
-  html body .mobile-bottom-nav .mobile-publish::after {
-    content: '';
-    position: absolute;
-    inset: -3px 0;
-  }
 }

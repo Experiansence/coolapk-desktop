@@ -5,6 +5,7 @@
       :key="item.path"
       type="button"
       :class="['mobile-nav-item', { active: isActive(item.path) }]"
+      :aria-current="isActive(item.path) ? 'page' : undefined"
       @click="activate(item.path)"
     >
       <i :class="item.icon"></i>
@@ -20,6 +21,7 @@
       :key="item.path"
       type="button"
       :class="['mobile-nav-item', { active: isActive(item.path) }]"
+      :aria-current="isActive(item.path) ? 'page' : undefined"
       @click="activate(item.path)"
     >
       <i :class="item.icon"></i>
@@ -90,12 +92,11 @@ function activate(path: string) {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     flex: 0 0 auto;
-    align-items: start;
+    align-items: center;
     min-height: var(--mobile-bottom-nav-height);
-    padding: 6px max(6px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(6px, env(safe-area-inset-left));
+    padding: 4px max(6px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
     border-top: 1px solid var(--border-light);
-    background: color-mix(in srgb, var(--surface) 97%, transparent);
-    backdrop-filter: blur(16px);
+    background: var(--surface);
     z-index: 30;
   }
 
@@ -106,6 +107,8 @@ function activate(path: string) {
     color: var(--text-tertiary);
     font: inherit;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: transform 120ms ease, color 120ms ease, background-color 120ms ease;
   }
 
   .mobile-nav-item {
@@ -114,8 +117,11 @@ function activate(path: string) {
     align-items: center;
     gap: 3px;
     min-width: 0;
-    padding: 5px 2px;
-    font-size: 10px;
+    min-height: 48px;
+    padding: 3px 2px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
   }
 
   .mobile-nav-item i {
@@ -125,14 +131,13 @@ function activate(path: string) {
 
   .mobile-nav-item.active {
     color: var(--brand-primary);
-    font-weight: 700;
   }
 
   .mobile-publish {
     display: grid;
     place-items: center;
     width: 48px;
-    height: 38px;
+    height: 44px;
     margin: 0 auto;
     border-radius: 14px;
     background: var(--brand-primary);
@@ -144,6 +149,10 @@ function activate(path: string) {
   .mobile-nav-item:active,
   .mobile-publish:active {
     transform: scale(.96);
+  }
+
+  .mobile-nav-item:active {
+    background: var(--surface-hover);
   }
 }
 </style>
