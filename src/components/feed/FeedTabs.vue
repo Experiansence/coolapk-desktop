@@ -8,8 +8,9 @@
         @click="$emit('update:activeKey', getTabKey(tab))"
       >
         <span class="tab-label">{{ tab.title }}</span>
-        <span v-if="activeKey === getTabKey(tab)" class="coolapk-tab-indicator"></span>
+        <span v-if="props.wrap && activeKey === getTabKey(tab)" class="coolapk-tab-indicator" aria-hidden="true"></span>
       </button>
+      <span v-if="!props.wrap" class="coolapk-tab-indicator sliding-indicator" :style="indicatorStyle" aria-hidden="true"></span>
     </div>
 
     <!-- 官方右侧 ☰ 频道管理按钮 -->
@@ -38,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ConfigPageTab } from '../../types/settings';
 import type { HomeSubChannelSelection } from '../../utils/homeTabs';
 import TabManagerModal from './TabManagerModal.vue';
@@ -66,13 +67,42 @@ defineEmits<{
 
 const showTabManager = ref(false);
 const tabsContainer = ref<HTMLElement | null>(null);
+const indicatorStyle = ref({ transform: 'translate3d(0, 0, 0)', opacity: 0 });
+let resizeObserver: ResizeObserver | undefined;
+let disposed = false;
 
-watch(() => props.activeKey, () => {
-  void nextTick(() => {
-    const activeTab = tabsContainer.value?.querySelector<HTMLElement>('.tab-item.is-active');
-    activeTab?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-  });
-}, { immediate: true });
+async function alignActiveTab() {
+  await nextTick();
+  if (disposed) return;
+  const container = tabsContainer.value;
+  const activeTab = container?.querySelector<HTMLElement>('.tab-item.is-active');
+  if (!container || !activeTab || !container.clientWidth) return;
+  indicatorStyle.value = {
+    transform: `translate3d(${activeTab.offsetLeft + (activeTab.offsetWidth - 22) / 2}px, 0, 0)`,
+    opacity: 1,
+  };
+  if (props.wrap) return;
+  const start = activeTab.offsetLeft - 12;
+  const end = activeTab.offsetLeft + activeTab.offsetWidth + 12;
+  let left = container.scrollLeft;
+  if (start < left) left = start;
+  else if (end > left + container.clientWidth) left = end - container.clientWidth;
+  left = Math.max(0, Math.min(left, container.scrollWidth - container.clientWidth));
+  if (Math.abs(left - container.scrollLeft) > 1) {
+    container.scrollTo({ left, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
+}
+
+watch(() => [props.activeKey, props.tabs, props.wrap], () => { void alignActiveTab(); }, { immediate: true, deep: true });
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined' && tabsContainer.value) {
+    resizeObserver = new ResizeObserver(() => { void alignActiveTab(); });
+    resizeObserver.observe(tabsContainer.value);
+  }
+  void document.fonts?.ready.then(() => alignActiveTab());
+});
+onActivated(() => { void alignActiveTab(); });
+onUnmounted(() => { disposed = true; resizeObserver?.disconnect(); });
 
 function getTabKey(tab: ConfigPageTab): string {
   return tab.page_name || tab.url || String(tab.id || tab.title);
@@ -103,6 +133,7 @@ function handleWheel(e: WheelEvent) {
 }
 
 .feed-tabs {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -137,7 +168,9 @@ function handleWheel(e: WheelEvent) {
   font-size: 15px;
   font-weight: 500;
   color: var(--text-secondary);
-  transition: all var(--duration-fast, 0.15s) var(--ease-default, ease);
+  transition: color var(--duration-fast, 0.15s) var(--ease-default, ease);
+  min-height: 44px;
+  flex-shrink: 0;
   white-space: nowrap;
   background: transparent;
   cursor: pointer;
@@ -152,7 +185,6 @@ function handleWheel(e: WheelEvent) {
 .tab-item.is-active {
   color: var(--text-primary);
   font-weight: 700;
-  font-size: 16px;
 }
 
 /* 酷安 APP 标志性绿色下划弧线/胶囊滑块指示器 */
@@ -166,7 +198,13 @@ function handleWheel(e: WheelEvent) {
   background: linear-gradient(90deg, #10b981 0%, #059669 100%);
   border-radius: 4px;
   box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
-  animation: tabSlideIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.sliding-indicator {
+  left: 0;
+  bottom: 6px;
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms ease;
 }
 
 .tab-manage-btn {
