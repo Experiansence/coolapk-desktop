@@ -75,13 +75,17 @@ function activate(path: string) {
 
 @media (max-width: 720px) {
   .mobile-bottom-nav {
+    --nav-glass-tint: color-mix(in srgb, var(--surface) 55%, transparent);
+    --nav-glass-edge: rgba(255, 255, 255, .75);
+    --nav-glass-highlight: rgba(255, 255, 255, .42);
+    --nav-glass-selection: rgba(255, 255, 255, .4);
     position: absolute;
     bottom: max(20px, env(safe-area-inset-bottom));
     left: max(20px, env(safe-area-inset-left));
     right: max(20px, env(safe-area-inset-right));
-    border: 1px solid var(--border-light);
+    border: 1px solid var(--nav-glass-edge);
     border-radius: 40px;
-    box-shadow: 0 8px 24px #0000000c;
+    box-shadow: 0 10px 32px #00000016, 0 2px 8px #00000008, inset 0 1px 0 var(--nav-glass-edge), inset 0 -1px 0 #ffffff30;
     padding: 4px;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -89,18 +93,38 @@ function activate(path: string) {
     align-items: center;
     min-height: var(--mobile-bottom-nav-height);
     background: var(--surface);
+    background: linear-gradient(155deg, var(--nav-glass-highlight), transparent 48%, #ffffff12), var(--nav-glass-tint);
+    -webkit-backdrop-filter: blur(22px) saturate(165%);
+    backdrop-filter: blur(22px) saturate(165%);
+    isolation: isolate;
     z-index: 30;
+  }
+
+  .mobile-bottom-nav::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    box-shadow: inset 1px 1px 1px #ffffff70, inset -1px -1px 1px #ffffff20;
+    pointer-events: none;
+  }
+
+  :global([data-theme="dark"] .mobile-bottom-nav) {
+    --nav-glass-tint: color-mix(in srgb, var(--surface) 68%, transparent);
+    --nav-glass-edge: rgba(255, 255, 255, .2);
+    --nav-glass-highlight: rgba(255, 255, 255, .12);
+    --nav-glass-selection: rgba(255, 255, 255, .09);
   }
 
   .mobile-nav-item,
   .mobile-publish {
     border: 0;
     background: transparent;
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font: inherit;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-    transition: transform 120ms ease, color 120ms ease, background-color 120ms ease;
+    transition: transform 180ms ease, color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
   }
 
   .mobile-nav-item {
@@ -123,7 +147,8 @@ function activate(path: string) {
 
   .mobile-nav-item.active {
     color: var(--brand-primary);
-    background: var(--surface-hover);
+    background: linear-gradient(145deg, var(--nav-glass-selection), transparent), color-mix(in srgb, var(--surface) 28%, transparent);
+    box-shadow: inset 0 1px 0 var(--nav-glass-edge), 0 1px 6px #00000008;
   }
 
   .mobile-publish {
@@ -134,8 +159,9 @@ function activate(path: string) {
     margin: 0 auto;
     border-radius: 28px;
     background: var(--brand-primary);
+    background: linear-gradient(145deg, #ffffff36, transparent 55%, #0000000c), var(--brand-primary);
     color: #fff;
-    box-shadow: 0 5px 16px color-mix(in srgb, var(--brand-primary) 35%, transparent);
+    box-shadow: inset 0 1px 1px #ffffff85, inset 0 -1px 1px #00000015, 0 5px 18px color-mix(in srgb, var(--brand-primary) 30%, transparent);
     font-size: 18px;
   }
 
@@ -145,7 +171,27 @@ function activate(path: string) {
   }
 
   .mobile-nav-item:active {
-    background: var(--surface-hover);
+    background: var(--nav-glass-selection);
+  }
+
+  .mobile-nav-item:focus-visible,
+  .mobile-publish:focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: 2px;
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .mobile-bottom-nav { background: var(--surface); }
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .mobile-bottom-nav { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .mobile-nav-item.active { background: var(--surface-hover); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-nav-item, .mobile-publish { transition: none; }
+    .mobile-nav-item:active, .mobile-publish:active { transform: none; }
   }
 }
 </style>
