@@ -366,6 +366,12 @@ const hubCategories: HubCategory[] = [
         tags: ['看看号', '媒体', '专栏'],
       },
       {
+        id: 'my_plugins', title: '我的挂件', shortDesc: '头像与动态装扮',
+        desc: '预览和管理头像挂件、动态挂件，浏览挂件商店',
+        icon: 'fas fa-shirt', colorClass: 'bg-blue', path: '/my-plugins',
+        tags: ['挂件', '装扮', '商店'],
+      },
+      {
         id: 'headline_cat',
         title: '头条快讯要闻',
         shortDesc: '要闻聚合',

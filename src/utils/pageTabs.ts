@@ -81,6 +81,8 @@ export function describePageTab(route: TabRoute): PageTabDescriptor {
   const queryTitle = decodeRouteText(route.query.title);
   const name = String(route.name || '');
   const staticPages: Record<string, [string, string]> = {
+    UserPlugins: ['挂件管理', 'fas fa-shirt'],
+    UserPluginStore: ['挂件商店', 'fas fa-store'],
     Home: ['首页', 'fas fa-house'], Discover: ['发现', 'fas fa-compass'], Apps: ['应用', 'fas fa-mobile-screen-button'], Games: ['游戏', 'fas fa-gamepad'], Downloads: ['下载', 'fas fa-download'], Topics: ['话题', 'fas fa-hashtag'], Favorites: ['收藏', 'far fa-bookmark'], MyLikes: ['我的赞', 'far fa-thumbs-up'], More: ['更多', 'fas fa-ellipsis'], My: ['我的', 'fas fa-user'], History: ['浏览历史', 'far fa-clock'], Following: ['关注', 'fas fa-user-group'], Reviews: ['点评', 'fas fa-star'], SecondHand: ['闲置', 'fas fa-recycle'], Events: ['活动', 'fas fa-calendar-days'], AnyList: ['酷安清单', 'fas fa-list'], MyDyh: ['我的看看号', 'fas fa-rss'], Center: ['创作中心', 'fas fa-pen'], Goods: ['好物', 'fas fa-bag-shopping'], Digital: ['数码', 'fas fa-laptop'], MyProducts: ['我的产品', 'fas fa-mobile-screen'], ProductCompare: ['产品对比', 'fas fa-code-compare'], Search: ['搜索', 'fas fa-magnifying-glass'], Notifications: ['通知', 'far fa-bell'], Messages: ['私信', 'far fa-comment-dots'], BlackList: ['黑名单', 'fas fa-ban'], Albums: ['专辑', 'fas fa-images'], Pictures: ['图片', 'far fa-image'], Headline: ['头条', 'far fa-newspaper'], LiveDetail: ['直播', 'fas fa-video'], ProductSelector: ['选择产品', 'fas fa-mobile-screen-button'], AnyListCreate: ['新建清单', 'fas fa-plus'], SecondHandBrands: ['闲置品牌', 'fas fa-tags'], SecondHandList: ['闲置列表', 'fas fa-recycle'], AuthCallback: ['登录', 'fas fa-right-to-bracket'], External: ['网页', 'fas fa-globe'],
   };
   let title = staticPages[name]?.[0] || queryTitle || '页面';

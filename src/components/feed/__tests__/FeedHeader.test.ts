@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import FeedHeader from '../FeedHeader.vue';
 import { reactiveUserProfileMap } from '../../../utils/userProfilePreloader';
+import { useAuthStore } from '../../../stores/auth';
 
 const routerPush = vi.hoisted(() => vi.fn());
 
@@ -12,6 +13,20 @@ vi.mock('vue-router', async (importOriginal) => {
 });
 
 describe('动态头部信息布局', () => {
+  it('当前用户卸下挂件后立即覆盖卡片中的旧挂件', async () => {
+    setActivePinia(createPinia());
+    const auth = useAuthStore();
+    auth.user = { uid: '123', username: '用户', userAvatar: '', avatarPluginUrl: 'new.png' };
+    const wrapper = mount(FeedHeader, {
+      props: { uid: '123', pluginUrl: 'old.png' },
+      global: { stubs: { AppAvatar: true, AppIconButton: true, UserHoverCard: { template: '<div><slot /></div>' } } },
+    });
+    expect(wrapper.findComponent({ name: 'AppAvatar' }).props('pluginUrl')).toBe('new.png');
+    auth.user.avatarPluginUrl = '';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent({ name: 'AppAvatar' }).props('pluginUrl')).toBe('');
+    wrapper.unmount();
+  });
   it('按 APK 顺序展示认证、发布时间和机型', () => {
     setActivePinia(createPinia());
     const wrapper = mount(FeedHeader, {

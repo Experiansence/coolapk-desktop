@@ -162,6 +162,15 @@ fn cookie_for_request(cookie: &str, needs_ddid: bool, ddid: Option<&str>) -> Str
     }
 }
 
+/// 官方 CookieHelper 会为挂件等内置网页注入 DID；它与写操作会话 ddid 是两个字段。
+fn user_plugin_cookie(cookie: &str, did: Option<&str>, ddid: Option<&str>) -> String {
+    let cookie = cookie_for_request(cookie, ddid.is_some(), ddid);
+    match did.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => merge_cookie_value(&cookie, "DID", &encode_login_cookie_value(value)),
+        None => cookie,
+    }
+}
+
 /// 按酷安客户端 CookieInterceptor 的规则编码账号信息。
 fn encode_login_cookie_value(value: &str) -> String {
     value
@@ -3754,6 +3763,63 @@ impl CoolapkClient {
             "data:{content_type};base64,{}",
             BASE64.encode(bytes)
         ))
+    }
+
+    /// 官方挂件页面使用网页 JSON 协议，不能套用 /v6 API 或静态 HTML 抓取。
+    async fn user_plugin_request(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        form: Option<&[(&str, String)]>,
+    ) -> Result<Value, String> {
+        let cookie = self.get_user_cookie().filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| "请先登录酷安账号".to_string())?;
+        let did = self.effective_custom_device_id();
+        let ddid = if path == "getPlugin" || path == "savePlugin" { self.effective_custom_ddid() } else { None };
+        let cookie = user_plugin_cookie(&cookie, did.as_deref(), ddid.as_deref());
+        let client = http_client_builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(20)).build().map_err(|e| e.to_string())?;
+        let url = format!("https://m.coolapk.com/mp/userPlugin/{path}");
+        let request = match form {
+            Some(form) => client.post(&url).form(form),
+            None => client.get(&url),
+        };
+        // APK UserAgentHandler 经 C2304 添加 (#Build; ...) 后追加 CoolMarket 版本。
+        // 缺少 Build 段时，服务端会将该页面判为普通移动浏览器并拒绝访问。
+        let response = request.query(query)
+            .header(USER_AGENT, "Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36 (#Build; nubia; NX789J; AQ3A.250226.002; Android) +CoolMarket/16.6.2-2609151-universal")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://m.coolapk.com/mp/userPlugin/myPlugin?autoTheme=1")
+            .header("Origin", "https://m.coolapk.com")
+            .header(COOKIE, cookie)
+            .send().await.map_err(|e| format!("挂件请求失败：{e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("挂件服务返回 HTTP {}", response.status().as_u16()));
+        }
+        let value: Value = response.json().await.map_err(|_| "挂件服务未返回有效 JSON".to_string())?;
+        // 网页 JSON 还包含会话信息；只把功能所需的字段交给前端。
+        let mut data = serde_json::Map::new();
+        for key in ["avatarPluginList", "feedPluginList", "pluginList", "avatarPluginUrl", "feedPluginUrl",
+            "selectedAvatarPluginRow", "selectedFeedPluginRow", "deviceTitle", "status", "message", "forwardUrl"] {
+            if let Some(item) = value.get(key) { data.insert(key.to_string(), item.clone()); }
+        }
+        Ok(json!({ "code": 200, "data": data }))
+    }
+
+    pub async fn get_user_plugins(&self, store: bool, page: u32, plugin_type: u8) -> Result<Value, String> {
+        if page == 0 || plugin_type > 1 { return Err("挂件分页参数无效".to_string()); }
+        self.user_plugin_request(if store { "store" } else { "myPlugin" },
+            &[("page", page.to_string()), ("type", plugin_type.to_string())], None).await
+    }
+
+    pub async fn save_user_plugins(&self, avatar_id: u64, feed_id: u64) -> Result<Value, String> {
+        self.user_plugin_request("savePlugin", &[], Some(&[("avatar_id", avatar_id.to_string()), ("feed_id", feed_id.to_string())])).await
+    }
+
+    pub async fn claim_user_plugin(&self, id: u64) -> Result<Value, String> {
+        if id == 0 { return Err("挂件 ID 无效".to_string()); }
+        self.user_plugin_request("getPlugin", &[("id", id.to_string())], None).await
     }
 
     /// 抓取外部网页（内置浏览器阅读模式用）：带移动 UA 与已登录 Cookie（仅限酷安官方域），

@@ -16,6 +16,7 @@ export interface ImageViewerState extends ImageViewerContext {
 export const useAppStore = defineStore('app', () => {
   const isSearchOpen = ref(false);
   const isPublishOpen = ref(false);
+  const publishInitialText = ref('');
   const editFeedTarget = ref<FeedItem | null>(null);
   const feedDetailContexts = ref<Record<string, any>>({});
   const activeImageViewer = ref<ImageViewerState | null>(null);
@@ -28,7 +29,8 @@ export const useAppStore = defineStore('app', () => {
     isSearchOpen.value = false;
   }
 
-  function openPublish() {
+  function openPublish(initialText: unknown = '') {
+    publishInitialText.value = typeof initialText === 'string' ? initialText : '';
     editFeedTarget.value = null;
     isPublishOpen.value = true;
   }
@@ -39,6 +41,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function closePublish() {
+    publishInitialText.value = '';
     isPublishOpen.value = false;
     editFeedTarget.value = null;
   }
@@ -73,6 +76,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   return {
+    publishInitialText,
     isSearchOpen,
     isPublishOpen,
     editFeedTarget,

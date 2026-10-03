@@ -598,6 +598,18 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_user_profile', { uid });
   }
 
+  static async getUserPlugins(store = false, page = 1, pluginType = 0) {
+    return await invokeNative('get_user_plugins', { store, page, pluginType }, { timeoutMs: 25000 });
+  }
+
+  static async saveUserPlugins(avatarId: number, feedId: number) {
+    return await invokeNative('save_user_plugins', { avatarId, feedId }, { retry: false, timeoutMs: 25000 });
+  }
+
+  static async claimUserPlugin(id: number) {
+    return await invokeNative('claim_user_plugin', { id }, { retry: false, timeoutMs: 25000 });
+  }
+
   static async getMyProfile(uid: string) {
     return await invokeNative('get_my_profile', { uid });
   }

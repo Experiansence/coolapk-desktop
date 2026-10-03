@@ -142,6 +142,8 @@ function normalizeCoolapkWriterRoute(href: string): string | null {
 function normalizeCoolapkTopicFeedRoute(href: string): string | null {
   const path = extractCoolapkPath(href);
   if (!path) return null;
+  if (/^\/mp\/userPlugin\/myPlugin(?:[?#]|$)/i.test(path)) return '/my-plugins';
+  if (/^\/mp\/userPlugin\/store(?:[?#]|$)/i.test(path)) return '/my-plugins/store';
   const match = path.match(/^\/(?:feed\/multiTagFeedList|topic\/tagFeedList)(?:\?([^#]*))?$/i);
   if (!match) return null;
   const params = new URLSearchParams(match[1] || '');

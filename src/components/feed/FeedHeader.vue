@@ -65,6 +65,7 @@
     </div>
 
     <div class="header-actions">
+      <span v-if="feedPluginUrl" class="desktop-feed-plugin" aria-hidden="true"><AppImage :src="feedPluginUrl" fit="contain" :hide-spinner="true" /></span>
       <slot name="actions">
         <span v-if="questionMode" class="question-badge" title="问答" aria-label="问答">
           <i class="fas fa-circle-question" aria-hidden="true"></i>
@@ -87,7 +88,9 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSettingsStore } from '../../stores/settings';
+import { useAuthStore } from '../../stores/auth';
 import AppAvatar from '../common/AppAvatar.vue';
+import AppImage from '../common/AppImage.vue';
 import AppIconButton from '../common/AppIconButton.vue';
 import UserHoverCard from '../user/UserHoverCard.vue';
 import { reactiveUserProfileMap, getCachedUserProfileSync } from '../../utils/userProfilePreloader';
@@ -97,6 +100,7 @@ const props = withDefaults(defineProps<{
   uid?: string | number;
   avatar?: string;
   pluginUrl?: string;
+  feedPluginUrl?: string;
   username?: string;
   level?: number;
   gender?: number | string;
@@ -119,6 +123,7 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter();
 const settingsStore = useSettingsStore();
+const authStore = useAuthStore();
 const readCount = computed(() => {
   const value = Number(props.readNum);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
@@ -163,6 +168,7 @@ const effectiveAvatar = computed(() => {
 
 // 头像挂件（支持原生字段与预加载自动补全）
 const effectivePluginUrl = computed(() => {
+  if (String(authStore.user?.uid) === currentUid.value && authStore.user?.avatarPluginUrl !== undefined) return authStore.user.avatarPluginUrl;
   if (props.pluginUrl && String(props.pluginUrl).trim()) {
     return String(props.pluginUrl).trim();
   }
@@ -246,6 +252,14 @@ function normalizeTimestamp(value: number | string): number | null {
   align-items: center;
   flex: 0 0 auto;
   gap: 4px;
+}
+
+.desktop-feed-plugin { display: none; }
+@media (min-width: 721px) {
+  .desktop-feed-plugin { display: block; width: 96px; height: 48px; flex: 0 0 96px; margin-right: 8px; overflow: hidden; pointer-events: none; }
+  /* 官方动态挂件是带左侧透明留白的横幅：按原比例显示并裁掉留白，不能把整幅缩进 96px。 */
+  .desktop-feed-plugin :deep(.app-image-container) { justify-content: flex-end; }
+  .desktop-feed-plugin :deep(.app-image-container.fit-contain img) { width: auto; height: 48px; max-width: none; flex-shrink: 0; }
 }
 
 .user-info {

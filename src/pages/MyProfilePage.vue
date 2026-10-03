@@ -9,7 +9,7 @@
     </div>
     <section class="profile-identity">
       <button type="button" class="identity-link" @click="openProfile">
-        <AppImage v-if="auth.user?.userAvatar" class="profile-avatar" :src="auth.user.userAvatar" alt="头像" />
+        <AppAvatar v-if="auth.user?.userAvatar" :src="auth.user.userAvatar" :plugin-url="auth.user.avatarPluginUrl" :size="60" alt="头像" />
         <span v-else class="profile-avatar placeholder-avatar"><i class="fas fa-user"></i></span>
         <span class="identity-info">
           <strong>{{ auth.user?.username || '登录 / 注册' }}</strong>
@@ -50,6 +50,7 @@ import { CoolapkTauriAPI } from '../api/coolapk';
 import AppDialog from '../components/common/AppDialog.vue';
 import MyProfileCards from '../components/profile/MyProfileCards.vue';
 import AppImage from '../components/common/AppImage.vue';
+import AppAvatar from '../components/common/AppAvatar.vue';
 import ratingIcon from '../assets/official-profile/ic_my_rating_fill.svg';
 import starIcon from '../assets/official-profile/ic_wodeshoucang_white_24dp.png';
 import followIcon from '../assets/official-profile/ic_wodeguanzhu_white_24dp.png';
@@ -102,7 +103,7 @@ const menu = computed<MenuItem[]>(() => [
   { label: '夜间模式', asset: nightIcon, color: '#a56bff', action: 'theme', public: true },
   { label: '我的图文', asset: textIcon, color: '#ff4039', path: '/my?section=my_feeds' },
   { label: '我的回复', asset: replyIcon, color: '#ff4039', path: '/my?section=my_comments' },
-  { label: '我的挂件', asset: avatarPluginIcon, color: '#2196f3', disabled: true },
+  { label: '我的挂件', asset: avatarPluginIcon, color: '#2196f3', path: '/my-plugins' },
   { label: '更多', asset: moreIcon, color: '#00b8cf', path: '/more', public: true },
 ]);
 function iconStyle(url: string) { return { maskImage: `url("${url}")`, WebkitMaskImage: `url("${url}")` }; }

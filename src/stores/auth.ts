@@ -7,6 +7,8 @@ export interface UserProfile {
   uid: string | number;
   username: string;
   userAvatar: string;
+  avatarPluginUrl?: string;
+  feedPluginUrl?: string;
   level?: number;
   bio?: string;
   fans?: number;
@@ -461,6 +463,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     user.value = {
       ...user.value,
       fans,
+      avatarPluginUrl: data.avatar_plugin_url ?? data.userAvatarPluginUrl ?? user.value.avatarPluginUrl,
+      feedPluginUrl: data.feed_plugin_url ?? data.userFeedPluginUrl ?? user.value.feedPluginUrl,
       follow,
       likenum,
       logintime,

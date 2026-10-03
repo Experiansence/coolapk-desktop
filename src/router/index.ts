@@ -53,6 +53,7 @@ import MyProductsPage from '../pages/MyProductsPage.vue';
 import ProductComparePage from '../pages/ProductComparePage.vue';
 import MorePage from '../pages/MorePage.vue';
 import MyProfilePage from '../pages/MyProfilePage.vue';
+import UserPluginsPage from '../pages/UserPluginsPage.vue';
 import SettingsLayout from '../pages/settings/SettingsLayout.vue';
 import ProfileSettingsPage from '../pages/settings/ProfileSettingsPage.vue';
 import AccountSettingsPage from '../pages/settings/AccountSettingsPage.vue';
@@ -86,6 +87,8 @@ const routes = [
   { path: '/my-likes', name: 'MyLikes', component: MyLikesPage },
   { path: '/more', name: 'More', component: MorePage },
   { path: '/me', name: 'MyProfile', component: MyProfilePage },
+  { path: '/my-plugins', name: 'UserPlugins', component: UserPluginsPage },
+  { path: '/my-plugins/store', name: 'UserPluginStore', component: UserPluginsPage },
   { path: '/my', name: 'My', component: MoreWorkspacePage },
   { path: '/followed-nodes', name: 'FollowedNodes', component: MoreDataPage, meta: { mode: 'nodes' } },
   { path: '/followed-topics', name: 'FollowedTopics', component: MoreDataPage, meta: { mode: 'topics' } },

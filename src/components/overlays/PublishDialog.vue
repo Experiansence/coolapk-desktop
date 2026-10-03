@@ -540,7 +540,8 @@ watch(() => appStore.isPublishOpen, async (open) => {
       try {
         draftList.value = await listFullPublishDrafts(draftAccount);
         if (revision !== openRevision || !appStore.isPublishOpen) return;
-        if (draftList.value[0]) await applyDraftState(restoreFullPublishDraft(draftList.value[0]), draftList.value[0].id);
+        if (appStore.publishInitialText) message.value = appStore.publishInitialText;
+        else if (draftList.value[0]) await applyDraftState(restoreFullPublishDraft(draftList.value[0]), draftList.value[0].id);
       } catch (failure) { editLoadError.value = `草稿读取失败：${failure instanceof Error ? failure.message : String(failure)}`; }
     }
     await nextTick();

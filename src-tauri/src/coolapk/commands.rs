@@ -1223,6 +1223,21 @@ pub async fn get_user_profile(state: State<'_, AppState>, uid: String) -> Result
 }
 
 #[tauri::command]
+pub async fn get_user_plugins(state: State<'_, AppState>, store: bool, page: u32, plugin_type: u8) -> Result<Value, String> {
+    state.client.get_user_plugins(store, page, plugin_type).await
+}
+
+#[tauri::command]
+pub async fn save_user_plugins(state: State<'_, AppState>, avatar_id: u64, feed_id: u64) -> Result<Value, String> {
+    state.client.save_user_plugins(avatar_id, feed_id).await
+}
+
+#[tauri::command]
+pub async fn claim_user_plugin(state: State<'_, AppState>, id: u64) -> Result<Value, String> {
+    state.client.claim_user_plugin(id).await
+}
+
+#[tauri::command]
 pub async fn get_my_profile(state: State<'_, AppState>, uid: String) -> Result<Value, String> {
     state.client.get_my_profile(&uid).await
 }

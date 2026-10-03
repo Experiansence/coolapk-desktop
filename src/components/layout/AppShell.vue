@@ -10,7 +10,7 @@
     <NetworkStatusBanner />
     <TopBar />
     <MobileTopBar
-      v-if="!isMobileLayoutDisabled"
+      v-if="!isMobileLayoutDisabled && !route.path.startsWith('/my-plugins')"
       :navigation-open="mobileNavigationOpen"
       :mac-overlay="usesMacOverlay"
       @toggle-navigation="toggleMobileNavigation"
@@ -28,7 +28,7 @@
         </main>
       </div>
     </div>
-    <MobileBottomNav v-if="!isMobileLayoutDisabled" />
+    <MobileBottomNav v-if="!isMobileLayoutDisabled && !route.path.startsWith('/my-plugins')" />
   </div>
 </template>
 

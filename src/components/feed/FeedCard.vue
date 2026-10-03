@@ -8,16 +8,19 @@
     @click="handleCardClick"
   >
     <!-- 卡片顶部沉浸式个性空间背景图 -->
-    <div v-if="userCoverUrl" class="card-cover-backdrop" aria-hidden="true">
+    <div v-if="userCoverUrl && !feedPluginUrl" class="card-cover-backdrop" aria-hidden="true">
       <AppImage :src="userCoverUrl" image-class="card-cover-image" fit="cover" />
       <div class="card-cover-mask"></div>
     </div>
+
+    <AppImage v-if="feedPluginUrl" :src="feedPluginUrl" class="feed-plugin-decoration" fit="contain" aria-hidden="true" />
 
     <!-- targetType 是关联标的标题，由下方关联卡片展示；头部只显示明确的推荐来源。 -->
     <FeedHeader
       :uid="authorUid"
       :avatar="feed.userAvatar || feed.userInfo?.userAvatar"
       :plugin-url="(feed.userInfo as any)?.avatar_plugin_url || (feed as any).avatar_plugin_url || (feed as any).userAvatarPluginUrl"
+      :feed-plugin-url="feedPluginUrl"
       :username="feed.username || feed.userInfo?.username"
       :level="feed.userInfo?.level || feed.level"
       :gender="(feed.userInfo as any)?.gender ?? (feed as any).gender"
@@ -435,6 +438,12 @@ const emit = defineEmits<{
 }>();
 
 const authStore = useAuthStore();
+const feedPluginUrl = computed(() => {
+  if (String(authStore.user?.uid) === authorUid.value && authStore.user?.feedPluginUrl !== undefined) return authStore.user.feedPluginUrl;
+  const info = props.feed.userInfo as any;
+  const preloaded = authorUid.value ? reactiveUserProfileMap[authorUid.value] : null;
+  return (props.feed as any).feed_plugin_url || info?.feed_plugin_url || preloaded?.feed_plugin_url || '';
+});
 const shareImageOpen = ref(false);
 
 const isMyFeed = computed(() => {
@@ -1372,6 +1381,12 @@ defineExpose({
   transition: background-color 0.2s ease, border-color 0.2s ease;
   cursor: pointer;
   overflow: hidden;
+}
+
+.feed-plugin-decoration { position: absolute; top: 0; right: 0; width: 50%; height: 48px; pointer-events: none; z-index: 0; background: transparent; }
+:deep(.feed-plugin-decoration img) { object-position: right top; }
+@media (min-width: 721px) {
+  .feed-plugin-decoration { display: none; }
 }
 
 /* 右上角作者个性空间背景图氛围层 */

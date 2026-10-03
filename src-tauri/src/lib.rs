@@ -3,6 +3,7 @@ pub mod diagnostics;
 pub mod download_manager;
 
 use coolapk::client::CoolapkClient;
+use coolapk::commands::{get_user_plugins, save_user_plugins, claim_user_plugin};
 use coolapk::commands::{
     AppState, add_config_compare, add_goods_to_goods_list, add_to_black_list, add_to_ignore_list,
     bind_feed_to_goods_list, change_product_follow_status, change_product_wish_status, change_rating_status, create_product_rating, check_login_info,
@@ -1190,6 +1191,9 @@ pub fn run() {
             get_user_qr_image,
             get_user_tab_data,
             get_user_profile,
+            get_user_plugins,
+            save_user_plugins,
+            claim_user_plugin,
             coolapk::commands::get_my_profile,
             get_public_user_profile,
             get_user_remark_list,

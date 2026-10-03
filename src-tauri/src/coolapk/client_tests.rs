@@ -130,6 +130,21 @@ fn test_ddid_is_not_sent_when_disabled() {
 }
 
 #[test]
+fn test_user_plugin_cookie_uses_configured_did_without_confusing_ddid() {
+    let cookie = "uid=123; token=account-token; DID=old-device; ddid=old-session";
+    let configured = user_plugin_cookie(cookie, Some("DU-CONFIGURED-DEVICE"), None);
+    assert!(configured.contains("DID=DU-CONFIGURED-DEVICE"));
+    assert!(configured.contains("token=account-token"));
+    assert!(!configured.contains("old-device"));
+    assert!(!configured.contains("ddid="));
+    let with_session = user_plugin_cookie(cookie, Some("DU-CONFIGURED-DEVICE"), Some("session-value"));
+    assert!(with_session.contains("DID=DU-CONFIGURED-DEVICE"));
+    assert!(with_session.contains("ddid=session-value"));
+    assert!(!with_session.contains("old-session"));
+    assert!(user_plugin_cookie(cookie, None, None).contains("DID=old-device"));
+}
+
+#[test]
 fn test_login_info_cookie_matches_official_cookie_interceptor() {
     assert_eq!(encode_login_cookie_value("name with space"), "name+with+space");
     assert_eq!(encode_login_cookie_value("中文"), "%E4%B8%AD%E6%96%87");
