@@ -12,17 +12,21 @@ import ExternalPage from '../ExternalPage.vue';
 describe('ExternalPage 系统浏览器', () => {
   beforeEach(() => {
     mocks.fetchExternalPage.mockReset().mockResolvedValue({ data: { html: '<p>文章正文</p>', status: 200 } });
-    mocks.openUrl.mockReset().mockResolvedValue(undefined);
+    mocks.openUrl.mockReset().mockResolvedValue(true);
   });
 
-  it('打开失败时显示错误，允许再次尝试并清除旧错误', async () => {
-    mocks.openUrl.mockRejectedValueOnce('未安装浏览器');
+  it.each([
+    { failure: '返回 false', error: '默认浏览器设置', rejects: false },
+    { failure: '抛出异常', error: '未安装浏览器', rejects: true }
+  ])('打开失败（$failure）时显示错误，允许再次尝试并清除旧错误', async ({ error, rejects }) => {
+    if (rejects) mocks.openUrl.mockRejectedValueOnce(error);
+    else mocks.openUrl.mockResolvedValueOnce(false);
     const wrapper = mount(ExternalPage);
     await flushPromises();
     await wrapper.get('.header-actions button').trigger('click');
     await flushPromises();
     expect(mocks.openUrl).toHaveBeenCalledWith('https://example.com/article', 'system');
-    expect(wrapper.get('[role="alert"]').text()).toContain('未安装浏览器');
+    expect(wrapper.get('[role="alert"]').text()).toContain(error);
     expect(wrapper.text()).toContain('文章正文');
     await wrapper.get('.header-actions button').trigger('click');
     await flushPromises();
@@ -57,8 +61,8 @@ describe('ExternalPage 系统浏览器', () => {
   });
 
   it('打开期间禁用按钮，避免重复调用，结束后恢复', async () => {
-    let finishOpen!: () => void;
-    mocks.openUrl.mockImplementation(() => new Promise<void>((resolve) => { finishOpen = resolve; }));
+    let finishOpen!: (success: boolean) => void;
+    mocks.openUrl.mockImplementation(() => new Promise<boolean>((resolve) => { finishOpen = resolve; }));
     const wrapper = mount(ExternalPage);
     await flushPromises();
     const button = wrapper.get('.header-actions button');
@@ -66,9 +70,10 @@ describe('ExternalPage 系统浏览器', () => {
     expect(button.attributes('disabled')).toBeDefined();
     await button.trigger('click');
     expect(mocks.openUrl).toHaveBeenCalledTimes(1);
-    finishOpen();
+    finishOpen(true);
     await flushPromises();
     expect(button.attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });
