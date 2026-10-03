@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { CoolapkTauriAPI } from '../coolapk';
+import { showToast } from '../../utils/toast';
+vi.mock('../../utils/toast', () => ({ showToast: vi.fn() }));
+vi.mock('../../utils/diagnosticLogger', () => ({ logDiagnostic: vi.fn(), summarizeDiagnosticError: String }));
 
 const routerMocks = vi.hoisted(() => ({
   push: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +18,7 @@ describe('系统浏览器打开链接', () => {
     vi.mocked(invoke).mockReset();
     routerMocks.push.mockClear();
     routerMocks.resolve.mockClear();
+    vi.mocked(showToast).mockClear();
     vi.spyOn(window, 'open').mockReturnValue(null);
     Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {} });
   });
@@ -68,11 +72,30 @@ describe('系统浏览器打开链接', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it('原生打开失败时保留错误，不退回应用 WebView', async () => {
+  it('原生打开失败时提示默认浏览器设置并提供复制入口，不产生拒绝或退回 WebView', async () => {
     vi.mocked(invoke).mockRejectedValue('未安装可打开链接的应用');
     await expect(CoolapkTauriAPI.openUrl('https://example.com/article', 'system'))
-      .rejects.toBe('未安装可打开链接的应用');
+      .resolves.toBe(false);
     expect(window.open).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('默认浏览器'), 'error', 8000,
+      expect.objectContaining({ label: '复制链接' }));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    try {
+      vi.mocked(showToast).mock.calls[0]![3]!.onClick();
+      await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('链接已复制'));
+      expect(writeText).toHaveBeenCalledWith('https://example.com/article');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('复制失败也提供提示，不产生未处理的拒绝', async () => {
+    vi.mocked(invoke).mockRejectedValue('操作已被用户取消。 (os error 1223)');
+    await CoolapkTauriAPI.openUrl('https://example.com');
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    try {
+      vi.mocked(showToast).mock.calls[0]![3]!.onClick();
+      await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringContaining('复制失败'), 'error'));
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it('普通网页预览仍可使用浏览器窗口备用入口', async () => {

@@ -87,7 +87,9 @@ async function openInSystem() {
   openingSystem.value = true;
   openError.value = '';
   try {
-    await CoolapkTauriAPI.openUrl(url.value, 'system');
+    if (!await CoolapkTauriAPI.openUrl(url.value, 'system')) {
+      openError.value = '无法打开系统浏览器，请检查默认浏览器设置，或复制链接手动打开';
+    }
   } catch (err: any) {
     openError.value = '无法打开系统浏览器：' + (err?.message || String(err));
   } finally {

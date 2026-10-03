@@ -7,6 +7,7 @@ import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
 import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
 import type { UpdatePackageType } from '../utils/updateChecker';
+import { showToast } from '../utils/toast';
 
 async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}) {
   let rustError: unknown;
@@ -1377,7 +1378,7 @@ export class CoolapkTauriAPI {
     return await invoke<string>('open_image_in_system_viewer', { url, cacheDir: cacheDir || '' });
   }
 
-  static async openUrl(url: string, mode: 'internal' | 'system' = 'internal') {
+  static async openUrl(url: string, mode: 'internal' | 'system' = 'internal'): Promise<boolean> {
     url = url.trim();
     if (url.startsWith('//')) url = `https:${url}`;
     // 站外域名直接调起系统浏览器，不入路由、不抓取外部网页，也不受打开方式设置影响。
@@ -1387,22 +1388,43 @@ export class CoolapkTauriAPI {
       const nativeRoute = normalizeCoolapkRoute(url);
       if (nativeRoute && router.resolve(nativeRoute).matched.length > 0) {
         await router.push(nativeRoute);
-        return;
+        return true;
       }
 
       // 未适配的酷安网页仍可在应用内查看。
       if (/^https?:\/\//i.test(url)) {
         await router.push({ path: '/external', query: { url } });
-        return;
+        return true;
       }
     }
     // 非 http(s)（如 mailto:）与 system 模式交给系统默认程序
     try {
       await invoke('open_url', { url, mode: 'system' });
+      return true;
     } catch (error) {
       // 原生应用中 window.open 仍是 WebView，无法作为系统浏览器的备用入口。
-      if ('__TAURI_INTERNALS__' in window) throw error;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      if (!('__TAURI_INTERNALS__' in window)) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return true;
+      }
+      logDiagnostic('warn', 'external-link', 'open_failed', summarizeDiagnosticError(error));
+      const webLink = /^https?:\/\//i.test(url);
+      showToast(webLink
+        ? '无法打开系统浏览器，请检查默认浏览器设置，或复制链接手动打开'
+        : '无法打开链接，请检查是否安装了支持此链接的应用', 'error', 8000, {
+        label: '复制链接',
+        onClick: () => {
+          void (async () => {
+            try {
+              await navigator.clipboard.writeText(url);
+              showToast('链接已复制');
+            } catch {
+              showToast('复制失败，请使用链接菜单手动复制', 'error');
+            }
+          })();
+        },
+      });
+      return false;
     }
   }
 
