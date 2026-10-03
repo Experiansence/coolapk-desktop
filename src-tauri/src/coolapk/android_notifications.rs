@@ -1,4 +1,5 @@
 use serde::Deserialize;
+#[cfg(any(target_os = "android", test))]
 use serde_json::Value;
 
 #[derive(Clone, Deserialize)]
