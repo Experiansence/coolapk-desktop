@@ -1,21 +1,23 @@
 <template>
   <article
     ref="cardRef"
-    :class="['feed-card', { 'is-detail-mode': detailMode, 'has-user-cover': !!userCoverUrl, 'is-question-card': isQuestionCard, 'is-answer-card': isAnswerCard }]"
+    :class="['feed-card', { 'is-detail-mode': detailMode, 'is-official-mobile-detail': officialMobileDetail, 'has-user-cover': !!userCoverUrl, 'is-question-card': isQuestionCard, 'is-answer-card': isAnswerCard }]"
     :data-feed-id="feed.id"
     :data-feed-text="feed.message || feed.message_raw_output || ''"
     :data-feed-images="JSON.stringify(feedImages)"
     @click="handleCardClick"
   >
     <!-- 卡片顶部沉浸式个性空间背景图 -->
-    <div v-if="userCoverUrl && !feedPluginUrl" class="card-cover-backdrop" aria-hidden="true">
+    <div v-if="!officialMobileDetail && userCoverUrl && !feedPluginUrl" class="card-cover-backdrop" aria-hidden="true">
       <AppImage :src="userCoverUrl" image-class="card-cover-image" fit="cover" />
       <div class="card-cover-mask"></div>
     </div>
 
-    <AppImage v-if="feedPluginUrl" :src="feedPluginUrl" class="feed-plugin-decoration" fit="contain" aria-hidden="true" />
+    <AppImage v-if="!officialMobileDetail && feedPluginUrl" :src="feedPluginUrl" class="feed-plugin-decoration" fit="contain" aria-hidden="true" />
 
     <!-- targetType 是关联标的标题，由下方关联卡片展示；头部只显示明确的推荐来源。 -->
+    <div :class="{ 'official-detail-author': officialMobileDetail }">
+    <button v-if="officialMobileDetail" class="official-back" type="button" aria-label="返回" @click.stop="navigateBack(router)"><i class="fas fa-arrow-left"></i></button>
     <FeedHeader
       :uid="authorUid"
       :avatar="feed.userAvatar || feed.userInfo?.userAvatar"
@@ -39,11 +41,38 @@
       :is-edited="isEdited"
       @more="toggleMoreMenu"
       @edit-history="openHistoryDialog"
-    />
+    >
+      <template v-if="officialMobileDetail" #actions><button class="official-follow-author" :disabled="authorFollowPending" @click.stop="toggleAuthorFollow">{{ authorFollowing ? '已关注' : '关注' }}</button><button class="official-more" aria-label="更多选项" @click.stop="toggleMoreMenu"><i class="fas fa-ellipsis-vertical"></i></button></template>
+    </FeedHeader>
+    </div>
 
     <div v-if="moreMenuOpen" class="more-menu-backdrop" @click.stop="moreMenuOpen = false"></div>
-    <div v-if="moreMenuOpen" class="more-menu" @click.stop>
-      <button class="more-menu-item" @click="handleShareImage">
+    <div v-if="moreMenuOpen" class="more-menu" :class="{ 'official-share-sheet': officialMobileDetail }" @click.stop>
+      <template v-if="officialMobileDetail">
+        <div class="official-share-handle" aria-hidden="true"></div>
+        <div class="official-share-tools">
+          <button @click="copyFeed(false)"><span><i class="far fa-clone"></i></span>复制</button>
+          <button @click="moreMenuOpen = false; toggleFav()"><span><i class="far fa-star"></i></span>{{ isFav ? '取消收藏' : '收藏' }}</button>
+          <button @click="reportOfficialFeed"><span><i class="far fa-bell"></i></span>举报</button>
+        </div>
+        <div class="official-share-destinations">
+          <button @click="moreMenuOpen = false; openForwardDialog()"><span><i class="far fa-pen-to-square"></i></span>动态</button>
+          <button @click="openSharePrivate"><span><i class="far fa-envelope"></i></span>私信</button>
+          <button @click="handleShareImage"><span><i class="far fa-image"></i></span>生成分享图</button>
+          <button @click="openShareDyh"><span><i class="fas fa-circle-dot"></i></span>看看号</button>
+          <button @click="copyFeed(true)"><span><i class="fas fa-link"></i></span>复制链接</button>
+        </div>
+      </template>
+      <div v-else class="desktop-share-tools">
+        <button @click="copyFeed(false)"><i class="far fa-copy"></i>复制</button>
+        <button @click="moreMenuOpen = false; toggleFav()"><i class="far fa-star"></i>{{ isFav ? '取消收藏' : '收藏' }}</button>
+        <button @click="reportOfficialFeed"><i class="fas fa-flag"></i>举报</button>
+        <button @click="moreMenuOpen = false; openForwardDialog()"><i class="fas fa-retweet"></i>动态</button>
+        <button @click="openSharePrivate"><i class="far fa-envelope"></i>私信</button>
+        <button @click="openShareDyh"><i class="fas fa-circle-dot"></i>看看号</button>
+        <button @click="copyFeed(true)"><i class="fas fa-link"></i>复制链接</button>
+      </div>
+      <button v-if="!officialMobileDetail" class="more-menu-item" @click="handleShareImage">
         <i class="fas fa-image"></i> 生成长图
       </button>
       <button v-if="isMyFeed" class="more-menu-item" :disabled="!canEditFeed" :title="canEditFeed ? '重新编辑动态' : '此动态当前不能编辑'" @click="handleEditFeed">
@@ -52,14 +81,15 @@
       <button v-if="isMyFeed" class="more-menu-item is-danger" @click="handleDeleteFeed">
         <i class="fas fa-trash-alt"></i> 删除动态
       </button>
-      <div class="more-menu-divider"></div>
+      <div v-if="!officialMobileDetail" class="more-menu-divider"></div>
       <!-- 点赞和转发列表入口放在省略号菜单末尾。 -->
-      <button class="more-menu-item" @click="openInteractionListFromMoreMenu('likes')">
+      <button v-if="!officialMobileDetail" class="more-menu-item" @click="openInteractionListFromMoreMenu('likes')">
         <i class="far fa-heart"></i> 查看点赞用户
       </button>
-      <button class="more-menu-item" @click="openInteractionListFromMoreMenu('forwards')">
+      <button v-if="!officialMobileDetail" class="more-menu-item" @click="openInteractionListFromMoreMenu('forwards')">
         <i class="fas fa-retweet"></i> 查看转发列表
       </button>
+      <button v-if="officialMobileDetail" class="official-share-cancel" @click="moreMenuOpen = false">取消</button>
     </div>
 
     <FeedContent
@@ -118,9 +148,10 @@
 
     <!-- 2. 关联的标的卡片（如机型“华为Pura70 Pro+”、应用、话题） -->
     <div v-if="targetObjectRows.length" class="feed-target-wrapper">
+      <template v-for="(target, index) in targetObjectRows" :key="getTargetKey(target, index)">
+      <OfficialFeedProductCard v-if="officialMobileDetail && isProductTarget(target)" :target="target" @open="openTarget" />
       <div
-        v-for="(target, index) in targetObjectRows"
-        :key="getTargetKey(target, index)"
+        v-else
         class="feed-target-chip"
         @click.stop="openTarget(target)"
         :title="getTargetTitle(target)"
@@ -142,15 +173,21 @@
         </div>
         <i class="fas fa-chevron-right target-chip-arrow"></i>
       </div>
+      </template>
     </div>
 
+    <button v-if="!detailMode && mobileOfficialEnabled && officialHotReply" class="official-hot-reply" @click.stop="openOfficialDetail"><span class="hot-reply-likes">{{ officialHotReply.likenum || 0 }}赞</span><span class="hot-reply-copy"><span class="hot-reply-user">{{ officialHotReply.username || officialHotReply.userInfo?.username }}: </span><span v-html="formatRichText(String(officialHotReply.message || ''))"></span></span></button>
     <div v-if="hasQuestionStats" class="question-stats" aria-label="问答统计">
       <span><i class="fas fa-comment-dots" aria-hidden="true"></i>{{ questionAnswerCount }}人回答</span>
       <span aria-hidden="true">·</span>
       <span><i class="fas fa-user-group" aria-hidden="true"></i>{{ questionFollowCount }}人关注</span>
     </div>
 
+    <p v-if="officialMobileDetail && publishedLocation" class="official-published-location">发布于{{ publishedLocation }}</p>
     <FeedActionBar
+      v-show="!officialMobileDetail || (componentActive && pageVisible && !hasBlockingOverlay)"
+      :official-detail="officialMobileDetail"
+      @write-comment="writeMobileComment"
       :feed-id="feed.id"
       :likenum="feed.likenum"
       :replynum="feed.replynum"
@@ -158,7 +195,7 @@
       :sharenum="feed.sharenum"
       :favorited="isFav"
       :user-action="feed.userAction"
-      @open-comment="toggleComments"
+      @open-comment="officialMobileDetail ? scrollToMobileComments() : toggleComments()"
       @toggle-fav="toggleFav"
       @forward="openForwardDialog"
       @open-like-list="openLikeList"
@@ -167,7 +204,8 @@
 
     <div v-if="showComments" class="inline-comment-wrapper" @click.stop="touchActiveComments(feed.id)">
       <FeedCommentSection
-        :feed-id="feed.id"
+        ref="commentSectionRef"
+        :official-detail="officialMobileDetail"        :feed-id="feed.id"
         :feed-uid="authorUid"
         :feed-username="feed.username"
         :default-sort-mode="commentsSortMode"
@@ -209,6 +247,13 @@
       </Teleport>
     </div>
 
+    <FeedDyhShareDialog :is-open="dyhShareOpen" :feed-id="String(feed.id)" @close="dyhShareOpen = false" />
+    <AppDialog :is-open="privateShareOpen" title="分享动态到私信" :width="420" @close="privateShareOpen = false">
+      <LoadingState v-if="privateShareLoading" text="加载最近联系人..." />
+      <p v-if="privateShareError">{{ privateShareError }}<button @click="openSharePrivate">重试</button></p>
+      <button v-for="contact in privateShareContacts" :key="String(contact.uid)" class="official-share-contact" @click="shareToPrivate(contact)">{{ contact.username }}</button>
+      <p v-if="!privateShareLoading && !privateShareError && !privateShareContacts.length">暂无最近联系人</p>
+    </AppDialog>
     <ForwardDialog v-model:show="forwardOpen" :feed="feed" @success="handleForwardSuccess" />
 
     <FeedShareImageDialog v-model:show="shareImageOpen" :feed="feed" :images="feedImages" />
@@ -272,6 +317,9 @@ import { computed, ref, watch, onMounted, nextTick, onUnmounted, onActivated, on
 import { feedPageVisibleKey } from '../../utils/feedPageVisibility';
 import { useRouter } from 'vue-router';
 import type { FeedItem } from '../../types/feed';
+import { navigateBack } from '../../utils/navigation';
+import { useOfficialMobileFeedDetail } from '../../composables/useOfficialMobileFeedDetail';
+import OfficialFeedProductCard from './OfficialFeedProductCard.vue';
 import FeedHeader from './FeedHeader.vue';
 import FeedContent from './FeedContent.vue';
 import VoteCard from './VoteCard.vue';
@@ -285,6 +333,8 @@ import ForwardDialog from '../overlays/ForwardDialog.vue';
 import FeedShareImageDialog from '../overlays/FeedShareImageDialog.vue';
 import LoadingState from '../common/LoadingState.vue';
 import AppDialog from '../common/AppDialog.vue';
+import FeedDyhShareDialog from './FeedDyhShareDialog.vue';
+import { useAndroidBackButton } from '../../utils/androidBackButton';
 import AppImage from '../common/AppImage.vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { preloadUserProfile, reactiveUserProfileMap } from '../../utils/userProfilePreloader';
@@ -326,12 +376,15 @@ import { queueFavoriteContentIndexEntry, removeFavoriteContentIndexEntry } from 
 const settingsStore = useSettingsStore();
 const appStore = useAppStore();
 const router = useRouter();
+const mobileOfficialEnabled = useOfficialMobileFeedDetail();
+const commentSectionRef = ref<InstanceType<typeof FeedCommentSection> | null>(null);
 const showDeviceInfo = computed(() => settingsStore.settings.showDeviceInfo);
 
 const props = defineProps<{
   feed: FeedItem;
   rankIndex?: number;
   detailMode?: boolean;
+  officialMobileDetail?: boolean;
   autoOpenComments?: boolean;
   cloudFavorite?: boolean;
   favoritePickerOnRemove?: boolean;
@@ -342,6 +395,23 @@ const props = defineProps<{
   answerMode?: boolean;
 }>();
 
+const authorFollowing = ref(Number((props.feed.userAction as any)?.followAuthor) === 1);
+const authorFollowPending = ref(false);
+watch(() => (props.feed.userAction as any)?.followAuthor, value => { authorFollowing.value = Number(value) === 1; });
+const officialHotReply = computed(() => { const rows = (props.feed as any).hotReplyRows; if (!Array.isArray(rows)) return null; return rows.flatMap(row => row?.entities || [row]).find(row => row && row.message && (row.username || row.userInfo?.username)) || null; });
+const publishedLocation = computed(() => String((props.feed as any).ip_location || (props.feed as any).ipLocation || (props.feed as any).location || '').replace(/^发布于/, '').trim());
+function isProductTarget(target: any) { return /product|device/.test(String(target.targetType || target.target_type || target.entityType)) || /^\/product\//.test(String(target.url || '')); }
+async function toggleAuthorFollow() {
+  if (!authStore.isLoggedIn) { authStore.openLoginModal(); return; }
+  if (authorFollowPending.value || !authorUid.value) return;
+  authorFollowPending.value = true;
+  try { if (authorFollowing.value) await CoolapkTauriAPI.unfollowUser(String(authorUid.value)); else await CoolapkTauriAPI.followUser(String(authorUid.value)); authorFollowing.value = !authorFollowing.value; }
+  catch (error) { showToast(getErrorMessage(error, '关注作者失败'), 'error'); }
+  finally { authorFollowPending.value = false; }
+}
+function openOfficialDetail() { appStore.setFeedDetailContext(String(props.feed.id), props.feed); void router.push(`/feed/${props.feed.id}`); }
+async function scrollToMobileComments() { void openComments(); await nextTick(); cardRef.value?.querySelector('.comment-toolbar')?.scrollIntoView({ block: 'start', behavior: settingsStore.settings.reduceMotion ? 'auto' : 'smooth' }); }
+async function writeMobileComment() { if (!authStore.isLoggedIn) { authStore.openLoginModal(); return; } void openComments(); await nextTick(); commentSectionRef.value?.openComposer(); }
 const isAnswerCard = computed(() => Boolean(props.answerMode) || isAnswerSearchEntity(props.feed as any));
 // FeedCard 同时用于话题和普通动态列表，不能用搜索结果里的 questionId 推断问答；这里只接受明确的问答实体标记。
 const isQuestionCard = computed(() => !isAnswerCard.value && (Boolean(props.questionMode) || isQuestionFeedEntity(props.feed)));
@@ -611,6 +681,27 @@ function openQuotedFeed() {
   }
 }
 
+const dyhShareOpen = ref(false);
+function openShareDyh() { moreMenuOpen.value = false; if (!authStore.isLoggedIn) { authStore.openLoginModal(); return; } dyhShareOpen.value = true; }
+const privateShareOpen = ref(false);
+const privateShareContacts = ref<any[]>([]);
+const privateShareLoading = ref(false);
+const privateShareError = ref('');
+async function copyFeed(link: boolean) {
+  const text = link ? `https://www.coolapk.com/feed/${props.feed.id}` : String(props.feed.message || '').replace(/<[^>]+>/g, '');
+  try { await navigator.clipboard.writeText(text); moreMenuOpen.value = false; showToast('已复制'); }
+  catch { showToast('复制失败，请检查剪贴板权限', 'error'); }
+}
+function reportOfficialFeed() { moreMenuOpen.value = false; void CoolapkTauriAPI.openUrl(`https://m.coolapk.com/mp/do?c=feed&m=report&type=feed&id=${encodeURIComponent(String(props.feed.id))}`, 'internal'); }
+async function openSharePrivate() {
+  moreMenuOpen.value = false;
+  if (!authStore.isLoggedIn) { authStore.openLoginModal(); return; }
+  privateShareOpen.value = true; privateShareLoading.value = true; privateShareError.value = '';
+  try { const response = await CoolapkTauriAPI.getRecentChatUsers(); privateShareContacts.value = (Array.isArray(response?.data) ? response.data : []).map((row: any) => ({ ...row, uid: row.uid || row.userInfo?.uid, username: row.username || row.userInfo?.username || '酷友' })).filter((row: any) => row.uid); }
+  catch (error) { privateShareError.value = getErrorMessage(error, '联系人加载失败'); }
+  finally { privateShareLoading.value = false; }
+}
+function shareToPrivate(contact: any) { privateShareOpen.value = false; void router.push({ path: '/messages', query: { uid: String(contact.uid), username: contact.username, initialText: `https://www.coolapk.com/feed/${props.feed.id}` } }); }
 const forwardOpen = ref(false);
 const interactionMode = ref<'likes' | 'forwards' | null>(null);
 const moreMenuOpen = ref(false);
@@ -797,6 +888,7 @@ const isFav = ref(
   props.feed.userAction?.favorite === 1
 );
 const favnum = ref(props.feed.favnum || 0);
+watch(() => props.feed.favnum, value => { if (value !== undefined) favnum.value = Number(value) || 0; });
 const favoritePending = ref(false);
 const collectionPickerOpen = ref(false);
 const collectionPickerLoading = ref(false);
@@ -817,7 +909,7 @@ const commentsAuthorOnly = ref(false);
 let commentsFirstItem = '';
 let commentsLastItem = '';
 let commentsRequestVersion = 0;
-const hasBlockingOverlay = computed(() => Boolean(appStore.activeImageViewer || appStore.isSearchOpen || appStore.isPublishOpen || authStore.isLoginModalOpen || forwardOpen.value || interactionMode.value || historyDialogOpen.value || collectionPickerOpen.value || moreMenuOpen.value));
+const hasBlockingOverlay = computed(() => Boolean(dyhShareOpen.value || privateShareOpen.value || appStore.activeImageViewer || appStore.isSearchOpen || appStore.isPublishOpen || authStore.isLoginModalOpen || forwardOpen.value || interactionMode.value || historyDialogOpen.value || collectionPickerOpen.value || moreMenuOpen.value));
 
 async function toggleFav() {
   if (!authStore.isLoggedIn) {
@@ -1074,6 +1166,7 @@ watch(() => settingsStore.settings.commentDefaultSortMode, (sortMode) => {
 const cardRef = ref<HTMLElement | null>(null);
 const pageVisible = inject(feedPageVisibleKey, ref(true));
 const componentActive = ref(true);
+useAndroidBackButton(() => !!props.officialMobileDetail && componentActive.value && pageVisible.value && moreMenuOpen.value, () => { moreMenuOpen.value = false; });
 const isCommentsFloatingVisible = ref(false);
 const floatingCollapseStyle = ref<{ bottom: string; right: string }>({ bottom: '32px', right: '32px' });
 
@@ -1165,6 +1258,7 @@ function keepCollapsedCardVisible(card: HTMLElement, scrollContainer: HTMLElemen
 }
 
 async function toggleComments() {
+  if (!props.detailMode && mobileOfficialEnabled.value && !isQuestionCard.value && !isAnswerCard.value) { openOfficialDetail(); return; }
   if (props.disableInlineComments) {
     emit('open-comment', props.feed);
     return;
@@ -1238,6 +1332,9 @@ watch(
 );
 
 onDeactivated(() => {
+  moreMenuOpen.value = false;
+  privateShareOpen.value = false;
+  dyhShareOpen.value = false;
   componentActive.value = false;
   // 页面离开 / 被 keep-alive 缓存休眠时隐藏
   isCommentsFloatingVisible.value = false;
@@ -1268,7 +1365,7 @@ onUnmounted(() => {
 watch(
   () => props.autoOpenComments,
   (shouldOpen) => {
-    // 完整动态准备好后再自动加载评论，不让摘要阶段的空请求抢先完成。
+    // 详情页决定何时具备足够的动态信息；已加载过的评论不会重复请求。
     if (shouldOpen) void openComments();
   },
   { immediate: true }
@@ -1327,7 +1424,8 @@ function handleCardClick(e: MouseEvent) {
     }
   }
 
-  toggleComments();
+  if (mobileOfficialEnabled.value) openOfficialDetail();
+  else toggleComments();
 }
 
 function openQuestionDetail(): boolean {
@@ -1371,6 +1469,40 @@ defineExpose({
 </script>
 
 <style scoped>
+.official-hot-reply { position: relative; display: block; width: 100%; border: 0; border-radius: 9px; margin-top: 12px; padding: 28px 10px 12px; background: var(--surface-hover); text-align: left; color: var(--text-primary); font: inherit; }
+.hot-reply-likes { position: absolute; top: 0; left: 0; background: var(--brand-primary); color: white; border-radius: 9px 0 7px 0; padding: 2px 10px; font-size: 11px; }
+.hot-reply-copy { font-size: 14px; line-height: 1.7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hot-reply-user { color: var(--brand-primary); }
+.is-official-mobile-detail { transform: none !important; padding: 0 16px 16px !important; border: 0 !important; background: var(--surface); }
+.official-detail-author { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; margin: 0 -16px 12px; padding: 6px 8px; min-height: 60px; background: var(--surface); border-bottom: 1px solid var(--border-light); }
+.official-detail-author :deep(.feed-header) { flex: 1; min-width: 0; margin: 0; }
+.official-back, .official-more { flex: 0 0 32px; border: 0; background: transparent; color: var(--text-primary); font-size: 20px; min-height: 40px; }
+.official-follow-author { border: 1px solid var(--text-tertiary); color: var(--text-secondary); background: transparent; border-radius: 20px; padding: 4px 10px; font: inherit; font-size: 12px; white-space: nowrap; }
+.official-detail-author :deep(.user-level), .official-detail-author :deep(.verify-badge), .official-detail-author :deep(.ip-badge), .official-detail-author :deep(.read-count), .official-detail-author :deep(.edited-badge), .official-detail-author :deep(.recommend-source-badge), .official-detail-author :deep(.header-feed-plugin) { display: none; }
+.official-detail-author :deep(.username) { font-weight: 400; font-size: 16px; }
+.official-detail-author :deep(.device-badge) { background: transparent; border: 0; padding: 0; }
+.official-detail-author :deep(.meta-row) { flex-wrap: nowrap; font-size: 11px; overflow: hidden; }
+.is-official-mobile-detail :deep(.feed-content) { font-size: 16px; line-height: 1.9; }
+.official-published-location { color: var(--text-tertiary); font-size: 12px; margin: 14px 0 24px; }
+.is-official-mobile-detail .feed-target-wrapper { display: block; margin-top: 28px; }
+.is-official-mobile-detail .inline-comment-wrapper { margin: 24px -16px 0; }
+.is-official-mobile-detail .more-menu { position: fixed; top: calc(70px + env(safe-area-inset-top)); right: 12px; z-index: 70; }
+ .is-official-mobile-detail .more-menu-backdrop { z-index: 65; background: #0009; }
+.is-official-mobile-detail .official-share-sheet { top: auto; bottom: 0; left: 0; right: 0; border-radius: 14px 14px 0 0; border: 0; max-height: 75vh; overflow-y: auto; padding: 12px 0 0; background: var(--surface); }
+.official-share-handle { width: 32px; height: 4px; margin: 0 auto 20px; border-radius: 3px; background: var(--border); }
+.official-share-tools, .official-share-destinations { display: flex; gap: 0; padding: 0 12px; }
+.official-share-tools { margin-bottom: 36px; }
+.official-share-destinations { overflow-x: auto; margin-bottom: 30px; }
+.official-share-tools button, .official-share-destinations button { flex: 0 0 20%; min-width: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; border: 0; padding: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.official-share-tools span, .official-share-destinations span { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-hover); color: var(--text-secondary); }
+.official-share-destinations button:not(:last-child) span { background: var(--brand-soft); color: var(--brand-primary); }
+.official-share-tools i, .official-share-destinations i { font-size: 22px; }
+.official-share-cancel { width: 100%; border: 0; padding: 18px 0 max(18px, env(safe-area-inset-bottom)); background: var(--background-secondary); color: var(--text-primary); font: inherit; font-size: 16px; cursor: pointer; }
+.official-share-contact { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--border-light); padding: 14px; background: var(--surface); color: var(--text-primary); text-align: left; font: inherit; }
+.desktop-share-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; width: min(280px, calc(100vw - 48px)); padding: 8px; border-bottom: 1px solid var(--border-light); }
+.desktop-share-tools button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.desktop-share-tools button:hover { background: var(--surface-hover); color: var(--brand-primary); }
+.desktop-share-tools i { font-size: 20px; }
 .feed-card {
   position: relative;
   background-color: var(--surface);

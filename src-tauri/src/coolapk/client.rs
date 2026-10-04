@@ -3875,9 +3875,13 @@ impl CoolapkClient {
         let title = extract_html_title(&body).unwrap_or_else(|| "外部链接".to_string());
         // 只取正文：剥离导航/页脚/脚本等外壳噪音（酷安 /feed/ 分享页即为纯扫码落地页）
         // 动态接口在 XHR 模式下返回 JSON，必须保留原文，否则正文里的 HTML 可能被网页清洗器误删。
-        let content = if is_coolapk_target
+        let is_report_page = parsed_url.scheme() == "https"
+            && parsed_url.host_str() == Some("m.coolapk.com")
+            && parsed_url.path() == "/mp/do"
+            && parsed_url.query_pairs().any(|(key, value)| key == "m" && value == "report");
+        let content = if is_report_page || (is_coolapk_target
             && url.contains("coolapk.com/feed/")
-            && serde_json::from_str::<Value>(&body).is_ok()
+            && serde_json::from_str::<Value>(&body).is_ok())
         {
             body.clone()
         } else {
@@ -3888,6 +3892,41 @@ impl CoolapkClient {
             "code": 200,
             "data": { "title": title, "html": content, "status": status }
         }))
+    }
+
+    /// 官方网页举报表单：固定目标地址，凭据不经过前端，禁止跨域重定向。
+    pub async fn submit_feed_report(&self, id: &str, report_type: &str, reason: &str, custom_reason: &str, request_hash: &str, pictures: &[String]) -> Result<Value, String> {
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) || !["feed", "reply"].contains(&report_type)
+            || reason.trim().is_empty() || reason.len() > 1000 || request_hash.is_empty()
+            || request_hash.len() > 128 || custom_reason.len() > 4000 || pictures.len() > 9 {
+            return Err("举报参数无效".to_string());
+        }
+        if reason == "其他" && custom_reason.trim().is_empty() { return Err("请输入自定义举报原因".to_string()); }
+        for picture in pictures {
+            let parsed = reqwest::Url::parse(picture).map_err(|_| "举报图片地址无效".to_string())?;
+            if parsed.scheme() != "https" || !parsed.host_str().map(is_coolapk_host).unwrap_or(false) {
+                return Err("举报图片地址无效".to_string());
+            }
+        }
+        let cookie = self.user_cookie.read().map_err(|_| "无法读取登录状态".to_string())?.clone()
+            .ok_or_else(|| "请先登录后举报".to_string())?;
+        let client = http_client_builder().timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
+        let form = reqwest::multipart::Form::new()
+            .text("requestHash", request_hash.to_string()).text("submit", "1")
+            .text("id", id.to_string()).text("type", report_type.to_string())
+            .text("report_reason", reason.to_string()).text("custom_report_reason", custom_reason.to_string())
+            .text("pic", pictures.join(","));
+        let response = client.post("https://m.coolapk.com/mp/do?c=feed&m=report")
+            .header("User-Agent", MOBILE_UA).header("X-Requested-With", "XMLHttpRequest")
+            .header("Origin", "https://m.coolapk.com").header("Referer", "https://m.coolapk.com/mp/do?c=feed&m=report")
+            .header(COOKIE, cookie_without_ddid(&cookie)).multipart(form).send().await.map_err(|e| e.to_string())?;
+        if !response.status().is_success() { return Err(format!("举报提交失败：HTTP {}", response.status())); }
+        let value: Value = response.json().await.map_err(|_| "举报服务返回异常，请重新加载表单".to_string())?;
+        let success = value.get("status").and_then(Value::as_i64).map(|status| status == 1)
+            .or_else(|| value.get("code").and_then(Value::as_i64).map(|code| [0, 1, 200].contains(&code))).unwrap_or(false);
+        if !success { return Err(value.get("message").and_then(Value::as_str).unwrap_or("举报服务返回异常，请重新加载表单").to_string()); }
+        Ok(json!({ "code": 200, "data": value }))
     }
 
     pub async fn get_feed_detail(&self, feed_id: &str, post_token: Option<&str>, post_token_field: Option<&str>) -> Result<Value, String> {
@@ -6191,7 +6230,7 @@ impl CoolapkClient {
         let (file_list, video_name) = build_publish_upload_files(image_bytes, file_name, live_video, hdr);
 
         // 发动态/评论配图用 image/feed，私信图片用 message/message
-        let upload_bucket = if dir == "feed" { "image" } else { dir }.to_string();
+        let upload_bucket = if dir == "feed" || dir == "feed_report" { "image" } else { dir }.to_string();
         let feed_type = if dir == "feed" { "feed" } else { "" }.to_string();
 
         let prepare_params = [
@@ -8022,6 +8061,25 @@ impl CoolapkClient {
             )
             .await?;
         Ok(json!({ "code": 200, "data": raw.get("data").cloned().unwrap_or(json!([])) }))
+    }
+
+    /// 官方 DyhEditorFragment：收录使用编辑列表，分享到广场使用 shareType=1。
+    pub async fn get_feed_share_dyh_list(&self, share_type: u32, page: u32) -> Result<Value, String> {
+        let (path, params) = match share_type {
+            1 => ("/v6/user/editorDyhList", vec![("showNews", "1".to_string()), ("showType", "0".to_string()), ("page", page.to_string())]),
+            2 => ("/v6/dyh/list", vec![("type", String::new()), ("shareType", "1".to_string()), ("page", page.to_string())]),
+            _ => return Err("无效的看看号分享类型".to_string()),
+        };
+        wrap_api_data(self.api_get(path, &params).await?)
+    }
+
+    /// 官方 DyhIncludeActivity：逗号分隔多选 ID，type=1 收录、type=2 分享到广场。
+    pub async fn share_feed_to_dyh(&self, feed_id: &str, dyh_ids: &str, share_type: u32) -> Result<Value, String> {
+        if !matches!(share_type, 1 | 2) || feed_id.is_empty() || !feed_id.bytes().all(|b| b.is_ascii_digit())
+            || dyh_ids.is_empty() || dyh_ids.split(',').any(|id| id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit())) {
+            return Err("无效的动态或看看号参数".to_string());
+        }
+        wrap_api_data(self.api_post("/v6/dyh/includeFeed", &[("dyhId", dyh_ids.to_string()), ("feedId", feed_id.to_string()), ("type", share_type.to_string())], &[]).await?)
     }
 
     /// 用户创建的万物清单（productAlbum）列表

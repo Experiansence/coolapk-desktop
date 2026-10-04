@@ -1,5 +1,6 @@
 <template>
-  <div class="page-container custom-scrollbar">
+  <FeedReportPage v-if="isReportPage" :url="url" />
+  <div v-else class="page-container custom-scrollbar">
     <div class="page-header">
       <div class="header-main">
         <h2 class="page-title"><i class="fas fa-globe icon"></i> {{ title }}</h2>
@@ -37,11 +38,14 @@ import AppButton from '../components/common/AppButton.vue';
 import LoadingState from '../components/common/LoadingState.vue';
 import ErrorState from '../components/common/ErrorState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
+import FeedReportPage from '../components/feed/FeedReportPage.vue';
+import { isFeedReportUrl } from '../utils/feedReport';
 
 const route = useRoute();
 
 // 固定当前缓存页面的目标地址，避免切换路由时后台重新抓取。
 const url = ref(String(route.query.url || ''));
+const isReportPage = computed(() => isFeedReportUrl(url.value));
 const title = ref('外部链接');
 const html = ref('');
 const loading = ref(false);
@@ -60,7 +64,7 @@ const renderedHtml = computed(() => {
 const hasPageContent = computed(() => Boolean(coolapkHtmlToPlainText(renderedHtml.value)));
 
 async function loadPage() {
-  if (!url.value) return;
+  if (!url.value || isReportPage.value) return;
   loading.value = true;
   error.value = '';
   try {

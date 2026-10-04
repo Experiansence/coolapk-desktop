@@ -129,6 +129,8 @@ export interface AppSettings {
   showPageTabBar: boolean;
   /** 窗口宽度缩小（< 720px）时不自动切换为移动端模式（保留桌面端顶栏、侧边栏和标签页） */
   disableAutoMobileMode: boolean;
+  /** 移动端官方样式动态详情；关闭后沿用原详情和内联评论。 */
+  officialMobileFeedDetail: boolean;
   myRecentPinned: boolean;
   moreExpanded: boolean;
   reduceMotion: boolean;

@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { nextTick } from 'vue';
+import { defineComponent, nextTick, onMounted } from 'vue';
 
 const routeState = vi.hoisted(() => ({ value: null as any }));
 
@@ -36,6 +36,30 @@ describe('AppShell', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     Object.assign(routeState.value, { path: '/', fullPath: '/' });
+  });
+
+  it.each(['/digital', '/discover', '/me', '/messages', '/feed/123', '/settings/appearance', '/favorites', '/user/123', '/search'])('%s 切换布局保留路由内容实例、输入和滚动状态', async path => {
+    Object.assign(routeState.value, { path, fullPath: path });
+    const load = vi.fn();
+    const Page = defineComponent({ setup() { onMounted(load); }, template: '<div class="page-state"><input value="未发送的内容" /></div>' });
+    const wrapper = mount(AppShell, {
+      slots: { default: Page },
+      global: { stubs: { TopBar: TopBarStub, MainSidebar: MainSidebarStub, PageTabBar: PageTabBarStub,
+        NetworkStatusBanner: NetworkStatusBannerStub, MobileTopBar: MobileTopBarStub, MobileBottomNav: MobileBottomNavStub } },
+    });
+    const original = wrapper.find('.page-state').element;
+    original.scrollTop = 320;
+    const settings = useSettingsStore();
+    for (const disabled of [true, false, true, false]) {
+      settings.settings.disableAutoMobileMode = disabled;
+      window.dispatchEvent(new Event('resize'));
+      await nextTick();
+      expect(wrapper.find('.page-state').element).toBe(original);
+      expect(original.scrollTop).toBe(320);
+      expect((wrapper.find('input').element as HTMLInputElement).value).toBe('未发送的内容');
+      expect(load).toHaveBeenCalledTimes(1);
+    }
+    wrapper.unmount();
   });
 
   it('四个主栏目显示底栏，子页面隐藏，返回主栏目恢复', async () => {

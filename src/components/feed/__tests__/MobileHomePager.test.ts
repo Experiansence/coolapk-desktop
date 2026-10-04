@@ -5,6 +5,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 const api = vi.hoisted(() => ({ config: vi.fn() }));
 vi.mock('../../../api/coolapk', () => ({ CoolapkTauriAPI: { getTabConfig: api.config } }));
 import MobileHomePager from '../MobileHomePager.vue';
+import HomePage from '../../../pages/HomePage.vue';
 import { useSettingsStore } from '../../../stores/settings';
 const Panel = defineComponent({ name: 'HomeTabPanel', props: ['tabKey', 'selected'], template: '<div class="panel-stub"><div class="nested" style="overflow-x:auto">内容</div></div>' });
 let now = 0, sequence = 0;
@@ -39,6 +40,37 @@ describe('移动首页一体滑动', () => {
     HTMLElement.prototype.releasePointerCapture = vi.fn();
   });
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it('跨过移动断点和关闭自动移动布局时保留当前栏目、页面实例与滚动位置', async () => {
+    const listeners = new Set<() => void>();
+    let narrow = false;
+    vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
+      matches: query === '(max-width: 720px)' && narrow,
+      media: query, addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    } as unknown as MediaQueryList));
+    const w = mount(HomePage, { global: { stubs: { HomeTabPanel: Panel, FeedTabs: true, RightSidebar: true, FeedLayoutToggle: true } } });
+    await flushPromises();
+    const tabs = w.findComponent({ name: 'FeedTabs' });
+    tabs.vm.$emit('update:activeKey', 'hot'); await flushPromises();
+    const original = w.find('.pager-page[data-tab-key="hot"] .panel-stub').element;
+    const sidebar = w.findComponent({ name: 'RightSidebar' }).element;
+    original.scrollTop = 460;
+    const calls = api.config.mock.calls.length;
+    for (const mobile of [true, false, true]) {
+      narrow = mobile; listeners.forEach(listener => listener()); await flushPromises();
+      expect(tabs.props('activeKey')).toBe('hot');
+      expect(w.find('.pager-page[data-tab-key="hot"] .panel-stub').element).toBe(original);
+      expect(original.scrollTop).toBe(460);
+      expect(w.findComponent({ name: 'RightSidebar' }).element).toBe(sidebar);
+      expect(api.config.mock.calls.length).toBe(calls);
+    }
+    useSettingsStore().settings.disableAutoMobileMode = true; await flushPromises();
+    expect(w.find('.desktop-home-pager').exists()).toBe(true);
+    expect(w.find('.pager-page[data-tab-key="hot"] .panel-stub').element).toBe(original);
+    expect(original.scrollTop).toBe(460);
+    expect(api.config.mock.calls.length).toBe(calls);
+    w.unmount(); expect(listeners.size).toBe(0);
+  });
   it('拖动中同时移动页面与指示条，松手完成相邻切页', async () => {
     const w = await render(), viewport = w.find('.pager-viewport').element;
     pointer(viewport, 'pointerdown', 300); now = 100; pointer(window, 'pointermove', 156); await flushPromises();

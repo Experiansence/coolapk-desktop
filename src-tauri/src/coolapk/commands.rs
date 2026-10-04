@@ -487,6 +487,16 @@ pub async fn get_dyh_editor_list(state: State<'_, AppState>, page: u32) -> Resul
 }
 
 #[tauri::command]
+pub async fn get_feed_share_dyh_list(state: State<'_, AppState>, share_type: u32, page: u32) -> Result<Value, String> {
+    state.client.get_feed_share_dyh_list(share_type, page).await
+}
+
+#[tauri::command]
+pub async fn share_feed_to_dyh(state: State<'_, AppState>, feed_id: String, dyh_ids: String, share_type: u32) -> Result<Value, String> {
+    state.client.share_feed_to_dyh(&feed_id, &dyh_ids, share_type).await
+}
+
+#[tauri::command]
 pub async fn get_user_product_albums(
     state: State<'_, AppState>,
     uid: String,
@@ -3238,6 +3248,11 @@ pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn fetch_external_page(state: State<'_, AppState>, url: String) -> Result<Value, String> {
     state.client.fetch_external_page(&url).await
+}
+
+#[tauri::command]
+pub async fn submit_feed_report(state: State<'_, AppState>, id: String, report_type: String, reason: String, custom_reason: String, request_hash: String, pictures: Vec<String>) -> Result<Value, String> {
+    state.client.submit_feed_report(&id, &report_type, &reason, &custom_reason, &request_hash, &pictures).await
 }
 
 /// 从主窗口当前 URL 推导应用自身源地址（dev 为 http://127.0.0.1:17520，打包后为 tauri 自定义协议源），

@@ -1,20 +1,28 @@
 <template>
-  <div class="mobile-home-pager">
+  <div class="mobile-home-pager" :class="{ 'desktop-home-pager': !mobile }">
+    <div class="home-main-column">
+    <div class="home-toolbar">
     <FeedTabs :active-key="activeKey" :tabs="tabs" :manager-tabs="serverTabs" :swipe-progress="position" :active-sub-tab-key="activePanel?.activeFollowSubChannelKey || ''" @update:active-key="select" @select-sub-tab="selectSubTab" />
+    <FeedLayoutToggle v-if="!mobile" v-model="settings.settings.feedLayout" />
+    </div>
     <div v-if="error" class="pager-state"><p>{{ error }}</p><button type="button" @click="loadTabs">重试</button></div>
     <div v-else-if="!tabs.length" class="pager-state">正在加载栏目…</div>
     <div v-else ref="viewport" class="pager-viewport" @pointerdown="startDrag" @click.capture="blockSwipeClick" @wheel="wheel">
       <div class="pager-track" :style="{ transform: `translate3d(${-position * width}px,0,0)` }">
         <section v-for="(tab, index) in tabs" :key="getHomeTabKey(tab)" class="pager-page" :style="{ left: `${index * 100}%` }" :inert="index !== activeIndex" :aria-hidden="index !== activeIndex" :data-tab-key="getHomeTabKey(tab)">
-          <HomeTabPanel v-if="visited.has(getHomeTabKey(tab)) || Math.abs(index - activeIndex) <= 1" :ref="el => setPanel(getHomeTabKey(tab), el)" embedded :tab-key="getHomeTabKey(tab)" :tabs="serverTabs" :selected="index === activeIndex" />
+          <HomeTabPanel v-if="visited.has(getHomeTabKey(tab)) || index === activeIndex || (mobile && Math.abs(index - activeIndex) <= 1)" :ref="el => setPanel(getHomeTabKey(tab), el)" embedded :tab-key="getHomeTabKey(tab)" :tabs="serverTabs" :selected="index === activeIndex" />
         </section>
       </div>
     </div>
+    </div>
+    <RightSidebar v-if="sidebarMounted && (settings.settings.showHomeMonthlyRank || settings.settings.showHomeHotTopics)" v-show="!mobile" :show-monthly-rank="settings.settings.showHomeMonthlyRank" :show-hot-topics="settings.settings.showHomeHotTopics" />
   </div>
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, onActivated, onDeactivated, provide, reactive, ref, watch } from 'vue';
 import FeedTabs from './FeedTabs.vue';
+import FeedLayoutToggle from './FeedLayoutToggle.vue';
+import RightSidebar from '../layout/RightSidebar.vue';
 import HomeTabPanel from '../../pages/HomeTabPanel.vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
@@ -22,6 +30,8 @@ import { getHomeTabKey, resolvePreferredHomeTab, type HomeSubChannelSelection } 
 import type { ConfigPageTab } from '../../types/settings';
 import { homePagerMovingKey } from '../../utils/feedPageVisibility';
 
+const props = withDefaults(defineProps<{ mobile?: boolean }>(), { mobile: true });
+const sidebarMounted = ref(!props.mobile);
 const settings = useSettingsStore();
 const serverTabs = ref<ConfigPageTab[]>([]), activeKey = ref(''), error = ref('');
 const position = ref(0), width = ref(1), viewport = ref<HTMLElement | null>(null);
@@ -31,7 +41,10 @@ const visited = reactive(new Set<string>());
 type Panel = { activeFollowSubChannelKey: string; handleHomeSubChannelSelected: (selection: HomeSubChannelSelection) => void };
 const panels = reactive(new Map<string, Panel>());
 const activePanel = computed(() => panels.get(activeKey.value));
-function setPanel(key: string, el: unknown) { if (el) panels.set(key, el as Panel); else panels.delete(key); }
+function setPanel(key: string, el: unknown) {
+  if (el) { panels.set(key, el as Panel); visited.add(key); }
+  else panels.delete(key);
+}
 const tabs = computed(() => {
   const source = serverTabs.value, order = settings.settings.homeTabOrder || [];
   if (!order.length) return source;
@@ -64,7 +77,7 @@ function settle(target: number) {
   target = Math.max(0, Math.min(tabs.value.length - 1, target));
   const from = position.value, start = performance.now();
   const finish = () => { position.value = target; activeKey.value = getHomeTabKey(tabs.value[target]!); visited.add(activeKey.value); frame = 0; moving.value = false; };
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || Math.abs(target - from) < .001) { finish(); return; }
+  if (!props.mobile || window.matchMedia('(prefers-reduced-motion: reduce)').matches || Math.abs(target - from) < .001) { finish(); return; }
   moving.value = true;
   const animate = (now: number) => {
     const progress = Math.min(1, (now - start) / 260);
@@ -77,8 +90,12 @@ function select(key: string) {
   const index = tabs.value.findIndex(tab => getHomeTabKey(tab) === key);
   if (index < 0) return;
   drag = null;
-  for (let i = Math.min(Math.floor(position.value), index); i <= Math.max(Math.ceil(position.value), index); i++) {
-    const tab = tabs.value[i]; if (tab) visited.add(getHomeTabKey(tab));
+  if (props.mobile) {
+    for (let i = Math.min(Math.floor(position.value), index); i <= Math.max(Math.ceil(position.value), index); i++) {
+      const tab = tabs.value[i]; if (tab) visited.add(getHomeTabKey(tab));
+    }
+  } else {
+    visited.add(key);
   }
   settle(index);
 }
@@ -146,12 +163,22 @@ function wheel(event: WheelEvent) {
   clearTimeout(wheelTimer); wheelTimer = setTimeout(() => { wheelDelta = 0; }, 260);
 }
 function measure() { width.value = Math.max(1, viewport.value?.clientWidth || 1); }
+watch(() => props.mobile, () => {
+  // 改变布局时结束未完成的手势，保留已选栏目及其页面实例。
+  resetGesture();
+  clickUntil = 0;
+  if (!props.mobile) sidebarMounted.value = true;
+  void nextTick(measure);
+});
 function bind() {
   window.addEventListener('pointermove', moveDrag, { passive: false });
   window.addEventListener('pointerup', pointerUp); window.addEventListener('pointercancel', cancelDrag);
 }
 function unbind() {
   window.removeEventListener('pointermove', moveDrag); window.removeEventListener('pointerup', pointerUp); window.removeEventListener('pointercancel', cancelDrag);
+  resetGesture();
+}
+function resetGesture() {
   drag = null; stopAnimation(); position.value = activeIndex.value; moving.value = false; clearTimeout(wheelTimer); wheelDelta = 0;
 }
 watch(tabs, () => { if (tabs.value.length && !tabs.value.some(tab => getHomeTabKey(tab) === activeKey.value)) activeKey.value = getHomeTabKey(tabs.value[0]!); if (!drag && !frame) position.value = activeIndex.value; });
@@ -161,7 +188,12 @@ onActivated(bind); onDeactivated(unbind);
 onUnmounted(() => { unbind(); observer?.disconnect(); });
 </script>
 <style scoped>
-.mobile-home-pager { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--surface); }
+.mobile-home-pager { container-type: inline-size; container-name: home-layout; display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--surface); }
+.home-main-column { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.home-toolbar { display: flex; flex: 0 0 auto; min-width: 0; }
+.home-toolbar :deep(.feed-tabs-wrapper) { flex: 1; min-width: 0; }
+.desktop-home-pager .home-main-column { border-right: 1px solid var(--border); }
+@container home-layout (max-width: 960px) { :deep(.right-sidebar) { display: none !important; } }
 .pager-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: pan-y; }
 .pager-track { position: relative; height: 100%; width: 100%; will-change: transform; }
 .pager-page { position: absolute; top: 0; width: 100%; height: 100%; overflow: hidden; }

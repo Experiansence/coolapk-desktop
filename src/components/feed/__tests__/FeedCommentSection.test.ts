@@ -405,4 +405,19 @@ describe('评论完整信息展示', () => {
     expect(shuzilmGuideState.visible).toBe(true);
     expect(shuzilmGuideState.reason).toBe('missing_id');
   });
+  it('官方详情初始隐藏编辑框，底部唤起后关闭再打开保留草稿', async () => {
+    const auth = useAuthStore(); auth.isLoggedIn = true; auth.user = { uid: 12345, username: '发布者' } as any;
+    const wrapper = mountSection({}, { officialDetail: true });
+    expect(wrapper.find('.comment-composer-box').exists()).toBe(false);
+    expect(wrapper.find('.comment-toolbar-collapse-btn').exists()).toBe(false);
+    expect(wrapper.find('.comment-title').text()).toContain('回复');
+    await (wrapper.vm as any).openComposer();
+    const editor = wrapper.find('.comment-rich-editor');
+    (editor.element as HTMLElement).textContent = '未发送的评论'; await editor.trigger('input');
+    await wrapper.find('.official-composer-close').trigger('click');
+    await (wrapper.vm as any).openComposer();
+    expect(wrapper.find('.comment-rich-editor').text()).toBe('未发送的评论');
+    wrapper.unmount();
+  });
+
 });

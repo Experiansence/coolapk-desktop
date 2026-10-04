@@ -317,6 +317,14 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_dyh_editor_list', { page });
   }
 
+  static async getFeedShareDyhList(shareType: 1 | 2, page: number = 1) {
+    return await invokeNative('get_feed_share_dyh_list', { shareType, page });
+  }
+
+  static async shareFeedToDyh(feedId: string, dyhIds: string[], shareType: 1 | 2) {
+    return await invokeNative('share_feed_to_dyh', { feedId, dyhIds: dyhIds.join(','), shareType });
+  }
+
   // === 酷友圈活动 ===
   static async getEventList(page: number = 1) {
     return await invokeNative('get_event_list', { page }, { retry: true, kind: 'feed' });
@@ -1174,7 +1182,7 @@ export class CoolapkTauriAPI {
   }
 
   static async uploadImage(imageBytes: Uint8Array, fileName: string, contentType: string, dir: string = 'feed', toUid?: string, liveVideoBytes?: Uint8Array, hdr = 0) {
-    return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid, liveVideoBytes, hdr });
+    return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid, liveVideoBytes, hdr }, dir === 'feed_report' ? { retry: false, timeoutMs: 0 } : {});
   }
 
   static async uploadFileToCdn(taskId: string, filePath: string, attempt: number) {
@@ -1430,6 +1438,10 @@ export class CoolapkTauriAPI {
 
   static async fetchExternalPage(url: string) {
     return await invokeNative('fetch_external_page', { url });
+  }
+
+  static async submitFeedReport(id: string, reportType: string, reason: string, customReason: string, requestHash: string, pictures: string[]) {
+    return await invokeNative('submit_feed_report', { id, reportType, reason, customReason, requestHash, pictures }, { retry: false, timeoutMs: 0 });
   }
 
   static async downloadUpdate(

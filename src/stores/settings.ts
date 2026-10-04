@@ -118,6 +118,7 @@ const defaultSettings: AppSettings = {
   sidebarCollapsed: false,
   showPageTabBar: true,
   disableAutoMobileMode: false,
+  officialMobileFeedDetail: true,
   myRecentPinned: false,
   moreExpanded: false,
   reduceMotion: false,
@@ -275,6 +276,7 @@ export function normalizeSettings(value: unknown): AppSettings {
   result.sidebarCollapsed = readBoolean(source.sidebarCollapsed, result.sidebarCollapsed);
   result.showPageTabBar = readBoolean(source.showPageTabBar, result.showPageTabBar);
   result.disableAutoMobileMode = readBoolean(source.disableAutoMobileMode, result.disableAutoMobileMode);
+  result.officialMobileFeedDetail = readBoolean(source.officialMobileFeedDetail, result.officialMobileFeedDetail);
   result.myRecentPinned = readBoolean(source.myRecentPinned, readBoolean(source.sidebarMyCardsPinned, result.myRecentPinned));
   result.moreExpanded = readBoolean(source.moreExpanded, result.moreExpanded);
   result.reduceMotion = readBoolean(source.reduceMotion, result.reduceMotion);

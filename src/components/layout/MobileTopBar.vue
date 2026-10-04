@@ -1,5 +1,5 @@
 <template>
-  <header class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me', 'is-digital-page': route.path === '/digital' }">
+  <header v-if="!isReportPage && !(officialMobileDetail && /^\/feed\//.test(route.path))" class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me', 'is-digital-page': route.path === '/digital' }">
     <template v-if="route.path === '/digital'">
       <button type="button" class="mobile-icon-button digital-avatar" aria-label="个人主页" @click="router.push('/me')"><AppAvatar :src="authStore.user?.userAvatar" :size="24" /></button>
       <button type="button" class="digital-search-entry" aria-label="搜索数码" @click="appStore.openSearch"><span>搜索数码产品</span><i class="fas fa-magnifying-glass"></i></button>
@@ -52,6 +52,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { isFeedReportUrl } from '../../utils/feedReport';
+import { useOfficialMobileFeedDetail } from '../../composables/useOfficialMobileFeedDetail';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/app';
 import { useNotificationStore } from '../../stores/notifications';
@@ -69,6 +71,7 @@ const router = useRouter();
 const appStore = useAppStore();
 const notificationStore = useNotificationStore();
 const authStore = useAuthStore();
+const officialMobileDetail = useOfficialMobileFeedDetail();
 
 const routeTitles: Record<string, string> = {
   '/': '酷安',
@@ -138,6 +141,7 @@ const pageTitle = computed(() => {
     .sort((a, b) => b.length - a.length)[0];
   return prefix ? routeTitles[prefix] : String(route.meta.title || '酷安');
 });
+const isReportPage = computed(() => route.path === '/external' && isFeedReportUrl(route.query.url));
 
 function iconStyle(url: string) {
   return { maskImage: `url("${url}")`, WebkitMaskImage: `url("${url}")` };

@@ -3,9 +3,25 @@ import {
   triggerSidebarTransition,
   resetSidebarTransition,
   useSidebarTransition,
+  getFeedDetailTransition,
+  officialFeedDetailEasing,
 } from '../routeTransition';
 
 describe('routeTransition', () => {
+  it('保留官方两段贝塞尔路径的衔接点和端点', () => {
+    expect(officialFeedDetailEasing).toMatch(/^linear\(0 0%,/);
+    expect(officialFeedDetailEasing).toContain('0.4 16.6666%');
+    expect(officialFeedDetailEasing).toMatch(/1 100%\)$/);
+  });
+  it('详情打开、历史返回与桌面使用对应过渡，其他栏目和同路由不触发', () => {
+    expect(getFeedDetailTransition('/', '/feed/42', false, true)).toBe('feed-detail-forward');
+    expect(getFeedDetailTransition('/feed/42', '/', true, true)).toBe('feed-detail-back');
+    expect(getFeedDetailTransition('/feed/42', '/feed/41', true, true)).toBe('feed-detail-back');
+    expect(getFeedDetailTransition('/', '/feed/42', false, false)).toBe('feed-detail-desktop');
+    expect(getFeedDetailTransition('/feed/42', '/external', false, true)).toBe('');
+    expect(getFeedDetailTransition('/', '/digital', false, true)).toBe('');
+    expect(getFeedDetailTransition('/feed/42', '/feed/42', false, true)).toBe('');
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     resetSidebarTransition();

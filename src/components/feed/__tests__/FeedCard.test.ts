@@ -32,6 +32,24 @@ vi.mock('../../../api/coolapk', () => ({
 import FeedCard from '../FeedCard.vue';
 
 describe('动态卡片编辑记录', () => {
+  it.each([false, true])('桌面与官方移动菜单均提供完整分享入口（移动=%s）', async (officialMobileDetail) => {
+    setActivePinia(createPinia());
+    const wrapper = mount(FeedCard, {
+      props: { feed: { id: '42', uid: '456', username: '作者', message: '正文' }, detailMode: true, officialMobileDetail },
+      global: { stubs: { FeedHeader: { template: '<button class="test-more" @click="$emit(\'more\')">更多</button>' }, FeedContent: true, FeedActionBar: true, FeedCommentSection: true, FeedDyhShareDialog: true, FeedShareImageDialog: true, FeedInteractionListDialog: true, FeedCollectionPickerDialog: true, AppDialog: true, ForwardDialog: true } },
+    });
+    await wrapper.find('.test-more').trigger('click');
+    const menu = wrapper.find('.more-menu');
+    for (const label of ['复制', '收藏', '举报', '动态', '私信', '看看号', '复制链接']) expect(menu.text()).toContain(label);
+    expect(menu.text()).toContain(officialMobileDetail ? '生成分享图' : '生成长图');
+    if (officialMobileDetail) {
+      expect(wrapper.findAll('.official-share-tools button')).toHaveLength(3);
+      expect(wrapper.findAll('.official-share-destinations button')).toHaveLength(5);
+      await wrapper.find('.official-share-cancel').trigger('click');
+      expect(wrapper.find('.more-menu').exists()).toBe(false);
+    }
+    wrapper.unmount();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getHotReplies.mockResolvedValue({ data: [] });

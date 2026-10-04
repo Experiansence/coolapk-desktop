@@ -1,8 +1,8 @@
 <template>
-  <div class="feed-comment-section">
+  <div class="feed-comment-section" :class="{ 'official-detail-comments': officialDetail }">
     <div class="comment-toolbar">
       <div class="comment-toolbar-left">
-        <strong class="comment-title">评论 <span>{{ commentCount }}</span></strong>
+        <strong class="comment-title"><template v-if="officialDetail">共 {{ commentCount }} 回复</template><template v-else>评论 <span>{{ commentCount }}</span></template></strong>
         <div v-if="!preserveApiOrder" class="comment-sort" aria-label="评论排序和筛选">
           <button
             v-for="option in commentSortOptions"
@@ -25,6 +25,7 @@
         </div>
       </div>
       <button
+        v-if="!officialDetail"
         type="button"
         class="comment-toolbar-collapse-btn"
         :title="showShortcutHints ? '收起评论 (Esc)' : '收起评论'"
@@ -37,7 +38,9 @@
     </div>
 
     <!-- 评论发表输入框组件 -->
-    <div class="comment-composer-box">
+    <div v-if="officialDetail && composerOpen" class="official-composer-backdrop" @click="composerOpen = false"></div>
+    <div v-if="!officialDetail || composerOpen" class="comment-composer-box">
+      <button v-if="officialDetail" type="button" class="official-composer-close" aria-label="关闭评论输入" @click="composerOpen = false"><i class="fas fa-xmark"></i></button>
       <!-- 针对楼层的回复目标提示栏 -->
       <div v-if="replyTargetUser" class="comment-reply-target-bar">
         <span class="reply-target-text">
@@ -313,7 +316,7 @@
               aria-label="点赞评论"
               @click.stop="toggleLike(c)"
             >
-              <i :class="[isLiked(c) ? 'fa-solid fa-heart' : 'fa-regular fa-heart']"></i>
+              <i :class="[officialDetail ? (isLiked(c) ? 'fa-solid fa-thumbs-up' : 'fa-regular fa-thumbs-up') : (isLiked(c) ? 'fa-solid fa-heart' : 'fa-regular fa-heart')]"></i>
               <span>{{ getLikeCount(c) > 0 ? formatLikeCount(getLikeCount(c)) : '赞' }}</span>
             </button>
             <button
@@ -571,6 +574,7 @@ import {
 const props = withDefaults(
   defineProps<{
     feedId?: string | number;
+    officialDetail?: boolean;
     defaultSortMode?: CommentSortMode;
     preserveApiOrder?: boolean;
     feedUid?: string | number;
@@ -630,6 +634,11 @@ const showShortcutHints = useShortcutHints();
 const inputMsg = ref('');
 const sending = ref(false);
 const inputRef = ref<HTMLDivElement | null>(null);
+const composerOpen = ref(false);
+async function openComposer() { if (!authStore.isLoggedIn) { authStore.openLoginModal(); return; } composerOpen.value = true; await nextTick(); syncMsgToEditor(inputMsg.value); inputRef.value?.focus(); }
+watch(composerOpen, async visible => { if (visible) { await nextTick(); syncMsgToEditor(inputMsg.value); } });
+onDeactivated(() => { composerOpen.value = false; });
+defineExpose({ openComposer });
 const replyTargetUser = ref('');
 const replyTargetId = ref('');
 const commentSortMode = ref<CommentSortMode>(props.defaultSortMode ?? settingsStore.settings.commentDefaultSortMode);
@@ -1474,6 +1483,7 @@ function buildFinalMessage(text: string): string {
 
 function setReplyTarget(username?: string, replyId?: string | number) {
   if (!username) return;
+  composerOpen.value = true;
   replyTargetUser.value = username;
   replyTargetId.value = replyId ? String(replyId) : '';
   nextTick(() => {
@@ -1817,6 +1827,7 @@ async function handleSend() {
       }
       images.value = [];
       clearReplyTarget();
+      if (props.officialDetail) composerOpen.value = false;
       showEmojiPicker.value = false;
       showToast('评论发表成功');
       emit('send-comment', rawMsg);
@@ -1842,6 +1853,39 @@ async function handleSend() {
 </script>
 
 <style scoped>
+.official-detail-comments { margin: 0 !important; padding: 0 16px 16px !important; border: 0 !important; border-radius: 0 !important; background: var(--surface) !important; }
+.official-detail-comments .comment-toolbar { position: sticky; top: 60px; z-index: 5; background: var(--surface); padding: 8px 0 12px; border: 0; scroll-margin-top: 70px; }
+.official-detail-comments .comment-toolbar-left { width: 100%; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 8px; }
+.official-detail-comments .comment-title { font-size: 14px; font-weight: 400; white-space: nowrap; }
+.official-detail-comments .comment-sort { display: flex; background: var(--surface-hover); border-radius: 24px; padding: 2px; gap: 0; }
+.official-detail-comments .comment-sort-button { min-width: 0; font-size: 12px; padding: 5px 9px; border: 0; border-radius: 24px; background: transparent; box-shadow: none; }
+.official-detail-comments .comment-sort-button.is-active { background: var(--surface); color: var(--text-primary); }
+.official-detail-comments .comment-row { padding: 10px 0 16px; border: 0; gap: 10px; background: transparent; }
+.official-detail-comments .comment-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; gap: 0; }
+.official-detail-comments .comment-meta { grid-row: 1; grid-column: 1 / -1; }
+.official-detail-comments .comment-username { color: var(--brand-primary); font-size: 14px; font-weight: 400; }
+.official-detail-comments .level-tag, .official-detail-comments .verify-tag { display: none; }
+.official-detail-comments .comment-text { grid-row: 2; grid-column: 1 / -1; font-size: 15px; line-height: 1.65; margin: 4px 0 10px; }
+.official-detail-comments .comment-detail-row > .comment-device, .official-detail-comments .comment-detail-row > .comment-secondary-meta { display: none; }
+.official-detail-comments .comment-image-grid { grid-row: 3; grid-column: 1 / -1; }
+.official-detail-comments .comment-detail-row { grid-row: 4; grid-column: 1; color: var(--text-tertiary); font-size: 11px; align-self: center; }
+.official-detail-comments .comment-actions { grid-row: 4; grid-column: 2; justify-content: flex-end; margin: 0; gap: 14px; }
+.official-detail-comments .comment-actions button { font-size: 11px; color: var(--text-tertiary); }
+.official-detail-comments .comment-actions i { font-size: 18px; }
+.official-detail-comments .sub-reply-thread { grid-row: 5; grid-column: 1 / -1; margin: 12px 0 0; }
+.official-detail-comments .sub-reply-thread { border: 0; padding: 8px; border-radius: 8px; background: var(--surface-hover); }
+.official-detail-comments .sub-reply-row { display: block; padding: 2px 0; }
+.official-detail-comments .sub-reply-avatar, .official-detail-comments .sub-reply-row .user-hover-trigger:has(.sub-reply-avatar), .official-detail-comments .sub-detail-row, .official-detail-comments .sub-reply-actions { display: none; }
+.official-detail-comments .sub-reply-main { display: block; }
+.official-detail-comments .sub-reply-meta { display: inline; font-size: 14px; line-height: 1.65; }
+.official-detail-comments .sub-reply-meta :deep(.user-hover-trigger) { display: inline; }
+.official-detail-comments .sub-target-user { color: var(--brand-primary); }
+.official-detail-comments .sub-user { color: var(--brand-primary); font-weight: 400; }
+.official-detail-comments .sub-reply-text { display: inline; font-size: 14px; line-height: 1.65; }
+.official-detail-comments .sub-reply-text::before { content: '：'; }
+.official-detail-comments .comment-composer-box { position: fixed; bottom: 0; left: 0; right: 0; z-index: 85; max-height: min(70vh, 600px); overflow-y: auto; border-radius: 18px 18px 0 0; padding: 30px 16px max(16px, env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -4px 28px #0002; }
+.official-composer-backdrop { position: fixed; inset: 0; z-index: 80; background: #0006; }
+.official-composer-close { position: absolute; right: 10px; top: 4px; width: 30px; height: 30px; border: 0; background: transparent; color: var(--text-secondary); font-size: 18px; }
 .feed-comment-section {
   margin-top: 14px;
   padding: 14px;

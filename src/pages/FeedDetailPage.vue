@@ -1,5 +1,6 @@
 <template>
-  <div class="feed-detail-page custom-scrollbar">
+  <div class="feed-detail-page custom-scrollbar" :class="{ 'is-official-mobile': officialMobileDetail }">
+    <button v-if="officialMobileDetail && (!feedDetail || isAnswerDetail)" class="detail-fallback-back" @click="navigateBack(router)"><i class="fas fa-arrow-left"></i> 返回</button>
     <div class="feed-detail-shell">
       <LoadingState v-if="loading && !feedDetail" text="正在加载原动态..." />
       <ErrorState
@@ -20,8 +21,9 @@
       <FeedCard
         v-else-if="feedDetail"
         :feed="feedDetail"
+        :official-mobile-detail="officialMobileDetail"
         detail-mode
-        :auto-open-comments="!loading"
+        :auto-open-comments="officialMobileDetail || !loading"
       />
       <EmptyState v-else title="原动态不存在" description="这条动态可能已经被删除" />
     </div>
@@ -30,6 +32,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { navigateBack } from '../utils/navigation';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { useAppStore } from '../stores/app';
 import FeedCard from '../components/feed/FeedCard.vue';
@@ -38,6 +42,7 @@ import LoadingState from '../components/common/LoadingState.vue';
 import ErrorState from '../components/common/ErrorState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
 import { isAnswerSearchEntity } from '../utils/searchEntities';
+import { useOfficialMobileFeedDetail } from '../composables/useOfficialMobileFeedDetail';
 import { usePageTabTitle } from '../composables/usePageTabTitle';
 
 defineOptions({ name: 'FeedDetailPage' });
@@ -46,7 +51,9 @@ const props = defineProps<{
   feedId: string;
 }>();
 
+const router = useRouter();
 const appStore = useAppStore();
+const officialMobileDetail = useOfficialMobileFeedDetail();
 // 路由缓存通常会为每个动态保留独立实例；同时监听参数可兼容热更新或组件复用。
 const feedId = computed(() => String(props.feedId || ''));
 
@@ -84,7 +91,8 @@ const answerQuestionTitle = computed(() => String(
     ?? feedDetail.value?.question?.title
     ?? '',
 ).trim());
-// 有通知摘要时也先等待完整动态返回，再自动加载评论，避免拿摘要字段请求出空列表。
+// 官方详情使用 normalizeContextFeed 校验过的完整正文立即加载评论，
+// 与详情刷新并行；仅有通知摘要时仍等完整动态返回后才挂载卡片。
 const loading = ref(Boolean(feedId.value));
 const error = ref('');
 let requestVersion = 0;
@@ -123,6 +131,9 @@ watch(feedId, (nextFeedId) => {
 </script>
 
 <style scoped>
+.detail-fallback-back { min-height: 44px; padding: 8px 16px; border: 0; background: var(--surface); color: var(--text-primary); font: inherit; }
+.feed-detail-page.is-official-mobile { background: var(--surface); }
+.is-official-mobile .feed-detail-shell { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .feed-detail-page {
   width: 100%;
   height: 100%;

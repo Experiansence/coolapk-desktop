@@ -159,6 +159,10 @@
       </div>
     </div>
 
+    <div class="setting-group">
+      <h4 class="group-title">移动端动态详情</h4>
+      <div class="setting-row"><div class="row-info"><span class="row-label">官方样式动态详情</span><span class="row-sub">手机和平板默认启用官方作者栏、评论列表和底部操作栏；关闭后恢复原有动态详情与内联评论。</span></div><AppSwitch v-model="settingsStore.settings.officialMobileFeedDetail" /></div>
+    </div>
     <div v-if="showDesktopLayoutSwitch" class="setting-group">
       <h4 class="group-title">窗口响应式布局</h4>
       <div class="setting-row">
