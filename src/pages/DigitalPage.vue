@@ -1,5 +1,5 @@
 <template>
-  <div class="digital-page page-container">
+  <div class="digital-page page-container" :class="{ 'is-mobile-presentation': mobilePresentation }">
     <FeedTabs v-if="digitalTabs.length" :active-key="selectedTabKey" :tabs="digitalTabNavItems" :show-manage="false" @update:active-key="selectDigitalTabByKey" />
 
     <nav v-if="visibleDigitalSubtabs.length" class="digital-subtabs" aria-label="数码服务端子栏目">
@@ -168,7 +168,7 @@
     </template>
 
     <main ref="tabScrollContainer" v-else class="digital-server-content" @scroll.passive="handleTabScroll">
-      <div v-if="tabItems.length > 0" class="digital-content-toolbar">
+      <div v-if="tabItems.length > 0 && !mobilePresentation" class="digital-content-toolbar">
         <div class="toolbar-left">
           <span class="toolbar-title">{{ selectedTabTitle }}</span>
         </div>
@@ -188,6 +188,13 @@
       <div v-if="tabLoading && tabItems.length === 0" class="digital-result-state"><DiscoverySkeleton /></div>
       <div v-else-if="tabError && tabItems.length === 0" class="digital-result-state"><ErrorState title="数码页面加载失败" :message="tabError" @retry="loadTabItems" /></div>
       <div v-else-if="tabItems.length === 0" class="digital-result-state"><EmptyState title="服务端暂未返回内容" description="该数码栏目当前没有可展示的内容" /></div>
+      <div v-else-if="mobilePresentation" class="mobile-digital-list">
+        <MobileDigitalCard v-for="(entity, index) in tabItems" :key="getEntityKey(entity, index)" :entity="entity" @open="openEntity" />
+        <div ref="tabBottomSentinel" class="digital-pagination">
+          <LoadingState v-if="tabLoading" text="正在加载更多..." />
+          <button v-else-if="tabError" type="button" class="inline-retry" @click="loadTabItems(true)">加载失败，点击重试</button>
+        </div>
+      </div>
       <div v-else :class="['digital-server-list', displayMode]">
         <template v-for="(block, index) in tabDisplayBlocks" :key="`tab-${blockKey(block, index)}`">
           <DigitalSeriesTitle v-if="block.kind === 'title'" :title="block.title || ''" />
@@ -227,6 +234,9 @@ import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue
 import DiscoverySkeleton from '../components/discovery/DiscoverySkeleton.vue';
 import FeedTabs from '../components/feed/FeedTabs.vue';
 import DigitalProductCard from '../components/digital/DigitalProductCard.vue';
+import MobileDigitalCard from '../components/digital/MobileDigitalCard.vue';
+import { useSettingsStore } from '../stores/settings';
+import { isTouchMobilePlatform } from '../utils/platform';
 import DigitalProductRow from '../components/digital/DigitalProductRow.vue';
 import DigitalSeriesMore from '../components/digital/DigitalSeriesMore.vue';
 import DigitalSeriesTitle from '../components/digital/DigitalSeriesTitle.vue';
@@ -243,6 +253,13 @@ type DisplayMode = 'grid' | 'vertical' | 'horizontal';
 type DigitalBlock = { kind: 'title' | 'more' | 'products' | 'entity'; title?: string; items: DiscoveryEntity[]; entity?: DiscoveryEntity; more?: DiscoveryEntity };
 
 const router = useRouter();
+const settingsStore = useSettingsStore();
+const viewportWidth = ref(window.innerWidth);
+const updateViewport = () => { viewportWidth.value = window.innerWidth; };
+const mobilePresentation = computed(() => viewportWidth.value <= 720
+  && (isTouchMobilePlatform() || !settingsStore.settings.disableAutoMobileMode));
+onMounted(() => window.addEventListener('resize', updateViewport));
+onBeforeUnmount(() => window.removeEventListener('resize', updateViewport));
 const modes: Array<{ key: DigitalMode; label: string; icon: string }> = [
   { key: 'brand', label: '品牌', icon: 'fas fa-tags' },
   { key: 'category', label: '分类', icon: 'fas fa-layer-group' },
@@ -802,6 +819,12 @@ function findDigitalTabForEntity(entity: DiscoveryEntity): DigitalTab | null {
 function openEntity(entity: DiscoveryEntity) {
   const route = resolveDiscoveryRoute(entity);
   if (!route) return;
+  if (mobilePresentation.value && isDigitalCategoryRoute(route.target)) {
+    const target = dynamicCategoryContentTarget(entity) || route.target;
+    const contentUrl = target.startsWith('/page?') ? new URLSearchParams(target.slice(6)).get('url') || target : target;
+    navigateDataList(contentUrl, entityTitle(entity));
+    return;
+  }
   if (isDigitalCategoryRoute(route.target) && openDigitalCategory(entity, route.target)) return;
   const digitalTab = findDigitalTabForEntity(entity);
   if (digitalTab) {
@@ -1033,6 +1056,15 @@ onBeforeUnmount(() => { productObserver?.disconnect(); dynamicCategoryObserver?.
 .inline-retry { border: 0; background: transparent; color: var(--brand-primary); cursor: pointer; font: inherit; }
 .digital-content-empty { display: grid; place-items: center; gap: 9px; min-height: 360px; color: var(--text-tertiary); font-size: 13px; }
 .digital-content-empty i { font-size: 25px; }
+.mobile-digital-list { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 16px; }
+@media (max-width: 720px) {
+  .digital-page.is-mobile-presentation { background: var(--surface-hover); }
+  .is-mobile-presentation :deep(.feed-tabs-wrapper) { background: var(--surface); border-bottom: 0; }
+  .is-mobile-presentation :deep(.feed-tabs) { gap: 0; padding-inline: 4px; }
+  .is-mobile-presentation :deep(.tab-item) { flex: 0 0 auto; padding-inline: 12px; font-size: 16px; }
+  .is-mobile-presentation :deep(.tab-item.is-active) { font-weight: 700; }
+  .is-mobile-presentation .digital-server-content { background: var(--surface-hover); border-radius: 14px 14px 0 0; }
+}
 @media (max-width: 980px) { .digital-body { grid-template-columns: minmax(220px, 250px) minmax(0, 1fr); } .series-products.horizontal { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .digital-subtabs { padding-inline: 16px; } .digital-web-route { align-items: flex-start; flex-wrap: wrap; width: calc(100% - 32px); margin: 16px auto; } .digital-web-route button { margin-left: 38px; } .digital-body { display: flex; flex-direction: column; overflow: hidden; } .digital-sidebar { flex: 0 0 auto; max-height: 285px; border-right: 0; border-bottom: 1px solid var(--divider); } .digital-content, .digital-server-content { flex: 1 1 0; height: auto; } .digital-side-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-y: auto; } .digital-side-item { min-height: 50px; } .digital-side-logo, .digital-side-logo-fallback { flex-basis: 32px; width: 32px; height: 32px; } .digital-result-list, .digital-server-list { padding: 14px 16px 24px; } .series-products.horizontal { grid-template-columns: 1fr; } }
 </style>
