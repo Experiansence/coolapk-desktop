@@ -1,5 +1,12 @@
 <template>
-  <header class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me' }">
+  <header class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me', 'is-digital-page': route.path === '/digital' }">
+    <template v-if="route.path === '/digital'">
+      <button type="button" class="mobile-icon-button digital-avatar" aria-label="个人主页" @click="router.push('/me')"><AppAvatar :src="authStore.user?.userAvatar" :size="24" /></button>
+      <button type="button" class="digital-search-entry" aria-label="搜索数码" @click="appStore.openSearch"><span>搜索数码产品</span><i class="fas fa-magnifying-glass"></i></button>
+      <button type="button" class="mobile-icon-button has-badge digital-official-icon" aria-label="应用游戏" @click="router.push('/apps')"><span :style="iconStyle(appIcon)"></span></button>
+      <button type="button" class="mobile-icon-button has-badge digital-official-icon" aria-label="私信" @click="router.push('/messages')"><span :style="iconStyle(mailIcon)"></span><span v-if="notificationStore.unreadCount" class="mobile-badge">{{ notificationStore.unreadCount > 99 ? '99+' : notificationStore.unreadCount }}</span></button>
+    </template>
+    <template v-else>
     <button
       v-if="route.path !== '/'"
       type="button"
@@ -39,6 +46,7 @@
         <i :class="navigationOpen ? 'fas fa-xmark' : 'fas fa-grip'"></i>
       </button>
     </div>
+    </template>
   </header>
 </template>
 
@@ -48,6 +56,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../../stores/app';
 import { useNotificationStore } from '../../stores/notifications';
 import { navigateBack } from '../../utils/navigation';
+import { useAuthStore } from '../../stores/auth';
+import AppAvatar from '../common/AppAvatar.vue';
+import appIcon from '../../assets/official-profile/ic_app_outline.svg';
+import mailIcon from '../../assets/official-profile/ic_mail_outline.svg';
 
 defineProps<{ navigationOpen: boolean; macOverlay: boolean }>();
 const emit = defineEmits<{ toggleNavigation: [] }>();
@@ -56,6 +68,7 @@ const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 const notificationStore = useNotificationStore();
+const authStore = useAuthStore();
 
 const routeTitles: Record<string, string> = {
   '/': '酷安',
@@ -117,6 +130,7 @@ const routeTitles: Record<string, string> = {
 };
 
 const pageTitle = computed(() => {
+  if (route.path === '/page' && typeof route.query?.title === 'string' && route.query.title.trim()) return route.query.title;
   const exact = routeTitles[route.path];
   if (exact) return exact;
   const prefix = Object.keys(routeTitles)
@@ -124,6 +138,10 @@ const pageTitle = computed(() => {
     .sort((a, b) => b.length - a.length)[0];
   return prefix ? routeTitles[prefix] : String(route.meta.title || '酷安');
 });
+
+function iconStyle(url: string) {
+  return { maskImage: `url("${url}")`, WebkitMaskImage: `url("${url}")` };
+}
 
 function goBack() {
   navigateBack(router);
@@ -136,6 +154,10 @@ function goBack() {
 }
 
 @media (max-width: 720px) {
+  .mobile-top-bar.is-digital-page { border-bottom: 0; gap: 4px; }
+  .digital-search-entry { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1; min-width: 0; height: 32px; padding: 0 12px; border: 0; border-radius: 9px; color: var(--text-secondary); background: var(--surface-hover); font: inherit; font-size: 14px; text-align: left; }
+  .digital-search-entry span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .digital-official-icon > span:first-child { width: 24px; height: 24px; background: var(--text-secondary); mask-size: contain; mask-position: center; mask-repeat: no-repeat; }
   .mobile-top-bar.is-profile-page { display: none; }
   .mobile-top-bar {
     display: flex;
