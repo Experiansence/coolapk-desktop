@@ -6,6 +6,9 @@
       </div>
     </div>
 
+    <nav v-if="dynamicTabs.length" class="dynamic-tabs" aria-label="榜单分类">
+      <button v-for="tab in dynamicTabs" :key="String(tab.url)" :class="{ active: selectedTabUrl === tab.url }" :disabled="loading || loadingMore" @click="selectDynamicTab(tab)">{{ tab.title }}</button>
+    </nav>
     <template v-if="isDynamicPage">
       <div v-if="loading && dynamicItems.length === 0" class="state-wrapper">
         <FeedSkeleton :count="4" />
@@ -17,7 +20,13 @@
         <EmptyState title="暂无内容" />
       </div>
       <div v-else :class="['feed-list', 'discovery-page-list', { 'topic-list-layout': isTopicListPage }]">
-        <DiscoveryEntityCard v-for="(item, index) in dynamicItems" :key="getEntityKey(item, index)" :entity="item" @open="openEntity" />
+        <template v-for="(item, index) in dynamicItems" :key="getEntityKey(item, index)">
+          <button v-if="dynamicTabs.length && item.entityType === 'product'" class="ranking-row" @click="openEntity(item)">
+            <span class="ranking-number">{{ String(index + 1).padStart(2, '0') }}</span><AppImage :src="getEntityImage(item)" fit="contain" class="ranking-image" />
+            <span class="ranking-copy"><strong>{{ getDigitalEntityTitle(item) }}</strong><small>{{ getDigitalProductHot(item) }}热度<span v-if="item.feed_comment_num"> · {{ item.feed_comment_num }}讨论</span></small></span>
+          </button>
+          <DiscoveryEntityCard v-else :entity="item" @open="openEntity" />
+        </template>
         <div v-if="loadingMore" class="loading-more"><LoadingState text="加载更多..." /></div>
       </div>
     </template>
@@ -49,6 +58,9 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
+import AppImage from '../components/common/AppImage.vue';
+import { getEntityImage } from '../utils/discovery';
+import { getDigitalEntityTitle, getDigitalProductHot } from '../utils/digitalProduct';
 import FeedCard from '../components/feed/FeedCard.vue';
 import FeedSkeleton from '../components/feed/FeedSkeleton.vue';
 import LoadingState from '../components/common/LoadingState.vue';
@@ -78,6 +90,13 @@ const dynamicNoMore = ref(false);
 const dynamicFirstItem = ref('');
 const dynamicLastItem = ref('');
 const error = ref('');
+const dynamicTabs = ref<DiscoveryEntity[]>([]);
+const selectedTabUrl = ref('');
+function selectDynamicTab(tab: DiscoveryEntity) {
+  if (loading.value || loadingMore.value || selectedTabUrl.value === tab.url) return;
+  selectedTabUrl.value = String(tab.url || '');
+  void loadDynamicPage(true);
+}
 
 function extractServerPageTarget(value: string): string {
   const raw = value.trim().replace(/^#/, '');
@@ -150,8 +169,15 @@ async function loadDynamicPage(isRefresh = false) {
   error.value = '';
 
   try {
-    const response = await CoolapkTauriAPI.getDiscoveryPageData({ url: dynamicPageTarget.value, title: pageTitle.value, page: page.value, firstItem: dynamicFirstItem.value, lastItem: dynamicLastItem.value, pageContext: JSON.stringify({ source: 'desktop-page-data-list', url: dynamicPageTarget.value }) });
-    const parsed = parseDiscoveryPage(response, page.value);
+    let response = await CoolapkTauriAPI.getDiscoveryPageData({ url: selectedTabUrl.value || dynamicPageTarget.value, title: pageTitle.value, page: page.value, firstItem: dynamicFirstItem.value, lastItem: dynamicLastItem.value, pageContext: JSON.stringify({ source: 'desktop-page-data-list', url: dynamicPageTarget.value }) });
+    let parsed = parseDiscoveryPage(response, page.value);
+    const tabs = parsed.items.find(item => String(item.entityTemplate).toLowerCase() === 'icontablinkgridcard');
+    if (isRefresh && !selectedTabUrl.value && tabs?.entities?.length) {
+      dynamicTabs.value = tabs.entities;
+      selectedTabUrl.value = String(tabs.entities[0]!.url || '');
+      response = await CoolapkTauriAPI.getDiscoveryPageData({ url: selectedTabUrl.value, title: pageTitle.value, page: 1, firstItem: '', lastItem: '', pageContext: '' });
+      parsed = parseDiscoveryPage(response, 1);
+    }
     const incoming = parsed.items;
     dynamicFirstItem.value = parsed.firstItem;
     dynamicLastItem.value = parsed.lastItem;
@@ -218,11 +244,20 @@ function openEntity(entity: DiscoveryEntity) {
   else navigateDataList(routeInfo.target, routeInfo.title || String(entity.title || ''));
 }
 
-watch([pageUrl, dynamicPageTarget, isDynamicPage], () => { loadCurrentPage(true); });
+watch([pageUrl, dynamicPageTarget, isDynamicPage], () => { dynamicTabs.value = []; selectedTabUrl.value = ''; loadCurrentPage(true); });
 onMounted(() => { loadCurrentPage(true); });
 </script>
 
 <style scoped>
+.dynamic-tabs { position: sticky; top: 0; z-index: 2; display: flex; overflow-x: auto; scrollbar-width: none; background: var(--surface); border-bottom: 1px solid var(--border-light); }
+.dynamic-tabs button { flex-shrink: 0; padding: 14px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; }
+.dynamic-tabs button.active { color: var(--brand-primary); font-weight: 700; box-shadow: inset 0 -3px var(--brand-primary); }
+.ranking-row { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 100px; padding: 14px; border: 0; border-bottom: 1px solid var(--border-light); background: var(--surface); color: var(--text-primary); text-align: left; }
+.ranking-number { flex: 0 0 24px; font-size: 15px; color: var(--text-secondary); }
+.ranking-image { width: 54px; height: 60px; flex: 0 0 54px; }
+.ranking-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.ranking-copy strong { font-size: 16px; overflow-wrap: anywhere; }
+.ranking-copy small { color: var(--text-secondary); font-size: 12px; }
 .page-container { width: 100%; max-width: 100%; flex: 1 1 auto; min-width: 0; height: 100%; min-height: 0; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .page-data-header { display: flex; align-items: center; padding-bottom: 18px; }
 .loading-more { padding: 16px; text-align: center; }
