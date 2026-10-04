@@ -5,6 +5,7 @@
       'has-mobile-window-controls': showWindowControls,
       'is-android': isAndroidApp,
       'prevent-mobile-layout': isMobileLayoutDisabled,
+      'has-mobile-bottom-nav': showMobileBottomNav,
     }"
   >
     <NetworkStatusBanner />
@@ -28,7 +29,7 @@
         </main>
       </div>
     </div>
-    <MobileBottomNav v-if="!isMobileLayoutDisabled && !route.path.startsWith('/my-plugins')" />
+    <MobileBottomNav v-if="showMobileBottomNav" />
   </div>
 </template>
 
@@ -61,6 +62,9 @@ const { showWindowControls, usesMacOverlay } = useDesktopWindow();
 const isMobileLayoutDisabled = computed(() => {
   return !isTouchMobilePlatform() && Boolean(settingsStore.settings.disableAutoMobileMode);
 });
+// 仅四个主栏目保留底栏；子页面通过顶栏返回，避免遮挡内容。
+const showMobileBottomNav = computed(() => !isMobileLayoutDisabled.value
+  && ['/', '/digital', '/discover', '/me'].includes(route.path));
 
 function toggleMobileNavigation() {
   mobileNavigationOpen.value = !mobileNavigationOpen.value;
@@ -137,6 +141,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
 @media (max-width: 720px) {
   .app-shell:not(.prevent-mobile-layout) {
     position: relative;
+    --mobile-bottom-overlay-space: env(safe-area-inset-bottom, 0px);
+  }
+
+  .app-shell:not(.prevent-mobile-layout).has-mobile-bottom-nav {
     --mobile-bottom-overlay-space: calc(var(--mobile-bottom-nav-height) + max(20px, env(safe-area-inset-bottom)) + 8px);
   }
 
@@ -176,7 +184,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
     display: flex !important;
     position: fixed;
     top: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px) + 8px);
-    bottom: calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 8px);
+    bottom: calc(var(--mobile-bottom-overlay-space) + 8px);
     left: 50%;
     z-index: 1001;
     width: min(460px, calc(100vw - 24px)) !important;
