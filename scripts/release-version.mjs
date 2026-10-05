@@ -38,3 +38,23 @@ export function allocateBetaVersion(target, current, tags) {
   parseReleaseVersion(version);
   return version;
 }
+
+export function resolveBetaTarget(current, tags, increment = '+0.0.1', manual = '') {
+  if (!['+0.0.1', '+0.1', '手动填写'].includes(increment)) throw new Error('版本增量选项无效');
+  if (manual.trim()) {
+    const target = parseReleaseVersion(manual.trim());
+    if (target.beta !== null) throw new Error('目标正式版本只能填写 X.Y.Z');
+    return target.base;
+  }
+  if (increment === '手动填写') throw new Error('选择手动填写时必须提供目标正式版本');
+  let baseline = parseReleaseVersion(current).base;
+  for (const tag of tags) {
+    let candidate;
+    try { candidate = parseReleaseVersion(tag.replace(/^v/, '')); } catch { continue; }
+    if (candidate.beta === null && compareBaseVersions(candidate.base, baseline) > 0) baseline = candidate.base;
+  }
+  const { major, minor, patch } = parseReleaseVersion(baseline);
+  const target = increment === '+0.1' ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
+  parseReleaseVersion(target);
+  return target;
+}

@@ -3,9 +3,18 @@ name: 发布测试版本
 on:
   workflow_dispatch:
     inputs:
-      target_version:
-        description: '目标正式版本，例如 1.31.0（自动生成 beta 编号）'
+      version_increment:
+        description: '版本增量（根据当前正式版本自动计算）'
+        type: choice
         required: true
+        default: '+0.0.1'
+        options:
+          - '+0.0.1'
+          - '+0.1'
+          - '手动填写'
+      target_version:
+        description: '自定义目标版本（可留空，填写后优先使用，例如 1.31.0）'
+        required: false
         type: string
 
 permissions:
@@ -40,6 +49,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_VERSION: ${{ inputs.target_version }}
+          VERSION_INCREMENT: ${{ inputs.version_increment }}
         run: node scripts/prepare-beta-release.mjs
 
   build:

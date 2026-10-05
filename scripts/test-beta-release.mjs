@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSy
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allocateBetaVersion, parseReleaseVersion } from './release-version.mjs';
+import { allocateBetaVersion, parseReleaseVersion, resolveBetaTarget } from './release-version.mjs';
 import { readReleaseTags } from './release-tags.mjs';
 
 test('Release 查询在 gh 内提取标签，避免完整发布信息撑满子进程缓冲区', () => {
@@ -32,6 +32,25 @@ test('Android 编码支持正式版到多次 beta 再到正式版', () => {
   const versions = ['1.30.0', '1.31.0-beta.1', '1.31.0-beta.101', '1.31.0-beta.998', '1.31.0', '1.31.1-beta.1'];
   const codes = versions.map((version) => parseReleaseVersion(version).code);
   assert.ok(codes.every((code, index) => index === 0 || code > codes[index - 1]));
+});
+
+test('版本增量基于正式版计算，次版本递增清零补丁，连续构建只递增 beta', () => {
+  assert.equal(resolveBetaTarget('1.30.0', [], '+0.0.1'), '1.30.1');
+  assert.equal(resolveBetaTarget('1.30.7', [], '+0.1'), '1.31.0');
+  assert.equal(resolveBetaTarget('1.30.0', ['v1.30.2', 'v1.31.0-beta.9'], '+0.0.1'), '1.30.3');
+  const tags = ['v1.30.1-beta.1', 'v1.30.1-beta.2'];
+  const target = resolveBetaTarget('1.30.0', tags, '+0.0.1');
+  assert.equal(target, '1.30.1');
+  assert.equal(allocateBetaVersion(target, '1.30.0', tags), '1.30.1-beta.3');
+  assert.equal(resolveBetaTarget('1.30.2', ['v1.30.0'], '+0.0.1'), '1.30.3');
+});
+
+test('手动目标覆盖自动计算，并拒绝遗漏或错误的输入', () => {
+  assert.equal(resolveBetaTarget('1.30.0', [], '+0.0.1', ' 1.32.0 '), '1.32.0');
+  assert.equal(resolveBetaTarget('1.30.0', [], '手动填写', '1.31.0'), '1.31.0');
+  assert.throws(() => resolveBetaTarget('1.30.0', [], '手动填写'));
+  assert.throws(() => resolveBetaTarget('1.30.0', [], '+0.1', '1.31.0-beta.1'));
+  assert.throws(() => resolveBetaTarget('1.30.0', [], '+0.2'));
 });
 
 test('版本脚本在隔离目录同步六个文件，并保持无参数 beta 构建', () => {

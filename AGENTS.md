@@ -48,7 +48,7 @@ npm run version:set -- 1.8.0
 
 ### 测试版本发布
 
-- 用户手动触发 `.github/workflows/beta-release.yml`，填写目标正式版本 `X.Y.Z`；仅允许 main 分支，固定触发时的源码 SHA。
+- 用户手动触发 `.github/workflows/beta-release.yml`，选择 `+0.0.1`、`+0.1` 自动计算目标，或手动填写正式版本 `X.Y.Z`；自动计算以 main 与已有正式版本的较高版本为基准，不以测试版本累加。仅允许 main 分支，固定触发时的源码 SHA。
 - 测试版本使用 `X.Y.Z-beta.N`，通过 `npm run version:set -- X.Y.Z-beta.N --beta` 同步六个版本文件。构建前的无参数同步允许保留已有测试版本。
 - 测试版在 CI 临时 checkout 中同步版本；全平台构建与检查成功后，再独立提交这六个文件、创建带注释标签并发布 Pre-release。版本提交不推送 main，只推送独立测试标签，不覆盖已有标签。
 - Android 的版本编码由版本脚本统一生成，为测试版预留 1–998，正式版使用 999；正式发布继续通过同一个脚本生成更高编码。
