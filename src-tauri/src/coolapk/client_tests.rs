@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn test_cdn_upload_url_https() {
+    assert_eq!(normalize_cdn_upload_url("http://image.coolapk.com/feed/file@0x0.zip?token=a%2Fb"), "https://image.coolapk.com/feed/file@0x0.zip?token=a%2Fb");
+    for url in ["https://image.coolapk.com/file.zip", "http://image.coolapk.com.evil.com/file.zip", "http://example.com/file.zip"] {
+        assert_eq!(normalize_cdn_upload_url(url), url);
+    }
+}
+
+#[test]
 fn generic_cdn_upload_uses_known_mime_types_and_keeps_unknown_extensions_uploadable() {
     assert_eq!(cdn_content_type("package.ZIP"), "application/zip");
     assert_eq!(cdn_content_type("notes.txt"), "text/plain");

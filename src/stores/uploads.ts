@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import type { CdnUploadProgressEvent, CdnUploadStatus, CdnUploadTask } from '../types/upload';
+import { normalizeCdnUploadUrl } from '../utils/cdnUploadUrl';
 
 const STORAGE_KEY = 'coolapk_desktop_cdn_uploads_v1';
 const ACTIVE_STATUSES: CdnUploadStatus[] = ['queued', 'preparing', 'uploading', 'cancelling'];
@@ -33,7 +34,7 @@ function readTasks(): CdnUploadTask[] {
         uploaded: Math.max(0, Number(item.uploaded) || 0),
         total: Math.max(0, Number(item.total) || 0),
         speed: 0,
-        url: typeof item.url === 'string' ? item.url : '',
+        url: typeof item.url === 'string' ? normalizeCdnUploadUrl(item.url) : '',
         error: typeof item.error === 'string' ? item.error : '',
         createdAt: Number(item.createdAt) || now(),
         updatedAt: Number(item.updatedAt) || now(),
@@ -89,6 +90,7 @@ export const useUploadStore = defineStore('cdn-uploads', () => {
   function patchTask(taskId: string, patch: Partial<CdnUploadTask>) {
     const task = findTask(taskId);
     if (!task) return;
+    if (typeof patch.url === 'string') patch.url = normalizeCdnUploadUrl(patch.url);
     Object.assign(task, patch, { updatedAt: now() });
     persist();
   }

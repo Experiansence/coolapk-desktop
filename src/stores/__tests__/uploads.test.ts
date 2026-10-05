@@ -20,6 +20,22 @@ describe('酷安 CDN 上传队列', () => {
     vi.clearAllMocks();
   });
 
+  it('旧记录、原生进度和上传返回的 HTTP 链接统一升级到 HTTPS', async () => {
+    localStorage.setItem('coolapk_desktop_cdn_uploads_v1', JSON.stringify([{ id: 'old', filePath: 'C:\\old.zip', status: 'completed', url: 'http://image.coolapk.com/old.zip' }]));
+    const store = useUploadStore();
+    expect(store.tasks[0]?.url).toBe('https://image.coolapk.com/old.zip');
+    let finish!: (result: { code: number; data: string }) => void;
+    mocks.uploadFileToCdn.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await store.initialize();
+    const task = store.enqueue('C:\\new.zip')!;
+    await vi.waitFor(() => expect(mocks.uploadFileToCdn).toHaveBeenCalledOnce());
+    store.applyNativeEvent({ taskId: task.id, attempt: task.attempt, status: 'uploading', url: 'http://image.coolapk.com/progress.zip' });
+    expect(task.url).toBe('https://image.coolapk.com/progress.zip');
+    finish({ code: 200, data: 'http://image.coolapk.com/new.zip' });
+    await vi.waitFor(() => expect(task.status).toBe('completed'));
+    expect(task.url).toBe('https://image.coolapk.com/new.zip');
+  });
+
   it('串行上传并记录服务端返回的链接和进度事件', async () => {
     const pending: Array<(result: { code: number; data: string }) => void> = [];
     mocks.uploadFileToCdn.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));

@@ -271,6 +271,16 @@ fn build_oss_image_url(prefix: &str, file_name: &str) -> Option<String> {
     }
 }
 
+fn normalize_cdn_upload_url(raw: &str) -> String {
+    if let Ok(mut url) = reqwest::Url::parse(raw) {
+        if url.host_str() == Some("image.coolapk.com") && url.scheme() == "http" {
+            let _ = url.set_scheme("https");
+            return url.to_string();
+        }
+    }
+    raw.to_string()
+}
+
 fn cdn_content_type(file_name: &str) -> &'static str {
     let extension = file_name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
     match extension.as_deref() {
@@ -6540,7 +6550,7 @@ impl CoolapkClient {
             .filter(|url| !url.trim().is_empty())
             .map(str::to_string);
         if let Some(url) = existing_url {
-            return Ok(json!({ "code": 200, "data": url }));
+            return Ok(json!({ "code": 200, "data": normalize_cdn_upload_url(&url) }));
         }
 
         let field = |name: &str| {
@@ -6630,7 +6640,7 @@ impl CoolapkClient {
         }
         let url = build_oss_image_url(image_prefix, &upload_file_name)
             .ok_or_else(|| "上传成功但酷安没有返回有效文件链接".to_string())?;
-        Ok(json!({ "code": 200, "data": url }))
+        Ok(json!({ "code": 200, "data": normalize_cdn_upload_url(&url) }))
     }
 
     /// 视频使用与封面同一组 OSS 凭证，签名中不包含图片专用回调。

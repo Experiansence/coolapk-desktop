@@ -13,12 +13,13 @@
       </AppButton>
     </header>
 
-    <section class="upload-picker-panel">
+    <section ref="dropPanel" class="upload-picker-panel" :class="{ 'is-dragging': dragging }">
       <div class="picker-illustration"><i class="fas fa-file-arrow-up"></i></div>
-      <h2>上传文件到酷安 CDN</h2>
+      <h2>{{ dragging ? '松开即可上传文件' : '上传文件到酷安 CDN' }}</h2>
       <p class="picker-description">
         可一次选择多个文件，客户端会按顺序逐个上传。任务启动后将打开上传和下载管理页，实时显示进度、速度和返回链接。
       </p>
+      <p v-if="supportsDrop" class="picker-description">也可以将文件拖到此处上传</p>
       <AppButton
         variant="primary"
         size="lg"
@@ -51,7 +52,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import type { UnlistenFn } from '@tauri-apps/api/event';
+import { isTouchMobilePlatform } from '../utils/platform';
 import { useRouter } from 'vue-router';
 import AppButton from '../components/common/AppButton.vue';
 import { useUploadStore } from '../stores/uploads';
@@ -60,7 +65,47 @@ import { showToast } from '../utils/toast';
 const router = useRouter();
 const uploadStore = useUploadStore();
 const selectingFiles = ref(false);
+const supportsDrop = isTauri() && !isTouchMobilePlatform();
+const dragging = ref(false);
+const dropPanel = ref<HTMLElement | null>(null);
+let active = true;
+let disposed = false;
+let stopDrop: UnlistenFn | undefined;
 const uploadStoreReady = uploadStore.initialize();
+
+onActivated(() => { active = true; });
+onDeactivated(() => { active = false; dragging.value = false; });
+onUnmounted(() => { disposed = true; active = false; stopDrop?.(); });
+onMounted(() => {
+  if (!supportsDrop) return;
+  void getCurrentWebview().onDragDropEvent(event => {
+    if (!active || disposed) return;
+    const payload = event.payload;
+    if (payload.type === 'leave') { dragging.value = false; return; }
+    const bounds = dropPanel.value?.getBoundingClientRect();
+    const x = payload.position.x / window.devicePixelRatio;
+    const y = payload.position.y / window.devicePixelRatio;
+    const inside = !!bounds && x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+    dragging.value = inside && payload.type !== 'drop';
+    if (inside && payload.type === 'drop' && payload.paths.length) void uploadPaths(payload.paths);
+  }).then(stop => { if (disposed) stop(); else stopDrop = stop; })
+    .catch(() => { showToast('文件拖拽监听失败，请使用选择文件按钮', 'error'); });
+});
+
+async function uploadPaths(paths: string[]) {
+  if (selectingFiles.value) return;
+  selectingFiles.value = true;
+  try {
+    await uploadStoreReady;
+    for (const path of new Set(paths)) uploadStore.enqueue(path);
+    await uploadStore.pump();
+    await router.push({ path: '/downloads', query: { mode: 'upload', tab: 'active' } });
+  } catch (error) {
+    showToast(`添加上传任务失败：${error instanceof Error ? error.message : String(error)}`, 'error');
+  } finally {
+    selectingFiles.value = false;
+  }
+}
 
 async function selectFiles() {
   if (selectingFiles.value) return;
@@ -76,9 +121,8 @@ async function selectFiles() {
     if (!selected) return;
 
     const paths = Array.isArray(selected) ? selected : [selected];
-    for (const path of paths) uploadStore.enqueue(path);
-    await uploadStore.pump();
-    await router.push({ path: '/downloads', query: { mode: 'upload', tab: 'active' } });
+    selectingFiles.value = false;
+    await uploadPaths(paths);
   } catch (error) {
     showToast(`选择或添加上传任务失败：${error instanceof Error ? error.message : String(error)}`, 'error');
   } finally {
@@ -127,6 +171,7 @@ function openUploadManager() {
 }
 
 .picker-illustration { display: grid; width: 76px; height: 76px; place-items: center; border-radius: 24px; color: var(--brand-primary); background: var(--brand-soft); font-size: 34px; }
+.upload-picker-panel.is-dragging { border-color: var(--brand-primary); background: var(--brand-soft); }
 .upload-picker-panel h2 { margin: 20px 0 8px; color: var(--text-primary); font-size: 21px; }
 .picker-description { max-width: 580px; margin: 0 0 22px; color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
 .picker-hint { max-width: 620px; margin: 16px 0 0; color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
