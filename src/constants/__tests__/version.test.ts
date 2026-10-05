@@ -8,6 +8,6 @@ describe('version constant', () => {
   });
 
   it('APP_VERSION follows semver pattern', () => {
-    expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+(?:-beta\.[1-9]\d*)?$/);
   });
 });

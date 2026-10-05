@@ -18,6 +18,7 @@ vi.mock('vue-router', async (importOriginal) => {
 });
 
 import MainSidebar from '../MainSidebar.vue';
+import { useSettingsStore } from '../../../stores/settings';
 import * as routeTransition from '../../../utils/routeTransition';
 import {
   HOME_TAB_REFRESH_EVENT,
@@ -102,6 +103,28 @@ describe('MainSidebar', () => {
     expect(wrapper.find('a[href="/apps"]').exists()).toBe(false);
     expect(wrapper.find('a[href="/downloads"]').exists()).toBe(false);
     expect(wrapper.find('a[href="/more"]').exists()).toBe(true);
+  });
+
+  it('底部快捷开关与设置渠道同步，关闭测试版后保留其他实验性功能', async () => {
+    const settings = useSettingsStore();
+    settings.settings.updateChannel = 'stable';
+    settings.settings.experimentalFeatures = false;
+    const wrapper = mount(MainSidebar, {
+      global: { stubs: { 'router-link': RouterLinkStub } },
+    });
+    const button = wrapper.find('.beta-toggle-btn');
+    expect(button.attributes('aria-pressed')).toBe('false');
+    await button.trigger('click');
+    expect(settings.settings.updateChannel).toBe('beta');
+    expect(settings.settings.experimentalFeatures).toBe(true);
+    expect(button.text()).toContain('已开启');
+    await button.trigger('click');
+    expect(settings.settings.updateChannel).toBe('stable');
+    expect(settings.settings.experimentalFeatures).toBe(true);
+    settings.settings.updateChannel = 'beta';
+    await wrapper.vm.$nextTick();
+    expect(button.attributes('aria-pressed')).toBe('true');
+    wrapper.unmount();
   });
 
   it('保留边界上的小圆形收起按钮，并能切换侧边栏状态', async () => {

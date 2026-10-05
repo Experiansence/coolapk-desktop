@@ -3,9 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v[0-9]*', '!v*-beta.*']
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      build_version:
+        type: string
+        required: true
+      build_sha:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       create_release:
@@ -17,8 +25,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ inputs.build_version || github.ref }}
+  cancel-in-progress: ${{ !inputs.build_version }}
+
+env:
+  BUILD_VERSION: ${{ inputs.build_version }}
+  RELEASE_TAG: ${{ inputs.build_version && format('v{0}', inputs.build_version) || github.ref_name }}
+  VITE_BUILD_COMMIT: ${{ inputs.build_sha || github.sha }}
 
 jobs:
   # ─── 前端测试矩阵（多代理并行） ───
@@ -38,6 +51,8 @@ jobs:
             task: build
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.build_sha || github.sha }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v5
@@ -48,6 +63,11 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      - name: 同步测试构建版本
+        if: ${{ inputs.build_version != '' }}
+        shell: bash
+        run: npm run version:set -- "$BUILD_VERSION" --beta
+
       - name: 安装 Linux 依赖 (Tauri)
         if: matrix.task == 'build'
         run: |
@@ -57,6 +77,10 @@ jobs:
       - name: 运行单元测试
         if: matrix.task == 'unit'
         run: npm test
+
+      - name: 测试版本与全平台产物检查
+        if: matrix.task == 'unit'
+        run: node --test scripts/test-beta-release.mjs
 
       - name: 运行类型检查
         if: matrix.task == 'typecheck'
@@ -83,6 +107,8 @@ jobs:
             os: macos-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.build_sha || github.sha }}
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -107,8 +133,17 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      - name: 同步测试构建版本
+        if: ${{ inputs.build_version != '' }}
+        shell: bash
+        run: npm run version:set -- "$BUILD_VERSION" --beta
+
       - name: 构建前端
         run: npm run build
+
+      - name: Rust 类型与编译检查
+        working-directory: src-tauri
+        run: cargo check
 
       - name: Rust 测试
         working-directory: src-tauri
@@ -121,8 +156,7 @@ jobs:
   # ─── 构建（仅 tag / 手动触发） ───
   build:
     name: ${{ matrix.name }}
-    needs: []               # 不依赖 test；与 test 并发执行
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || inputs.build_version != '' }}
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
     strategy:
@@ -156,6 +190,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.build_sha || github.sha }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v5
@@ -182,6 +218,11 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      - name: 同步测试构建版本
+        if: ${{ inputs.build_version != '' }}
+        shell: bash
+        run: npm run version:set -- "$BUILD_VERSION" --beta
+
       - name: 同步标签版本号
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         shell: bash
@@ -201,7 +242,7 @@ jobs:
           '
 
       - name: 构建与上传产物（非 Tag 推送）
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') && !(runner.os == 'Linux' && inputs.build_version != '') }}
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -222,6 +263,35 @@ jobs:
           prerelease: false
           generateReleaseNotes: true
           args: ${{ matrix.args }}
+
+      - name: 构建 Linux 测试版系统安装包
+        if: ${{ runner.os == 'Linux' && inputs.build_version != '' }}
+        shell: bash
+        run: |
+          node -e 'const fs=require("fs"); const [base,n]=process.env.BUILD_VERSION.split("-beta."); fs.writeFileSync("beta-linux.json",JSON.stringify({version:base,bundle:{linux:{rpm:{release:`0.beta.${n}`}}}}));'
+          npm run tauri -- build --no-bundle
+          npm run tauri -- bundle --bundles deb,rpm --config beta-linux.json
+          base="${BUILD_VERSION%-beta.*}"
+          number="${BUILD_VERSION##*-beta.}"
+          deb="$(find src-tauri/target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)"
+          test -n "$deb"
+          dpkg-deb -R "$deb" deb-beta
+          sed -i "s/^Version:.*/Version: ${base}~beta.${number}/" deb-beta/DEBIAN/control
+          mkdir -p linux-beta
+          dpkg-deb --build --root-owner-group deb-beta "linux-beta/coolapk-desktop_${BUILD_VERSION}_amd64.deb"
+          rpm="$(find src-tauri/target/release/bundle/rpm -maxdepth 1 -name '*.rpm' -print -quit)"
+          test -n "$rpm"
+          cp "$rpm" "linux-beta/coolapk-desktop-${BUILD_VERSION}-1.x86_64.rpm"
+          test "$(dpkg-deb -f linux-beta/*.deb Version)" = "${base}~beta.${number}"
+          test "$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' linux-beta/*.rpm)" = "${base}-0.beta.${number}"
+
+      - name: 上传 Linux 测试版系统安装包
+        if: ${{ runner.os == 'Linux' && inputs.build_version != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-beta-packages
+          path: linux-beta/*
+          if-no-files-found: error
 
       - name: 安装 AppImage 重打包工具
         if: ${{ runner.os == 'Linux' }}
@@ -281,12 +351,13 @@ jobs:
 
   ios-build:
     name: iOS ARM64 未签名 IPA
-    needs: []
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || inputs.build_version != '' }}
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.build_sha || github.sha }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v5
@@ -306,6 +377,11 @@ jobs:
 
       - name: 安装前端依赖
         run: npm ci
+
+      - name: 同步测试构建版本
+        if: ${{ inputs.build_version != '' }}
+        shell: bash
+        run: npm run version:set -- "$BUILD_VERSION" --beta
 
       - name: 同步标签版本号
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -390,11 +466,15 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSPhotoLibraryAddUsageDescription" "$app_plist" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :NSPhotoLibraryUsageDescription" "$app_plist" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :CFBundleLocalizations:0" "$app_plist" >/dev/null
+          expected_base="$(node -p 'require("./package.json").version.split("-beta.")[0]')"
+          expected_build="$(node -p 'require("./src-tauri/tauri.conf.json").bundle.iOS.bundleVersion')"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_plist")" = "$expected_base"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_plist")" = "$expected_build"
           echo "IPA 内 Info.plist 权限与本地化校验通过"
           rm -rf "$work"
 
           mkdir -p ios-release
-          ref_name="${GITHUB_REF_NAME//\//-}"
+          ref_name="${RELEASE_TAG//\//-}"
           cp "$ipa" "ios-release/coolapk-${ref_name}-ios-arm64-unsigned.ipa"
 
       - name: 上传 iOS 未签名 IPA
@@ -412,8 +492,7 @@ jobs:
   # 上游 Secrets 齐全时输出 true，行为与原来完全一致；补齐 Secrets 后无需再改代码。
   android-signing-check:
     name: 检查 Android 签名 Secrets
-    needs: []
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || inputs.build_version != '' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     outputs:
@@ -434,6 +513,7 @@ jobs:
           else
             echo "has_signing=false" >> "$GITHUB_OUTPUT"
             echo "缺少 Android Release 签名 Secrets，本次跳过 Android Release 构建。" >&2
+            if [[ -n "$BUILD_VERSION" ]]; then exit 1; fi
           fi
 
   android-build:
@@ -444,6 +524,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.build_sha || github.sha }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v5
@@ -478,6 +560,11 @@ jobs:
 
       - name: 安装前端依赖
         run: npm ci
+
+      - name: 同步测试构建版本
+        if: ${{ inputs.build_version != '' }}
+        shell: bash
+        run: npm run version:set -- "$BUILD_VERSION" --beta
 
       - name: 同步标签版本号
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -519,8 +606,12 @@ jobs:
           printf '%s\n' "$verification"
           grep -Fqx 'Verified using v1 scheme (JAR signing): true' <<< "$verification"
           grep -Fqx 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$verification"
-          cp "$apk" "android-release/coolapk-${GITHUB_REF_NAME}-android-arm64.apk"
-          cp "$aab" "android-release/coolapk-${GITHUB_REF_NAME}-android-arm64.aab"
+          expected_version="$(node -p 'require("./package.json").version')"
+          expected_code="$(node -p 'require("./src-tauri/tauri.conf.json").bundle.android.versionCode')"
+          badging="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")"
+          grep '^package:' <<< "$badging" | grep -F "versionName='$expected_version'" | grep -F "versionCode='$expected_code'"
+          cp "$apk" "android-release/coolapk-${RELEASE_TAG}-android-arm64.apk"
+          cp "$aab" "android-release/coolapk-${RELEASE_TAG}-android-arm64.aab"
 
       - name: 上传 Android Release 产物
         uses: actions/upload-artifact@v6

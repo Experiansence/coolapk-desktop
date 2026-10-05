@@ -30,7 +30,9 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["coolmarket"]
+        "schemes": [
+          "coolmarket"
+        ]
       }
     },
     "macos-fps": {
@@ -48,17 +50,27 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "bundleVersion": "130.9.99"
     },
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "headerImage": "icons/nsis-header.bmp",
         "sidebarImage": "icons/nsis-sidebar.bmp",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "displayLanguageSelector": false,
         "installMode": "currentUser"
       }
+    },
+    "android": {
+      "versionCode": 130000999
+    },
+    "iOS": {
+      "bundleVersion": "130.9.99"
     }
   }
 }

@@ -30,9 +30,13 @@ vi.mock('../api/coolapk', () => ({ CoolapkTauriAPI: {
   quitApp: mocks.quitApp,
 } }));
 vi.mock('../stores/auth', () => ({ useAuthStore: () => ({ initAuth: vi.fn() }) }));
-vi.mock('../stores/settings', () => ({ useSettingsStore: () => ({
+vi.mock('../stores/settings', async () => {
+  const { reactive } = await import('vue');
+  mocks.settings = reactive(mocks.settings);
+  return { useSettingsStore: () => ({
   settings: mocks.settings, flushSettings: mocks.flushSettings, refreshAutoZoom: vi.fn(),
-}) }));
+}) };
+});
 vi.mock('../stores/downloads', () => ({ useDownloadStore: () => ({ initialize: vi.fn() }) }));
 vi.mock('../stores/pageTabs', () => ({ usePageTabsStore: () => ({ getGeneration: () => 0, syncRoute: vi.fn() }) }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/home', fullPath: '/home' }) }));
@@ -58,6 +62,7 @@ describe('桌面自动更新交互', () => {
   let wrapper: ReturnType<typeof mountApp> | undefined;
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.settings.updateChannel = 'stable';
     mocks.platform.os = 'macos';
     mocks.platform.arch = 'aarch64';
     mocks.distribution.mockResolvedValue('installer');
@@ -148,5 +153,52 @@ describe('桌面自动更新交互', () => {
     wrapper = mountApp();
     await flushPromises();
     expect(wrapper.text()).toContain('已恢复旧版');
+  });
+
+  it('切回稳定版后清除已下载测试包并检查正式版', async () => {
+    mocks.settings.updateChannel = 'beta';
+    mocks.checkLatestRelease.mockResolvedValue({ hasNew: false, latestVersion: 'v1.30.0' });
+    localStorage.setItem('coolapk_pending_update', JSON.stringify({
+      version: '9.9.9-beta.1', path: '/cache/coolapk-desktop_9.9.9-beta.1_aarch64.dmg', packageType: 'installer',
+    }));
+    wrapper = mountApp();
+    await flushPromises();
+    expect(wrapper.text()).toContain('更新包已下载');
+    mocks.settings.updateChannel = 'stable';
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('更新包已下载');
+    expect(localStorage.getItem('coolapk_pending_update')).toBeNull();
+    expect(mocks.checkLatestRelease).toHaveBeenCalledWith('stable', undefined, 'installer');
+  });
+
+  it('稳定渠道启动时不恢复缓存测试包', async () => {
+    localStorage.setItem('coolapk_pending_update', JSON.stringify({
+      version: '9.9.9-beta.1', path: '/cache/coolapk-desktop_9.9.9-beta.1_aarch64.dmg', packageType: 'installer',
+    }));
+    wrapper = mountApp();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('更新包已下载');
+    expect(localStorage.getItem('coolapk_pending_update')).toBeNull();
+  });
+
+  it('下载途中关闭测试渠道后，不保存测试包并重新检查正式版', async () => {
+    let finishDownload!: (path: string) => void;
+    mocks.downloadUpdate.mockImplementation(() => new Promise<string>((resolve) => { finishDownload = resolve; }));
+    mocks.checkLatestRelease.mockImplementation(async (channel) => channel === 'beta' ? {
+      hasNew: true, latestVersion: 'v9.9.9-beta.1', installerUrl: 'beta-url',
+      installerName: 'coolapk-desktop_9.9.9-beta.1_aarch64.dmg', packageType: 'installer',
+    } : { hasNew: false, latestVersion: 'v1.30.0' });
+    wrapper = mountApp();
+    await flushPromises();
+    mocks.settings.updateChannel = 'beta';
+    await flushPromises();
+    expect(mocks.downloadUpdate).toHaveBeenCalledOnce();
+    mocks.settings.updateChannel = 'stable';
+    await flushPromises();
+    finishDownload('/cache/coolapk-desktop_9.9.9-beta.1_aarch64.dmg');
+    await flushPromises();
+    expect(localStorage.getItem('coolapk_pending_update')).toBeNull();
+    expect(wrapper.text()).not.toContain('更新包已下载');
+    expect(mocks.checkLatestRelease).toHaveBeenLastCalledWith('stable', undefined, 'installer');
   });
 });

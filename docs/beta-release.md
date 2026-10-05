@@ -1,0 +1,23 @@
+# 测试版本发布
+
+先将代码推送到 main，再在 GitHub Actions 中打开「发布测试版本」，选择 main，填写目标正式版本，例如 `1.31.0`，点击 Run workflow。
+
+工作流固定使用触发时 main 的提交，自动分配 `1.31.0-beta.1`、`1.31.0-beta.2` 等编号。目标必须高于 main 和已发布正式版，不能低于已存在的测试版目标。每个目标最多 998 个测试版，正式版保留最高安装编码。
+
+前端测试、类型检查、构建、Rust 检查与测试，以及全部平台构建成功后，工作流校验十二个更新包，生成 SHA256SUMS，创建仅包含六个版本文件的独立提交和带注释测试标签，再发布 GitHub Pre-release。版本提交不进入 main，不覆盖旧标签。任何平台失败、Android 签名缺失或产物不齐，都不会发布新的公开测试版。
+
+覆盖 Windows x64/ARM64 安装版和便携版、macOS Intel/Apple Silicon、Linux x64 的 AppImage/deb/rpm、Android ARM64 APK/AAB、iOS ARM64 未签名 IPA。Android 沿用现有 Release 签名 Secrets；iOS 需要用户自行签名安装，客户端提供发布页入口。
+
+用户在设置里开启「实验性功能」，将「更新渠道」切换为「测试版」。客户端立即检查，并继续使用启动检查、后台下载和安装提示。稳定渠道只接收正式版；测试渠道同时接收正式版和测试版，按版本号选择可用安装包。
+
+也可以直接点击侧栏底部「反馈 / 更新」下方的「测试版」快捷开关。开启时自动启用所需实验性功能；再次点击切回稳定渠道，按钮显示当前渠道状态，并与设置页面同步。
+
+切回稳定渠道会清除缓存测试包的待安装状态，下载途中完成的测试包也不会进入安装提示。已安装的测试版保留，等待同目标或更高的正式版，不自动降级。正式版本必须包含本次更新器和版本脚本改动，才能完整支持各平台从测试版返回正式版。
+
+版本脚本统一同步 Android versionCode 和 Apple CFBundleVersion。Linux deb 使用 `X.Y.Z~beta.N`，rpm 使用版本 `X.Y.Z`、Release `0.beta.N`，对外资源名仍采用完整 beta 版本；应用版本保持完整 beta，原生更新器校验系统包内部版本。
+
+正式版本继续执行 `npm run version:set -- X.Y.Z`，无需手工处理平台编码。测试构建执行 `npm run version:set -- X.Y.Z-beta.N --beta`；普通版本命令不会隐式生成测试版本。
+
+首次上线建议先发布包含本功能的正式客户端，再手动发布目标更高的测试版。已有旧客户端虽然有测试渠道入口，但缺少新的包版本校验和渠道缓存处理，需要先更新。
+
+本地验证：`node --test scripts/test-beta-release.mjs`、`npm run typecheck`、`npm test`、`npm run build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml --lib`、`git diff --check`。工作流语法可使用 actionlint 检查。各平台包构建和真机覆盖安装仍需由云端构建及实际设备验证。

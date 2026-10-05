@@ -1,0 +1,96 @@
+name: 发布测试版本
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: '目标正式版本，例如 1.31.0（自动生成 beta 编号）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# 按触发顺序发布，避免旧构建覆盖新构建或分配同一个编号。
+concurrency:
+  group: beta-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: 确定源码和测试版本
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: 限定 main 分支
+        env:
+          SELECTED_REF: ${{ github.ref }}
+        run: test "$SELECTED_REF" = refs/heads/main
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: 分配测试版本
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: node scripts/prepare-beta-release.mjs
+
+  build:
+    name: 全平台构建与检查
+    needs: prepare
+    uses: ./.github/workflows/build.yml
+    with:
+      build_version: ${{ needs.prepare.outputs.version }}
+      build_sha: ${{ needs.prepare.outputs.sha }}
+    secrets: inherit
+
+  publish:
+    name: 发布完整测试版
+    needs: [prepare, build]
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BETA_VERSION: ${{ needs.prepare.outputs.version }}
+      BETA_TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v7
+        with:
+          path: beta-artifacts
+      - name: 校验并整理全平台更新包
+        run: node scripts/collect-beta-assets.mjs
+      - name: 同步并检查版本文件
+        run: |
+          npm run version:set -- "$BETA_VERSION" --beta
+          git diff --check
+      - name: 创建独立版本提交与带注释标签
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$BETA_TAG"; then
+            echo "目标标签已存在，停止发布" >&2
+            exit 1
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package.json package-lock.json src/constants/version.ts src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "发布版本 $BETA_TAG"
+          git tag -a "$BETA_TAG" -m "发布版本 $BETA_TAG"
+          git push origin "refs/tags/$BETA_TAG"
+      - name: 上传草稿并完成发布
+        run: |
+          gh release create "$BETA_TAG" beta-release/* --draft --prerelease --latest=false --title "酷安测试版 $BETA_TAG" --notes-file beta-notes.md
+          gh release edit "$BETA_TAG" --draft=false --prerelease --latest=false
+          git ls-remote --exit-code --tags origin "refs/tags/$BETA_TAG^{}"

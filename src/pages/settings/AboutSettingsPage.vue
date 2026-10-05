@@ -15,6 +15,7 @@
           <p class="about-desc">
             基于 Tauri 2、Vue 3 与 Rust 构建的非官方酷安桌面客户端，数据来自酷安公开接口。
           </p>
+          <p v-if="buildCommit" class="about-desc">构建提交：{{ buildCommit }}</p>
         </div>
         <AppButton variant="secondary" size="sm" icon="fas fa-sync-alt" @click="checkUpdate">
           检查更新
@@ -117,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { APP_VERSION } from '../../constants/version';
 import { CoolapkTauriAPI } from '../../api/coolapk';
@@ -130,13 +131,14 @@ import { openFeedbackMessage } from '../../utils/feedback';
 const router = useRouter();
 const authStore = useAuthStore();
 const appVersion = APP_VERSION;
+const buildCommit = (import.meta.env.VITE_BUILD_COMMIT || '').slice(0, 8);
 const settingsStore = useSettingsStore();
 
 function handleFeedback() {
   openFeedbackMessage(router, authStore);
 }
 
-const channelLabel = settingsStore.settings.updateChannel === 'beta' ? '测试版渠道' : '稳定版';
+const channelLabel = computed(() => settingsStore.settings.updateChannel === 'beta' ? '测试版渠道' : '稳定版');
 
 const techStack = ['Tauri 2', 'Vue 3', 'TypeScript', 'Rust', 'Pinia'];
 

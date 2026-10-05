@@ -107,7 +107,7 @@
       <div class="app-info-card">
         <div class="app-info-top">
           <span class="app-name">{{ appDisplayName }}</span>
-          <span class="version-badge">v{{ appVersion }}</span>
+          <span class="version-badge" :title="`v${appVersion}`">v{{ appVersion }}</span>
         </div>
         <div class="app-info-actions">
           <button class="footer-action-btn feedback-btn" title="一键反馈问题或建议" @click="handleFeedback">
@@ -119,6 +119,17 @@
             <span>更新</span>
           </button>
         </div>
+        <button
+          type="button"
+          class="footer-action-btn beta-toggle-btn"
+          :class="{ 'is-enabled': betaEnabled }"
+          :aria-pressed="betaEnabled"
+          :title="betaEnabled ? '关闭测试版更新，切回稳定版渠道' : '开启测试版更新，提前体验新功能'"
+          @click="toggleBetaChannel"
+        >
+          <span class="beta-toggle-label"><i class="fas fa-flask" aria-hidden="true"></i>测试版</span>
+          <span class="beta-toggle-state">{{ betaEnabled ? '已开启' : '已关闭' }}<i :class="['fas', betaEnabled ? 'fa-toggle-on' : 'fa-toggle-off']" aria-hidden="true"></i></span>
+        </button>
       </div>
     </div>
   </aside>
@@ -143,6 +154,16 @@ const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const downloadStore = useDownloadStore();
 const appVersion = APP_VERSION;
+const betaEnabled = computed(() => settingsStore.settings.updateChannel === 'beta');
+
+function toggleBetaChannel() {
+  if (betaEnabled.value) {
+    settingsStore.settings.updateChannel = 'stable';
+  } else {
+    settingsStore.settings.experimentalFeatures = true;
+    settingsStore.settings.updateChannel = 'beta';
+  }
+}
 const appDisplayName = computed(() => /android|iphone|ipad|ipod/i.test(navigator.userAgent) ? '酷安' : '酷安桌面版');
 
 const props = withDefaults(defineProps<{ mobileOpen?: boolean; mobileWindowControls?: boolean }>(), { mobileOpen: false, mobileWindowControls: false });
@@ -565,6 +586,8 @@ function handleLogout() {
 
 .app-info-top {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
   align-items: center;
   justify-content: space-between;
 }
@@ -577,6 +600,8 @@ function handleLogout() {
 }
 
 .version-badge {
+  max-width: 100%;
+  box-sizing: border-box;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -584,7 +609,8 @@ function handleLogout() {
   padding: 1px 5px;
   border-radius: 4px;
   line-height: 1.2;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .app-info-actions {
@@ -615,6 +641,42 @@ function handleLogout() {
   color: var(--text-secondary);
   background-color: var(--bg-hover, rgba(0, 0, 0, 0.05));
   border: 1px solid var(--border-light, rgba(0, 0, 0, 0.04));
+}
+
+.beta-toggle-btn {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 26px;
+  color: var(--text-secondary);
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.04));
+}
+
+.beta-toggle-label,
+.beta-toggle-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.beta-toggle-state {
+  font-size: 10px;
+}
+
+.beta-toggle-state i {
+  font-size: 15px;
+}
+
+.beta-toggle-btn:hover,
+.beta-toggle-btn.is-enabled {
+  color: var(--brand-primary);
+  background-color: var(--brand-soft);
+  border-color: var(--brand-primary);
+}
+
+.beta-toggle-btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }
 
 .feedback-btn .action-icon {

@@ -12,6 +12,22 @@ fn package_version(name: &str) -> Option<semver::Version> {
     semver::Version::parse(value.trim_start_matches('v')).ok()
 }
 
+// 系统包管理器采用自己的预发布排序，确保正式版可以接替同目标的测试版。
+#[cfg(any(target_os = "linux", test))]
+fn system_package_version(version: &str, kind: &str) -> String {
+    if let Some((base, number)) = version.split_once("-beta.") {
+        if kind == "deb" {
+            format!("{base}~beta.{number}")
+        } else {
+            format!("{base}-0.beta.{number}")
+        }
+    } else if kind == "rpm" {
+        format!("{version}-1")
+    } else {
+        version.to_string()
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn matches_arch(name: &str, arch: &str) -> bool {
     let aliases: &[&str] = match arch {
@@ -335,7 +351,7 @@ mod native {
         } else {
             output(
                 system_command("/usr/bin/rpm")
-                    .args(["-qp", "--queryformat", "%{NAME}\n%{VERSION}\n%{ARCH}"])
+                    .args(["-qp", "--queryformat", "%{NAME}\n%{VERSION}-%{RELEASE}\n%{ARCH}"])
                     .arg(package),
             )?
             .lines()
@@ -349,7 +365,8 @@ mod native {
             (_, "aarch64") => "aarch64",
             _ => "unknown",
         };
-        if metadata != ["coolapk-desktop", expected_version, arch] {
+        let system_version = super::system_package_version(expected_version, kind);
+        if metadata != ["coolapk-desktop", system_version.as_str(), arch] {
             return Err("安装包的名称、版本或架构与当前更新不一致".to_string());
         }
         let mut install = system_command("/usr/bin/pkexec");
@@ -496,6 +513,14 @@ mod tests {
             "x86_64"
         ));
         assert!(!matches_arch("coolapk-desktop_1.28.0_amd64.deb", "unknown"));
+    }
+
+    #[test]
+    fn beta_system_package_versions_allow_final_release_upgrade() {
+        assert_eq!(system_package_version("1.31.0-beta.101", "deb"), "1.31.0~beta.101");
+        assert_eq!(system_package_version("1.31.0-beta.101", "rpm"), "1.31.0-0.beta.101");
+        assert_eq!(system_package_version("1.31.0", "deb"), "1.31.0");
+        assert_eq!(system_package_version("1.31.0", "rpm"), "1.31.0-1");
     }
 
     #[test]

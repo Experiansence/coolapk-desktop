@@ -175,19 +175,35 @@ export function normalizeVersion(value: string): string | null {
   return `${parsed.major}.${parsed.minor}.${parsed.patch}${suffix}`;
 }
 
-async function pickRelease(channel: UpdateChannel): Promise<any> {
+export function isVersionAllowedInChannel(version: string, channel: UpdateChannel): boolean {
+  const parsed = parseVersion(version);
+  return Boolean(parsed && (channel === 'beta' || parsed.prerelease.length === 0));
+}
+
+async function pickRelease(channel: UpdateChannel, platform: PlatformInfo, packageType: UpdatePackageType): Promise<any> {
   const headers = { Accept: 'application/vnd.github.v3+json' };
   if (channel === 'beta') {
-    // 测试版渠道：列出最近发布（含预发布），取最新一条
-    const response = await fetch(`${RELEASES_URL}?per_page=30`, { headers });
+    // 稳定版单独读取，避免大量测试版挤出列表窗口。
+    const response = await fetch(`${RELEASES_URL}?per_page=100`, { headers });
     if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
     const releases = await response.json();
-    if (!Array.isArray(releases) || releases.length === 0) throw new Error('未获取到任何发布版本');
-    return releases[0];
+    if (!Array.isArray(releases)) throw new Error('发布列表格式无效');
+    const stableResponse = await fetch(`${RELEASES_URL}/latest`, { headers });
+    if (stableResponse.ok) releases.push(await stableResponse.json());
+    else if (stableResponse.status !== 404) throw new Error(`GitHub API HTTP ${stableResponse.status}`);
+    const candidates = releases.filter((release) => !release.draft && normalizeVersion(release.tag_name)
+      && (!release.prerelease || /^v?\d+\.\d+\.\d+-beta\.[1-9]\d*$/.test(release.tag_name)));
+    candidates.sort((a, b) => isNewerVersion(a.tag_name, b.tag_name) ? -1 : isNewerVersion(b.tag_name, a.tag_name) ? 1 : 0);
+    if (!candidates.length) throw new Error('未获取到任何发布版本');
+    return candidates.find((release) => selectReleaseAsset(release, platform, packageType)) || candidates[0];
   }
   const response = await fetch(`${RELEASES_URL}/latest`, { headers });
   if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
-  return await response.json();
+  const release = await response.json();
+  if (release.draft || release.prerelease || !isVersionAllowedInChannel(release.tag_name, 'stable')) {
+    throw new Error('稳定版发布信息无效');
+  }
+  return release;
 }
 
 export function formatReleaseDate(dateStr?: string): string {
@@ -216,19 +232,10 @@ export function getCurrentVersionChangelog(version = APP_VERSION, remoteBody?: s
   return '暂无当前版本的更新日志。';
 }
 
-export async function checkLatestRelease(
-  channel: UpdateChannel = 'stable',
-  platform?: PlatformInfo,
-  packageType: UpdatePackageType = 'installer'
-): Promise<UpdateInfo> {
-  const release = await pickRelease(channel);
+function selectReleaseAsset(release: any, currentPlatform: PlatformInfo, packageType: UpdatePackageType): InstallerAsset | undefined {
   const tagName = release.tag_name || '';
-  const hasNew = Boolean(normalizeVersion(tagName)) && isNewerVersion(tagName);
-
   // 按平台、发行方式、架构和 release 版本选择更新包。
-  let installerUrl: string | undefined;
   const assets: InstallerAsset[] = release.assets || [];
-  const currentPlatform = platform ?? await getPlatformInfo();
   const candidates = assets.filter((asset) => {
     if (!asset.name || !asset.browser_download_url) return false;
     if (currentPlatform.os === 'macos' || currentPlatform.os === 'linux') {
@@ -259,7 +266,22 @@ export async function checkLatestRelease(
     : packageType === 'portable'
     ? selectPortableAsset(validCandidates, currentPlatform)
     : selectInstallerAsset(validCandidates, currentPlatform));
-  installerUrl = selectedAsset?.browser_download_url;
+  return selectedAsset;
+
+}
+
+export async function checkLatestRelease(
+  channel: UpdateChannel = 'stable',
+  platform?: PlatformInfo,
+  packageType: UpdatePackageType = 'installer'
+): Promise<UpdateInfo> {
+  const currentPlatform = platform ?? await getPlatformInfo();
+  const release = await pickRelease(channel, currentPlatform, packageType);
+  const tagName = release.tag_name || '';
+  const hasNew = Boolean(normalizeVersion(tagName)) && isNewerVersion(tagName);
+
+  const selectedAsset = selectReleaseAsset(release, currentPlatform, packageType);
+  const installerUrl = selectedAsset?.browser_download_url;
 
   const releaseNotes = hasNew
     ? (release.body ? release.body.trim() : '暂无特别更新说明')

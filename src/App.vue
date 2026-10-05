@@ -183,6 +183,7 @@ import {
   isUpdateAssetCompatible,
   isUpdatePackageType,
   isNewerVersion,
+  isVersionAllowedInChannel,
   normalizeVersion,
   shouldReplaceDownloadedUpdate,
   versionFromAssetName,
@@ -265,6 +266,18 @@ let unregisterSelectionClear: (() => void) | null = null;
 let unregisterViewport: (() => void) | null = null;
 let unregisterKeyboardAssist: (() => void) | null = null;
 let updateDownloadInFlight = false;
+let updateChannelEpoch = 0;
+
+watch(() => settingsStore.settings.updateChannel, () => {
+  updateChannelEpoch += 1;
+  updateInfo.value = null;
+  if (readyInfo.value && !isVersionAllowedInChannel(readyInfo.value.version, settingsStore.settings.updateChannel)) {
+    localStorage.removeItem(PENDING_UPDATE_KEY);
+    readyInfo.value = null;
+    readyUpdateVisible.value = false;
+  }
+  void checkForUpdate();
+});
 
 // 所有路由入口（侧边栏、内容卡片、深链和快捷键）统一在这里登记为可见标签页。
 watch(() => route.fullPath, () => pageTabsStore.syncRoute(route), { immediate: true });
@@ -276,6 +289,8 @@ function formatBytes(bytes: number) {
 }
 
 async function checkForUpdate(manual = false) {
+  const channel = settingsStore.settings.updateChannel;
+  const epoch = updateChannelEpoch;
   logDiagnostic('info', 'update', 'check_started', `manual=${manual}`);
   try {
     await refreshUpdatePlatform();
@@ -283,10 +298,11 @@ async function checkForUpdate(manual = false) {
       await restorePendingUpdate();
     }
     const result = await checkLatestRelease(
-      settingsStore.settings.updateChannel,
+      channel,
       undefined,
       updatePackageType.value
     );
+    if (epoch !== updateChannelEpoch) return;
     logDiagnostic('info', 'update', 'check_finished', `has_new=${result.hasNew} has_package=${Boolean(result.installerUrl)}`);
     const latestVersion = normalizeVersion(result.latestVersion || '') || '';
     const ignoredVersion = normalizeVersion(settingsStore.settings.ignoredUpdateVersion) || '';
@@ -337,6 +353,7 @@ async function checkForUpdate(manual = false) {
     }
     if (manual || result.hasNew) updateInfo.value = result;
   } catch {
+    if (epoch !== updateChannelEpoch) return;
     logDiagnostic('warn', 'update', 'check_failed');
     if (manual && readyInfo.value) {
       updateInfo.value = null;
@@ -368,6 +385,8 @@ async function refreshUpdatePlatform() {
 
 async function startBackgroundDownload(info: UpdateInfo) {
   const url = info.installerUrl;
+  const epoch = updateChannelEpoch;
+  if (!isVersionAllowedInChannel(info.latestVersion || '', settingsStore.settings.updateChannel)) return;
   // 自动检查、手动检查和按钮点击可能在同一时间触发；同一应用只允许一个下载任务，
   // 否则多个任务会同时写同一个安装包并让进度事件互相覆盖。
   if (readyInfo.value) {
@@ -405,6 +424,12 @@ async function startBackgroundDownload(info: UpdateInfo) {
     });
     logDiagnostic('info', 'update', 'download_finished');
     const downloadedVersion = normalizeVersion(info.latestVersion || '') || info.latestVersion || '';
+    if (!isVersionAllowedInChannel(downloadedVersion, settingsStore.settings.updateChannel)) {
+      downloading.value = null;
+      downloadNotice.value = null;
+      await CoolapkTauriAPI.cleanupUpdatePackages();
+      return;
+    }
     try {
       await CoolapkTauriAPI.cleanupUpdatePackages(path);
     } catch (cleanupError) {
@@ -412,6 +437,7 @@ async function startBackgroundDownload(info: UpdateInfo) {
     }
     downloading.value = null;
     downloadNotice.value = null;
+    if (!isVersionAllowedInChannel(downloadedVersion, settingsStore.settings.updateChannel)) return;
     readyInfo.value = {
       version: downloadedVersion,
       path,
@@ -438,6 +464,7 @@ async function startBackgroundDownload(info: UpdateInfo) {
   } finally {
     if (unlisten) await unlisten();
     updateDownloadInFlight = false;
+    if (epoch !== updateChannelEpoch) void checkForUpdate();
   }
 }
 
@@ -445,7 +472,8 @@ function installNow() {
   const info = readyInfo.value;
   if (!canInstallInApp.value || !info || installingUpdate.value) return;
   // 安装前再次校验：本地已不低于该版本时放弃安装旧包（防降级）
-  if (info.version && !isNewerVersion(info.version)) {
+  if (info.version && (!isNewerVersion(info.version)
+    || !isVersionAllowedInChannel(info.version, settingsStore.settings.updateChannel))) {
     localStorage.removeItem(PENDING_UPDATE_KEY);
     readyInfo.value = null;
     readyUpdateVisible.value = false;
@@ -458,6 +486,10 @@ function installNow() {
   void (async () => {
     try {
       await settingsStore.flushSettings();
+      if (!isVersionAllowedInChannel(info.version, settingsStore.settings.updateChannel)) {
+        installingUpdate.value = false;
+        return;
+      }
       const result = await CoolapkTauriAPI.installUpdate(info.path, info.packageType === 'portable');
       logDiagnostic('info', 'update', 'installer_result', String(result));
       if (isAndroid.value) {
@@ -523,7 +555,8 @@ async function restorePendingUpdate(): Promise<boolean> {
       ? pending.fileName
       : path.split(/[\\/]/).pop() || '';
     const fileVersion = versionFromAssetName(fileName);
-    if (!version || !path || fileVersion !== version || !isNewerVersion(version)) {
+    if (!version || !path || fileVersion !== version || !isNewerVersion(version)
+      || !isVersionAllowedInChannel(version, settingsStore.settings.updateChannel)) {
       await clearInvalidPending();
       return false;
     }
@@ -545,6 +578,7 @@ async function restorePendingUpdate(): Promise<boolean> {
       return false;
     }
     const releaseNotes = typeof pending.releaseNotes === 'string' ? pending.releaseNotes.trim() : '';
+    if (!isVersionAllowedInChannel(version, settingsStore.settings.updateChannel)) return false;
     readyInfo.value = { version, path, fileName, packageType, releaseNotes };
     readyUpdateVisible.value = true;
     try {
