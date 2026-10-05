@@ -66,6 +66,37 @@ describe('系统浏览器打开链接', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it.each(['花粉Alive', 'd2n9_S6h3e'])('@用户名链接精确查出 UID 后打开主页：%s', async username => {
+    vi.mocked(invoke).mockResolvedValue({ code: 200, data: [
+      { uid: '11', username: `${username}相似名字` },
+      { uid: '22', username },
+    ] });
+    await expect(CoolapkTauriAPI.openUrl(`https://www.coolapk.com/u/${encodeURIComponent(username)}`))
+      .resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith('search_users', { query: username, page: 1 });
+    expect(routerMocks.push).toHaveBeenCalledExactlyOnceWith('/user/22');
+  });
+
+  it('没有精确匹配或有效 UID 时提示，不打开相似用户或官网分享页', async () => {
+    vi.mocked(invoke).mockResolvedValue({ code: 200, data: [
+      { uid: '11', username: '花粉Alive2' },
+      { uid: '0', username: '花粉Alive' },
+    ] });
+    await expect(CoolapkTauriAPI.openUrl('https://www.coolapk.com/u/花粉Alive')).resolves.toBe(false);
+    expect(routerMocks.push).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('未找到用户'), 'warning');
+  });
+
+  it('查找用户失败时提示并允许再次点击重试', async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error('网络错误'));
+    await expect(CoolapkTauriAPI.openUrl('https://www.coolapk.com/u/花粉Alive')).resolves.toBe(false);
+    expect(routerMocks.push).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('用户主页打开失败，请稍后重试。', 'error');
+    vi.mocked(invoke).mockResolvedValue({ code: 200, data: [{ uid: '22', username: '花粉Alive' }] });
+    await expect(CoolapkTauriAPI.openUrl('https://www.coolapk.com/u/花粉Alive')).resolves.toBe(true);
+    expect(routerMocks.push).toHaveBeenCalledWith('/user/22');
+  });
+
   it('未适配的酷安网页可继续应用内查看', async () => {
     await CoolapkTauriAPI.openUrl('https://account.coolapk.com/');
     expect(routerMocks.push).toHaveBeenCalledWith({ path: '/external', query: { url: 'https://account.coolapk.com/' } });

@@ -2,7 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PublishOptions } from '../types/publish';
 import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
-import { isCoolapkWebUrl, normalizeCoolapkRoute } from '../utils/coolapkRoute';
+import { getCoolapkUserLinkName, isCoolapkWebUrl, normalizeCoolapkRoute } from '../utils/coolapkRoute';
+import { normalizeUserUid } from '../utils/userRoute';
 import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
 import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
@@ -1391,6 +1392,23 @@ export class CoolapkTauriAPI {
     if (url.startsWith('//')) url = `https:${url}`;
     // 站外域名直接调起系统浏览器，不入路由、不抓取外部网页，也不受打开方式设置影响。
     if (mode === 'internal' && isCoolapkWebUrl(url)) {
+      const username = getCoolapkUserLinkName(url);
+      if (username) {
+        try {
+          const result = await this.searchUsers(username);
+          const users = Array.isArray(result?.data) ? result.data : [];
+          const user = users.find((item: any) => item.username === username && normalizeUserUid(item.uid));
+          if (!user) {
+            showToast(`未找到用户「${username}」，请在用户搜索中确认。`, 'warning');
+            return false;
+          }
+          await router.push(`/user/${normalizeUserUid(user.uid)}`);
+          return true;
+        } catch {
+          showToast('用户主页打开失败，请稍后重试。', 'error');
+          return false;
+        }
+      }
       // 酷安站内深链优先交给桌面原生页面处理，避免把 feed、话题、用户、应用、产品
       // 等酷安内容降级成抓取后的纯文本网页。
       const nativeRoute = normalizeCoolapkRoute(url);

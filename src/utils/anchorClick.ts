@@ -1,7 +1,7 @@
 import { router } from '../router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { useSettingsStore } from '../stores/settings';
-import { normalizeCoolapkRoute } from './coolapkRoute';
+import { getCoolapkUserLinkName, normalizeCoolapkRoute } from './coolapkRoute';
 import { openFeedDetail } from './feedNavigation';
 
 /**
@@ -29,6 +29,11 @@ export function handleAnchorClick(e: Event, feedId?: string | number) {
   const feedMatch = href.match(/^\/feed\/(\d+)/);
   if (feedMatch?.[1]) {
     openFeedDetail(router, feedMatch[1]);
+    return;
+  }
+
+  if (getCoolapkUserLinkName(href)) {
+    void CoolapkTauriAPI.openUrl(new URL(href, 'https://www.coolapk.com').href, 'internal');
     return;
   }
 

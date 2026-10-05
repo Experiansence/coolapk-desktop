@@ -210,6 +210,19 @@ function normalizeCoolapkProductSelectorRoute(href: string): string | null {
   return `/product-selector${match[1] ? `?${match[1]}` : ''}`;
 }
 
+/** 官网 @链接可能使用用户名，必须先查出 UID 才能进入本地主页。 */
+export function getCoolapkUserLinkName(href: string): string | null {
+  const path = extractCoolapkPath(href);
+  const match = path?.match(/^\/u\/([^/?#]+)\/?(?:\?[^#]*)?$/i);
+  if (!match) return null;
+  try {
+    const name = decodeURIComponent(match[1]);
+    return name.trim() && !/^\d+$/.test(name) && !/[\/?#\u0000-\u001f]/.test(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeCoolapkUserRoute(href: string): string | null {
   const match = href.match(/^\/(?:u|user)\/([^/?#]+)(?:\?([^#]*))?$/i);
   if (!match) return null;

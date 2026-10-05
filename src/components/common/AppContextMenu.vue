@@ -525,7 +525,7 @@ function openLink(url: string) {
   }
   const path = new URL(url, window.location.origin).pathname;
   if (path.startsWith('/u/')) {
-    router.push(`/user/${path.slice(3)}`);
+    void CoolapkTauriAPI.openUrl(new URL(url, 'https://www.coolapk.com').href, 'internal');
     return;
   }
   if (path.startsWith('/t/')) {

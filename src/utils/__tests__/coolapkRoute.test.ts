@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeCoolapkAppRoute, normalizeCoolapkDeepLink, normalizeCoolapkFeedLink, normalizeCoolapkPageRoute, normalizeCoolapkRoute } from '../coolapkRoute';
+import { getCoolapkUserLinkName, normalizeCoolapkAppRoute, normalizeCoolapkDeepLink, normalizeCoolapkFeedLink, normalizeCoolapkPageRoute, normalizeCoolapkRoute } from '../coolapkRoute';
 
 describe('酷安应用路由', () => {
   it('将应用详情查询链接转换为桌面端路由', () => {
@@ -103,6 +103,15 @@ describe('酷安站内路由', () => {
 
   it('不把系统通知的 /u/0 当成普通用户页', () => {
     expect(normalizeCoolapkRoute('/u/0')).toBeNull();
+  });
+
+  it('识别需要解析 UID 的用户名链接，拒绝外站、占位 UID 和错误编码', () => {
+    expect(getCoolapkUserLinkName('/u/花粉Alive')).toBe('花粉Alive');
+    expect(getCoolapkUserLinkName('https://m.coolapk.com/u/d2n9_S6h3e')).toBe('d2n9_S6h3e');
+    expect(getCoolapkUserLinkName('/u/%E8%8A%B1%E7%B2%89Alive')).toBe('花粉Alive');
+    for (const url of ['/u/0', '/u/123456', '/u/%E8', '/u/a%2Fb', 'https://evil.com/u/花粉Alive']) {
+      expect(getCoolapkUserLinkName(url)).toBeNull();
+    }
   });
 
   it('不把用户名当成用户 UID 拼成本地用户页', () => {
