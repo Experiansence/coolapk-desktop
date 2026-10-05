@@ -7,6 +7,61 @@ import { spawnSync } from 'node:child_process';
 import { allocateBetaVersion, parseReleaseVersion, resolveBetaTarget } from './release-version.mjs';
 import { readReleaseTags } from './release-tags.mjs';
 import { pruneBetaReleases } from './prune-beta-releases.mjs';
+import { createBetaTag } from './create-beta-tag.mjs';
+
+test('测试标签直接指向原源码，不提交临时 beta 版本，也不改动 main', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'coolapk-beta-tag-'));
+  const repository = join(dir, 'checkout');
+  const remote = join(dir, 'remote.git');
+  mkdirSync(repository);
+  const run = (command, args, options) => {
+    const result = spawnSync(command, args, { ...options, cwd: repository });
+    if (result.status !== 0) throw new Error(result.stderr);
+    return result.stdout;
+  };
+  const git = (...args) => run('git', args, { encoding: 'utf8' }).trim();
+  try {
+    git('init');
+    git('checkout', '-b', 'main');
+    git('config', 'user.name', 'Beta test');
+    git('config', 'user.email', 'beta@example.invalid');
+    git('config', 'commit.gpgsign', 'false');
+    git('config', 'tag.gpgsign', 'false');
+    writeFileSync(join(repository, 'package.json'), '{"version":"1.30.0"}\n');
+    git('add', 'package.json');
+    git('commit', '-m', '源码提交');
+    const sourceSha = git('rev-parse', 'HEAD');
+    git('init', '--bare', remote);
+    git('remote', 'add', 'origin', remote);
+    git('push', 'origin', 'main');
+    writeFileSync(join(repository, 'package.json'), '{"version":"1.31.0-beta.1"}\n');
+    assert.equal(createBetaTag('v1.31.0-beta.1', sourceSha, run), sourceSha);
+    assert.equal(git('rev-parse', 'HEAD'), sourceSha);
+    assert.equal(git('rev-list', '--count', 'HEAD'), '1');
+    assert.equal(git('rev-parse', 'v1.31.0-beta.1^{}'), sourceSha);
+    assert.equal(git('cat-file', '-t', 'v1.31.0-beta.1'), 'tag');
+    assert.equal(JSON.parse(git('show', 'v1.31.0-beta.1:package.json')).version, '1.30.0');
+    assert.equal(JSON.parse(readFileSync(join(repository, 'package.json'))).version, '1.31.0-beta.1');
+    assert.ok(git('ls-remote', 'origin', 'refs/heads/main').startsWith(sourceSha));
+    assert.throws(() => createBetaTag('v1.31.0-beta.1', sourceSha, run), /已存在/);
+    assert.throws(() => createBetaTag('v1.31.0-beta.2', '0'.repeat(40), run), /不一致/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('远端已有测试标签或查询失败时停止，不覆盖标签', () => {
+  const sha = 'a'.repeat(40);
+  for (const offline of [false, true]) {
+    assert.throws(() => createBetaTag('v1.31.0-beta.1', sha, (_, args) => {
+      if (args[0] === 'rev-parse') return sha;
+      if (args[0] === 'tag' && args[1] === '--list') return '';
+      assert.equal(args[0], 'ls-remote');
+      if (offline) throw new Error('offline');
+      return `${sha}\trefs/tags/v1.31.0-beta.1`;
+    }), offline ? /offline/ : /已存在/);
+  }
+});
 
 test('新测试版公开完整后仅删除更旧的 beta Release，保留正式版和所有标签', () => {
   const releases = [

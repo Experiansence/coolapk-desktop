@@ -1,8 +1,6 @@
 # 测试版本发布
 
-首次使用前，需要配置仓库 Actions Secret `BETA_RELEASE_TOKEN`。在 GitHub 创建 fine-grained Personal Access Token，仅选择 `coolapk-desktop` 仓库，Repository permissions 中将 **Contents** 和 **Workflows** 都设为 **Read and write**，再将令牌保存到仓库 Settings → Secrets and variables → Actions。不要把令牌写进代码、日志或聊天。
-
-默认 `GITHUB_TOKEN` 缺少推送工作流文件所需权限，独立测试版本提交包含源码中的 `.github/workflows` 文件时，GitHub 可能拒绝创建标签。专用令牌只用于发布 job 的 checkout 和 Git 标签推送，其他 job 及 Release API 继续使用默认令牌。缺少 Secret 时在构建前停止；令牌过期、权限不足或待审批时仍需更新凭据。配置后从 main 重新触发工作流，旧运行的失败任务重跑仍使用旧工作流定义。
+测试发布使用默认 `GITHUB_TOKEN` 的 `contents: write` 权限，不需要专用 `BETA_RELEASE_TOKEN`。测试标签直接指向触发时已存在的 main 源码提交，不额外创建版本提交。流程更新后从 main 重新触发工作流，旧运行的失败任务重跑仍使用旧工作流定义。
 
 先将代码推送到 main，再在 GitHub Actions 中打开「发布测试版本」，选择 main，在「版本增量」下拉框选择 `+0.0.1` 或 `+0.1`，点击 Run workflow。默认选择 `+0.0.1`，无需填写目标版本。
 
@@ -12,7 +10,7 @@
 
 工作流固定使用触发时 main 的提交，自动分配 `1.31.0-beta.1`、`1.31.0-beta.2` 等编号。目标必须高于 main 和已发布正式版，不能低于已存在的测试版目标。每个目标最多 998 个测试版，正式版保留最高安装编码。
 
-前端测试、类型检查、构建、Rust 检查与测试，以及全部平台构建成功后，工作流校验十二个更新包，生成 SHA256SUMS，创建仅包含六个版本文件的独立提交和带注释测试标签，再发布 GitHub Pre-release。版本提交不进入 main，不覆盖旧标签。任何平台失败、Android 签名缺失或产物不齐，都不会发布新的公开测试版。
+前端测试、类型检查、构建、Rust 检查与测试，以及全部平台构建成功后，工作流校验十二个更新包，生成 SHA256SUMS，为触发时的 main 源码 SHA 创建带注释测试标签，再发布 GitHub Pre-release。beta 版本号仅同步到临时构建环境及安装包，不创建版本提交、不修改 main、不覆盖旧标签。标签中的版本文件保持该源码提交的正式版本号；从标签自行构建测试包时先执行 `npm run version:set -- X.Y.Z-beta.N --beta`。任何平台失败、Android 签名缺失或产物不齐，都不会发布新的公开测试版。
 
 覆盖 Windows x64/ARM64 安装版和便携版、macOS Intel/Apple Silicon、Linux x64 的 AppImage/deb/rpm、Android ARM64 APK/AAB、iOS ARM64 未签名 IPA。Android 沿用现有 Release 签名 Secrets；iOS 需要用户自行签名安装，客户端提供发布页入口。
 
