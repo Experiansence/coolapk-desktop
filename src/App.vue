@@ -23,6 +23,7 @@
     <AppConfirmHost />
     <AppContextMenu />
     <ShuzilmDeviceGuideModal />
+    <EquipmentProductPicker />
 
     <AppDialog :is-open="Boolean(updateInfo)" :title="updateInfo?.hasNew ? '发现新版本' : '检查更新'" :width="540" @close="updateInfo = null">
       <div v-if="updateInfo" class="startup-update">
@@ -161,6 +162,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import EquipmentProductPicker from './components/profile/EquipmentProductPicker.vue';
 import { useRoute } from 'vue-router';
 import { listen } from '@tauri-apps/api/event';
 import AppShell from './components/layout/AppShell.vue';

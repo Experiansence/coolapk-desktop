@@ -72,6 +72,34 @@ describe('系统浏览器打开链接', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it.each(['editProductOwner', 'productOwnerShare'])('装备操作 %s 使用完整内置 WebView', async method => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    const url = `https://m.coolapk.com/mp/do?c=product&m=${method}`;
+    await CoolapkTauriAPI.openEquipmentWebview(url);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('open_url', { url, mode: 'internal' });
+    expect(routerMocks.push).not.toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://m.coolapk.com.evil.com/mp/do?c=product&m=editProductOwner',
+    'https://evil.com/mp/do?c=product&m=editProductOwner',
+    'https://m.coolapk.com/mp/do?c=user&m=editProductOwner',
+    'https://m.coolapk.com/mp/do?c=product&m=delete',
+  ])('装备操作拒绝非指定页面：%s', async url => {
+    await expect(CoolapkTauriAPI.openEquipmentWebview(url)).rejects.toThrow('无效的装备页面链接');
+    expect(invoke).not.toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('装备内置窗口创建失败时保留错误，不回退到系统浏览器', async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error('窗口创建失败'));
+    await expect(CoolapkTauriAPI.openEquipmentWebview('https://m.coolapk.com/mp/do?c=product&m=editProductOwner'))
+      .rejects.toThrow('窗口创建失败');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
   it('原生打开失败时提示默认浏览器设置并提供复制入口，不产生拒绝或退回 WebView', async () => {
     vi.mocked(invoke).mockRejectedValue('未安装可打开链接的应用');
     await expect(CoolapkTauriAPI.openUrl('https://example.com/article', 'system'))

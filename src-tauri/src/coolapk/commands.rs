@@ -3185,7 +3185,42 @@ pub async fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) 
     let title = parsed.host_str().unwrap_or("链接").to_string();
 
     // 移动端 UA：酷安网页（如账号安全页）在桌面 UA 下会白屏，与登录窗口同一套已验证可用的 UA
-    let browser = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(parsed))
+    let equipment_editor = is_equipment_action_url(&parsed, "editProductOwner");
+    let equipment_page = equipment_editor || is_equipment_action_url(&parsed, "productOwnerShare");
+    // 先创建空白窗口并同步登录 Cookie，首次请求就必须携带当前账号身份。
+    let initial_url = if equipment_page { reqwest::Url::parse("about:blank").unwrap() } else { parsed.clone() };
+    let navigation_app = app.clone();
+    let editor_label = label.clone();
+    let browser = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(initial_url))
+        .initialization_script(r#"
+            if (location.href === 'about:blank') {
+                const showLoading = () => {
+                    document.title = '正在打开装备页面';
+                    const body = document.body || document.documentElement.appendChild(document.createElement('body'));
+                    body.style.cssText = 'font:16px system-ui;padding:48px;color:#333;background:#fff';
+                    body.textContent = '正在同步登录状态并打开装备页面…';
+                };
+                if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showLoading, { once: true });
+                else showLoading();
+            }
+        "#)
+        .on_navigation(move |url| {
+            if equipment_editor && is_equipment_action_url(url, "addProductOwner") {
+                let app = navigation_app.clone();
+                let window_label = editor_label.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(main) = app.get_webview_window("main") {
+                        if let Err(error) = main.emit("equipment-product-picker", json!({ "windowLabel": window_label })) {
+                            log::warn!("装备产品选择器打开失败: {error}");
+                            return;
+                        }
+                        let _ = main.set_focus();
+                    }
+                });
+                return false;
+            }
+            true
+        })
         .title(title)
         .user_agent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1")
         .inner_size(1100.0, 780.0);
@@ -3193,11 +3228,255 @@ pub async fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) 
     let browser = browser.center();
     #[cfg(desktop)]
     let browser = browser.decorations(true);
-    browser
+    let window = browser
         .visible(true)
         .build()
         .map_err(|e| e.to_string())?;
+    if equipment_page {
+        log::info!("equipment.window_created");
+        // 焦点请求可能被系统拒绝，但不应因此关闭已经创建的窗口。
+        let _ = window.set_focus();
+        let cookie = app.state::<AppState>().client.get_user_cookie();
+        let result = async {
+            tokio::time::timeout(Duration::from_secs(10), sync_equipment_webview_cookie(&window, cookie.as_deref()))
+                .await.map_err(|_| "装备窗口登录态同步超时，请关闭该窗口后重新尝试".to_string())??;
+            window.navigate(parsed).map_err(|_| "无法加载装备页面".to_string())?;
+            let _ = window.set_focus();
+            Ok::<(), String>(())
+        }.await;
+        if let Err(message) = &result {
+            log::warn!("equipment.window_open_failed reason={message}");
+            let _ = window.eval(&equipment_window_error_script(message));
+        }
+        result?;
+    }
     Ok(())
+}
+
+fn equipment_window_error_script(message: &str) -> String {
+    let message = serde_json::to_string(message).unwrap();
+    format!("document.title = '装备页面打开失败'; const body = document.body || document.documentElement.appendChild(document.createElement('body')); body.style.cssText = 'font:16px system-ui;padding:48px;color:#333;background:#fff'; body.textContent = '装备页面打开失败：' + {message};")
+}
+
+fn equipment_webview_cookies(header: &str) -> Vec<tauri::webview::Cookie<'static>> {
+    header.split(';').filter_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        let name = name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("ddid")
+            || !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)) {
+            return None;
+        }
+        // 凭据只作用于装备网页域，不交给前端脚本或任意外部网址。
+        Some(tauri::webview::Cookie::build((name.to_string(), value.trim().to_string()))
+            .domain("m.coolapk.com").path("/").secure(true).http_only(true).build())
+    }).collect()
+}
+
+async fn sync_equipment_webview_cookie(window: &tauri::WebviewWindow, header: Option<&str>) -> Result<(), String> {
+    let Some(header) = header.filter(|value| !value.trim().is_empty()) else { return Ok(()); };
+    let cookies = equipment_webview_cookies(header);
+    #[cfg(windows)]
+    super::equipment_cookie_windows::write_equipment_cookies(window, cookies.clone()).await?;
+    #[cfg(not(target_os = "android"))]
+    {
+        // Cookie API 是阻塞调用，放到独立线程才能让外层超时和窗口 UI 正常响应。
+        let window = window.clone();
+        return tokio::task::spawn_blocking(move || {
+        // 覆盖 WebView 中同名的旧账号 Cookie，包括根域 Cookie，避免重复 Cookie 让服务端误认账号。
+        #[cfg(not(windows))]
+        {
+        let target = reqwest::Url::parse("https://m.coolapk.com/mp/do").unwrap();
+        let existing = window.cookies_for_url(target).map_err(|_| "读取装备窗口登录态失败".to_string())?;
+        for cookie in &cookies {
+            for old in existing.iter().filter(|old| old.name() == cookie.name()) {
+                let mut updated = old.clone();
+                updated.set_value(cookie.value().to_string());
+                updated.set_expires(None);
+                updated.set_max_age(None);
+                window.set_cookie(updated).map_err(|_| "同步装备窗口登录态失败".to_string())?;
+            }
+            window.set_cookie(cookie.clone()).map_err(|_| "同步装备窗口登录态失败".to_string())?;
+        }
+        }
+        // 只核对登录身份；浏览器会自行更新追踪 Cookie，不能要求整份 Cookie 完全一致。
+        // 原生存储写入可能异步落地，短暂等待后再读取，避免首次回读误判失败。
+        for attempt in 0..10 {
+            let stored = window.cookies_for_url(reqwest::Url::parse("https://m.coolapk.com/mp/do").unwrap())
+                .map_err(|_| "核对装备窗口登录态失败".to_string())?;
+            if equipment_cookie_store_matches(&cookies, &stored) { return Ok(()); }
+            if attempt < 9 { std::thread::sleep(Duration::from_millis(50)); }
+        }
+        log::warn!("equipment.cookie_identity_mismatch");
+        Err("装备窗口登录态未同步成功，请重新打开装备页面".to_string())
+        }).await.map_err(|_| "装备窗口登录态同步任务失败".to_string())?;
+    }
+    #[cfg(target_os = "android")]
+    {
+        // Android 的通用 set_cookie 是空实现，必须使用系统 CookieManager。
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        window.with_webview(move |webview| {
+            webview.jni_handle().exec(move |env, _, _| {
+                let result: jni::errors::Result<()> = (|| {
+                    let manager = env.call_static_method("android/webkit/CookieManager", "getInstance", "()Landroid/webkit/CookieManager;", &[])?.l()?;
+                    let address = env.new_string("https://m.coolapk.com/")?;
+                    for cookie in cookies {
+                        // 同步当前账号的根域与页面域 Cookie，替换共享存储里的旧身份。
+                        for domain in [".coolapk.com", "m.coolapk.com"] {
+                            let mut scoped = cookie.clone();
+                            scoped.set_domain(domain);
+                            let value = env.new_string(scoped.to_string())?;
+                            env.call_method(&manager, "setCookie", "(Ljava/lang/String;Ljava/lang/String;)V", &[(&address).into(), (&value).into()])?;
+                        }
+                    }
+                    env.call_method(&manager, "flush", "()V", &[])?;
+                    Ok(())
+                })();
+                if result.is_err() && env.exception_check().unwrap_or(false) { let _ = env.exception_clear(); }
+                let _ = sender.send(result.map_err(|_| "Android 装备窗口登录态同步失败".to_string()));
+            });
+        }).map_err(|_| "无法访问 Android 装备窗口".to_string())?;
+        tokio::time::timeout(Duration::from_secs(5), receiver).await
+            .map_err(|_| "同步 Android 装备窗口登录态超时".to_string())?
+            .map_err(|_| "Android 装备窗口已关闭".to_string())?
+    }
+}
+
+#[cfg(any(not(target_os = "android"), test))]
+fn equipment_cookie_store_matches(expected: &[tauri::webview::Cookie<'_>], stored: &[tauri::webview::Cookie<'_>]) -> bool {
+    expected.iter().filter(|cookie| matches!(cookie.name(), "SESSID" | "uid" | "token")).all(|cookie| {
+        let same_name: Vec<_> = stored.iter().filter(|old| old.name() == cookie.name()).collect();
+        !same_name.is_empty() && same_name.iter().all(|old| old.value() == cookie.value())
+    })
+}
+
+fn is_equipment_action_url(url: &reqwest::Url, method: &str) -> bool {
+    url.scheme() == "https" && url.host_str() == Some("m.coolapk.com")
+        && url.username().is_empty() && url.password().is_none()
+        && url.path() == "/mp/do"
+        && url.query_pairs().any(|(key, value)| key == "c" && value == "product")
+        && url.query_pairs().any(|(key, value)| key == "m" && value == method)
+}
+
+fn equipment_product_callback(product: &Value) -> Result<String, String> {
+    let number = |key: &str| product.get(key).and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok()));
+    let second = number("second_category_id").unwrap_or(0);
+    // 与官方产品选择器一致：指定二级分类直接回填，其余使用一级分类。
+    let category = if [1013, 1000, 1001, 1002, 1003, 1005].contains(&second) {
+        second
+    } else {
+        number("category_id").unwrap_or(0)
+    };
+    let id = number("id").unwrap_or(0);
+    let title = product.get("title").and_then(Value::as_str).unwrap_or("");
+    let logo = product.get("logo").and_then(Value::as_str).unwrap_or("");
+    if category <= 0 || id <= 0 || title.is_empty() {
+        return Err("产品缺少装备分类或产品信息".to_string());
+    }
+    // JSON 编码每个参数，名称中的引号、换行等不能变成可执行脚本。
+    let args = [category.to_string(), id.to_string(), title.to_string(), logo.to_string()]
+        .iter().map(|value| serde_json::to_string(value).unwrap()).collect::<Vec<_>>().join(",");
+    Ok(format!("if (typeof window.addProductOwner === 'function') {{ window.addProductOwner({args}); }} else {{ window.alert('装备编辑页面尚未就绪，请稍后重新添加'); }}"))
+}
+
+#[cfg(test)]
+mod equipment_bridge_tests {
+    use super::*;
+
+    #[test]
+    fn equipment_window_errors_are_rendered_as_text() {
+        let message = "错误\"内容\\\n<script>alert(1)</script>";
+        let script = equipment_window_error_script(message);
+        assert!(script.contains("body.textContent"));
+        assert!(script.contains(&serde_json::to_string(message).unwrap()));
+        assert!(!script.contains("body.innerHTML"));
+    }
+
+    #[test]
+    fn equipment_cookie_verification_rejects_stale_duplicate_identity() {
+        let expected = equipment_webview_cookies("SESSID=current; uid=123");
+        assert!(equipment_cookie_store_matches(&expected, &expected));
+        assert!(!equipment_cookie_store_matches(&expected, &[]));
+        let mut stale = expected.clone();
+        stale.push(tauri::webview::Cookie::new("uid", "other-account"));
+        assert!(!equipment_cookie_store_matches(&expected, &stale));
+    }
+
+    #[test]
+    fn equipment_cookie_verification_ignores_browser_managed_cookie_differences() {
+        let expected = equipment_webview_cookies("SESSID=current; uid=123; token=auth; ntes_utid=old-tracker; forward=old-page; displayVersion=old-version; username=encoded-name");
+        let mut stored = equipment_webview_cookies("SESSID=current; uid=123; token=auth; ntes_utid=new-tracker; username=decoded-name");
+        assert!(equipment_cookie_store_matches(&expected, &stored));
+        stored.iter_mut().find(|cookie| cookie.name() == "SESSID").unwrap().set_value("old-session");
+        assert!(!equipment_cookie_store_matches(&expected, &stored));
+    }
+
+    #[test]
+    fn equipment_login_cookie_is_scoped_and_not_embedded_in_javascript() {
+        let cookies = equipment_webview_cookies(" SESSID=current-session; uid=123; token=a=b; ddid=api-only; malformed; bad name=value");
+        assert_eq!(cookies.len(), 3);
+        assert_eq!(cookies[0].name(), "SESSID");
+        assert_eq!(cookies[0].value(), "current-session");
+        assert_eq!(cookies[2].value(), "a=b");
+        for cookie in &cookies {
+            assert_eq!(cookie.domain(), Some("m.coolapk.com"));
+            assert_eq!(cookie.path(), Some("/"));
+            assert_eq!(cookie.secure(), Some(true));
+            assert_eq!(cookie.http_only(), Some(true));
+            assert_eq!(cookie.expires(), None);
+        }
+        assert!(equipment_webview_cookies("").is_empty());
+    }
+
+    #[test]
+    fn share_action_preserves_other_users_uid() {
+        let url = reqwest::Url::parse("https://m.coolapk.com/mp/do?c=product&m=productOwnerShare&uid=456&from=home").unwrap();
+        assert!(is_equipment_action_url(&url, "productOwnerShare"));
+        assert!(url.query_pairs().any(|(key, value)| key == "uid" && value == "456"));
+    }
+
+    #[test]
+    fn intercept_only_official_add_product_action() {
+        for (url, expected) in [
+            ("https://m.coolapk.com/mp/do?c=product&m=addProductOwner", true),
+            ("https://m.coolapk.com/mp/do?c=product&m=editProductOwner", false),
+            ("https://m.coolapk.com.evil.com/mp/do?c=product&m=addProductOwner", false),
+            ("https://m.coolapk.com/other?c=product&m=addProductOwner", false),
+            ("https://m.coolapk.com/mp/do?c=user&m=addProductOwner", false),
+        ] {
+            assert_eq!(is_equipment_action_url(&reqwest::Url::parse(url).unwrap(), "addProductOwner"), expected);
+        }
+    }
+
+    #[test]
+    fn official_category_mapping_and_safe_callback_arguments() {
+        let product = json!({"id": "123", "second_category_id": 1002, "category_id": 9, "title": "产品\"名称\\换行\n", "logo": "https://image.coolapk.com/123.png"});
+        let script = equipment_product_callback(&product).unwrap();
+        assert!(script.contains("window.addProductOwner(\"1002\",\"123\","));
+        assert!(script.contains(&serde_json::to_string(product["title"].as_str().unwrap()).unwrap()));
+        let fallback = equipment_product_callback(&json!({"id": 123, "second_category_id": 999, "category_id": "9", "title": "设备", "logo": ""})).unwrap();
+        assert!(fallback.contains("window.addProductOwner(\"9\",\"123\","));
+        assert!(equipment_product_callback(&json!({"id": 123, "title": "设备"})).is_err());
+    }
+}
+
+#[tauri::command]
+pub async fn select_equipment_product(app: tauri::AppHandle, state: State<'_, AppState>, window_label: String, product_id: String) -> Result<(), String> {
+    if !window_label.starts_with("browser_window_") || product_id.is_empty() || !product_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err("无效的装备产品选择请求".to_string());
+    }
+    let window = app.get_webview_window(&window_label).ok_or("装备编辑窗口已关闭")?;
+    if !is_equipment_action_url(&window.url().map_err(|e| e.to_string())?, "editProductOwner") {
+        return Err("装备编辑窗口已离开编辑页面".to_string());
+    }
+    let response = state.client.get_product_detail(&product_id).await?;
+    let product = response.get("data").ok_or("服务端未返回产品详情")?;
+    let script = equipment_product_callback(product)?;
+    // 请求期间用户可能关闭或导航到其他页面，执行前再次核对目标。
+    if !is_equipment_action_url(&window.url().map_err(|e| e.to_string())?, "editProductOwner") {
+        return Err("装备编辑窗口已离开编辑页面".to_string());
+    }
+    window.eval(&script).map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

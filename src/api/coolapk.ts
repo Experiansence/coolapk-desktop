@@ -1440,6 +1440,21 @@ export class CoolapkTauriAPI {
     return await invokeNative('fetch_external_page', { url });
   }
 
+  /** 装备编辑和分享依赖完整网页脚本，使用应用内 WebView 而非阅读模式。 */
+  static async openEquipmentWebview(raw: string): Promise<void> {
+    const url = new URL(raw);
+    if (url.origin !== 'https://m.coolapk.com' || url.username || url.password
+      || url.pathname !== '/mp/do' || url.searchParams.get('c') !== 'product'
+      || !['editProductOwner', 'productOwnerShare'].includes(url.searchParams.get('m') || '')) {
+      throw new Error('无效的装备页面链接');
+    }
+    await invoke('open_url', { url: url.href, mode: 'internal' });
+  }
+
+  static async selectEquipmentProduct(windowLabel: string, productId: string): Promise<void> {
+    await invoke('select_equipment_product', { windowLabel, productId });
+  }
+
   static async submitFeedReport(id: string, reportType: string, reason: string, customReason: string, requestHash: string, pictures: string[]) {
     return await invokeNative('submit_feed_report', { id, reportType, reason, customReason, requestHash, pictures }, { retry: false, timeoutMs: 0 });
   }

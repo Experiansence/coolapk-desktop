@@ -1,18 +1,56 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ fetchExternalPage: vi.fn(), openUrl: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchExternalPage: vi.fn(), openUrl: vi.fn(), openEquipmentWebview: vi.fn(), showToast: vi.fn(), url: 'https://example.com/article' }));
 vi.mock('../../api/coolapk', () => ({ CoolapkTauriAPI: mocks }));
 vi.mock('../../utils/anchorClick', () => ({ handleAnchorClick: vi.fn() }));
+vi.mock('../../utils/toast', () => ({ showToast: mocks.showToast }));
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: { url: 'https://example.com/article' } })
+  useRoute: () => ({ query: { url: mocks.url } })
 }));
 import ExternalPage from '../ExternalPage.vue';
 
 describe('ExternalPage 系统浏览器', () => {
   beforeEach(() => {
+    mocks.url = 'https://example.com/article';
     mocks.fetchExternalPage.mockReset().mockResolvedValue({ data: { html: '<p>文章正文</p>', status: 200 } });
     mocks.openUrl.mockReset().mockResolvedValue(true);
+    mocks.openEquipmentWebview.mockReset().mockResolvedValue(undefined);
+    mocks.showToast.mockClear();
+  });
+
+  it('装备页隐藏网页头部，编辑与分享在内置 WebView 打开', async () => {
+    mocks.url = 'https://m.coolapk.com/myDevice/123';
+    mocks.fetchExternalPage.mockResolvedValue({ data: { title: '我的装备', status: 200, html: `
+      <div id="user-info"><p>用户甲</p></div>
+      <div id="category-list"><div class="category-item"><p>手机</p>
+        <div><a href="/product/3285"><p>手机甲</p></a><div><p>我的评分</p><p>5</p></div></div>
+      </div><div class="category-item" style="display:none"><p>耳机</p></div></div>
+      <a href="/mp/do?c=product&m=editProductOwner">编辑</a>
+      <a href="/mp/do?c=product&m=productOwnerShare&uid=123">保存并分享</a>` } });
+    const wrapper = mount(ExternalPage, { global: { stubs: { AppImage: true } } });
+    await flushPromises();
+    expect(wrapper.find('.external-content').exists()).toBe(false);
+    expect(wrapper.find('.page-header').exists()).toBe(false);
+    expect(wrapper.find('.equipment-actions .fa-external-link-alt').exists()).toBe(false);
+    expect(wrapper.get('.equipment-category h3').text()).toBe('手机');
+    expect(wrapper.get('.equipment-product').attributes('href')).toBe('https://m.coolapk.com/product/3285');
+    expect(wrapper.get('.equipment-rating').text()).toContain('我的评分');
+    expect(wrapper.text()).not.toContain('耳机');
+    await wrapper.get('.equipment-actions button').trigger('click');
+    await flushPromises();
+    expect(mocks.openEquipmentWebview).toHaveBeenCalledWith('https://m.coolapk.com/mp/do?c=product&m=editProductOwner');
+    await wrapper.findAll('.equipment-actions button')[1]!.trigger('click');
+    await flushPromises();
+    expect(mocks.openEquipmentWebview).toHaveBeenCalledWith('https://m.coolapk.com/mp/do?c=product&m=productOwnerShare&uid=123');
+    mocks.openEquipmentWebview.mockRejectedValueOnce(new Error('窗口创建失败'));
+    await wrapper.get('.equipment-actions button').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('窗口创建失败');
+    expect(mocks.showToast).toHaveBeenCalledWith('装备页面打开失败：窗口创建失败', 'error');
+    expect(wrapper.get('.equipment-actions button').attributes('disabled')).toBeUndefined();
+    expect(mocks.openUrl).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it.each([

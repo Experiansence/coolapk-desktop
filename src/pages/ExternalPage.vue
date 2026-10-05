@@ -1,7 +1,7 @@
 <template>
   <FeedReportPage v-if="isReportPage" :url="url" />
   <div v-else class="page-container custom-scrollbar">
-    <div class="page-header">
+    <div v-if="!isEquipmentPage" class="page-header">
       <div class="header-main">
         <h2 class="page-title"><i class="fas fa-globe icon"></i> {{ title }}</h2>
         <span class="page-subtitle">{{ url }}</span>
@@ -21,8 +21,9 @@
     <div v-else-if="error" class="state-wrapper">
       <ErrorState title="页面加载失败" :message="error" @retry="loadPage" />
     </div>
+    <EquipmentContent v-else-if="equipmentData" :data="equipmentData" :opening="openingEquipment" @open-action="openEquipmentAction" />
     <div v-else-if="!hasPageContent" class="state-wrapper">
-      <EmptyState title="页面暂无可显示的内容" description="请使用上方“系统浏览器”打开完整网页" />
+      <EmptyState title="页面暂无可显示的内容" :description="isEquipmentPage ? '装备页面暂无数据，请稍后重试' : '请使用上方“系统浏览器”打开完整网页'" />
     </div>
     <div v-else class="external-content" v-html="renderedHtml" @click="handleAnchorClick"></div>
   </div>
@@ -40,6 +41,9 @@ import ErrorState from '../components/common/ErrorState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
 import FeedReportPage from '../components/feed/FeedReportPage.vue';
 import { isFeedReportUrl } from '../utils/feedReport';
+import { isEquipmentPageUrl, parseEquipmentPage } from '../utils/equipmentPage';
+import EquipmentContent from '../components/profile/EquipmentContent.vue';
+import { showToast } from '../utils/toast';
 
 const route = useRoute();
 
@@ -52,6 +56,9 @@ const loading = ref(false);
 const error = ref('');
 const openingSystem = ref(false);
 const openError = ref('');
+const isEquipmentPage = computed(() => isEquipmentPageUrl(url.value));
+const openingEquipment = ref(false);
+const equipmentData = computed(() => parseEquipmentPage(html.value, url.value));
 
 const renderedHtml = computed(() => {
   if (!html.value) return '';
@@ -86,18 +93,32 @@ async function loadPage() {
   }
 }
 
-async function openInSystem() {
+async function openInSystem(target: string | MouseEvent = url.value) {
   if (openingSystem.value) return;
   openingSystem.value = true;
   openError.value = '';
   try {
-    if (!await CoolapkTauriAPI.openUrl(url.value, 'system')) {
+    if (!await CoolapkTauriAPI.openUrl(typeof target === 'string' ? target : url.value, 'system')) {
       openError.value = '无法打开系统浏览器，请检查默认浏览器设置，或复制链接手动打开';
     }
   } catch (err: any) {
     openError.value = '无法打开系统浏览器：' + (err?.message || String(err));
   } finally {
     openingSystem.value = false;
+  }
+}
+
+async function openEquipmentAction(target: string) {
+  if (openingEquipment.value) return;
+  openingEquipment.value = true;
+  openError.value = '';
+  try {
+    await CoolapkTauriAPI.openEquipmentWebview(target);
+  } catch (err: any) {
+    openError.value = '装备页面打开失败：' + (err?.message || String(err));
+    showToast(openError.value, 'error');
+  } finally {
+    openingEquipment.value = false;
   }
 }
 

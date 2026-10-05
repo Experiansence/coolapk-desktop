@@ -1253,6 +1253,7 @@ pub fn run() {
             save_image_data_url,
             open_image_in_system_viewer,
             open_url,
+            coolapk::commands::select_equipment_product,
             fetch_external_page,
             coolapk::commands::submit_feed_report,
             open_login_webview,

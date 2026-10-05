@@ -861,6 +861,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "webview2-com",
  "windows 0.61.3",
  "winreg 0.55.0",
 ]
