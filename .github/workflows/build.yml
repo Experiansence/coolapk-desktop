@@ -61,18 +61,12 @@ jobs:
           cache: npm
 
       - name: 安装前端依赖
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: 同步测试构建版本
         if: ${{ inputs.build_version != '' }}
         shell: bash
         run: npm run version:set -- "$BUILD_VERSION" --beta
-
-      - name: 安装 Linux 依赖 (Tauri)
-        if: matrix.task == 'build'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
 
       - name: 运行单元测试
         if: matrix.task == 'unit'
@@ -131,7 +125,7 @@ jobs:
           cache: npm
 
       - name: 安装前端依赖
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: 同步测试构建版本
         if: ${{ inputs.build_version != '' }}
@@ -182,11 +176,11 @@ jobs:
           - name: macOS Apple Silicon
             platform: macos-latest
             args: --target aarch64-apple-darwin --bundles app,dmg
-            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
+            rustTargets: aarch64-apple-darwin
           - name: macOS Intel
             platform: macos-latest
             args: --target x86_64-apple-darwin --bundles app,dmg
-            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
+            rustTargets: x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v5
@@ -208,15 +202,18 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # runner 架构相同不代表编译目标相同，防止 x64/ARM64 争用同一个缓存。
+          key: release-${{ matrix.rustTargets || 'native' }}
+          cache-on-failure: true
 
       - name: 安装 Linux 依赖
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm squashfs-tools
 
       - name: 安装前端依赖
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: 同步测试构建版本
         if: ${{ inputs.build_version != '' }}
@@ -231,13 +228,15 @@ jobs:
       - name: 构建前端
         run: npm run build
 
-      - name: 设置 CI 纯英文包名 (coolapk-desktop)
+      - name: 设置 CI 包名并复用已构建的前端
         shell: bash
         run: |
           node -e '
             const fs = require("fs");
             const conf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
             conf.productName = "coolapk-desktop";
+            if (!fs.existsSync("dist/index.html")) throw new Error("缺少本次前端构建产物");
+            conf.build.beforeBuildCommand = "";
             fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(conf, null, 2));
           '
 
@@ -293,15 +292,11 @@ jobs:
           path: linux-beta/*
           if-no-files-found: error
 
-      - name: 安装 AppImage 重打包工具
-        if: ${{ runner.os == 'Linux' }}
-        run: sudo apt-get install -y squashfs-tools
-
       - name: 构建并修复 Linux AppImage 权限
         if: ${{ runner.os == 'Linux' }}
         shell: bash
         run: |
-          npm run tauri -- build --bundles appimage
+          npm run tauri -- bundle --bundles appimage
           appimage="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
           test -n "$appimage"
           bash scripts/fix-appimage-permissions.sh "$appimage"
@@ -376,7 +371,7 @@ jobs:
           workspaces: src-tauri
 
       - name: 安装前端依赖
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: 同步测试构建版本
         if: ${{ inputs.build_version != '' }}
@@ -539,6 +534,12 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: 缓存 Gradle 依赖与构建工具
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # 测试版和正式 tag 构建也需要写入缓存；签名文件不在 Gradle User Home 中。
+          cache-read-only: false
+
       - name: 安装 Android SDK
         uses: android-actions/setup-android@v4
 
@@ -559,7 +560,7 @@ jobs:
           workspaces: src-tauri
 
       - name: 安装前端依赖
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: 同步测试构建版本
         if: ${{ inputs.build_version != '' }}
