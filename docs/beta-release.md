@@ -1,5 +1,9 @@
 # 测试版本发布
 
+首次使用前，需要配置仓库 Actions Secret `BETA_RELEASE_TOKEN`。在 GitHub 创建 fine-grained Personal Access Token，仅选择 `coolapk-desktop` 仓库，Repository permissions 中将 **Contents** 和 **Workflows** 都设为 **Read and write**，再将令牌保存到仓库 Settings → Secrets and variables → Actions。不要把令牌写进代码、日志或聊天。
+
+默认 `GITHUB_TOKEN` 缺少推送工作流文件所需权限，独立测试版本提交包含源码中的 `.github/workflows` 文件时，GitHub 可能拒绝创建标签。专用令牌只用于发布 job 的 checkout 和 Git 标签推送，其他 job 及 Release API 继续使用默认令牌。缺少 Secret 时在构建前停止；令牌过期、权限不足或待审批时仍需更新凭据。配置后从 main 重新触发工作流，旧运行的失败任务重跑仍使用旧工作流定义。
+
 先将代码推送到 main，再在 GitHub Actions 中打开「发布测试版本」，选择 main，在「版本增量」下拉框选择 `+0.0.1` 或 `+0.1`，点击 Run workflow。默认选择 `+0.0.1`，无需填写目标版本。
 
 自动计算取 main 的版本与已有正式版本中的较高版本作为基准，忽略测试版本号。例如 `1.30.0` 选择 `+0.0.1` 得到 `1.30.1`，`1.30.7` 选择 `+0.1` 得到 `1.31.0`。正式版不变时重复选择相同增量，会沿用同一目标并递增 beta 编号。
