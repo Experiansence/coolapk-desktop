@@ -104,3 +104,5 @@ jobs:
           gh release create "$BETA_TAG" beta-release/* --draft --prerelease --latest=false --title "酷安测试版 $BETA_TAG" --notes-file beta-notes.md
           gh release edit "$BETA_TAG" --draft=false --prerelease --latest=false
           git ls-remote --exit-code --tags origin "refs/tags/$BETA_TAG^{}"
+      - name: 仅保留最新公开测试版 Release
+        run: node scripts/prune-beta-releases.mjs

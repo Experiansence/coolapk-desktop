@@ -6,6 +6,54 @@ import { join, dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { allocateBetaVersion, parseReleaseVersion, resolveBetaTarget } from './release-version.mjs';
 import { readReleaseTags } from './release-tags.mjs';
+import { pruneBetaReleases } from './prune-beta-releases.mjs';
+
+test('新测试版公开完整后仅删除更旧的 beta Release，保留正式版和所有标签', () => {
+  const releases = [
+    { tag_name: 'v1.31.0-beta.2', prerelease: true },
+    { tag_name: 'v1.30.1-beta.9', prerelease: true },
+    { tag_name: 'v1.31.0-beta.1', prerelease: true },
+    { tag_name: 'v1.31.0-beta.3', prerelease: true },
+    { tag_name: 'v1.30.0', prerelease: false },
+    { tag_name: 'v1.29.0', prerelease: true },
+    { tag_name: 'v1.31.0-rc.1', prerelease: true },
+    { tag_name: 'v1.30.1-beta.1', prerelease: true, draft: true },
+  ];
+  const deleted = [];
+  const removed = pruneBetaReleases('example/desktop', 'v1.31.0-beta.2', (command, args) => {
+    assert.equal(command, 'gh');
+    if (args[1] === 'view') return JSON.stringify({ tagName: 'v1.31.0-beta.2', isDraft: false, isPrerelease: true, assetCount: 13 });
+    if (args[0] === 'api') {
+      assert.ok(args.includes('--paginate'));
+      return releases.map((release) => JSON.stringify(release)).join('\n');
+    }
+    assert.equal(args[1], 'delete');
+    assert.ok(!args.includes('--cleanup-tag'));
+    deleted.push(args[2]);
+    return '';
+  });
+  assert.deepEqual(removed, ['v1.30.1-beta.9', 'v1.31.0-beta.1']);
+  assert.deepEqual(deleted, removed);
+  assert.equal(allocateBetaVersion('1.31.0', '1.30.0', releases.map((release) => release.tag_name)), '1.31.0-beta.4');
+});
+
+test('草稿、未完整上传、正式版和查询失败均不触发测试版清理', () => {
+  for (const state of [
+    { isDraft: true, isPrerelease: true, assetCount: 13 },
+    { isDraft: false, isPrerelease: true, assetCount: 11 },
+    { isDraft: false, isPrerelease: false, assetCount: 13 },
+  ]) {
+    let queries = 0;
+    assert.throws(() => pruneBetaReleases('example/desktop', 'v1.31.0-beta.2', (_, args) => {
+      queries++;
+      assert.equal(args[1], 'view');
+      return JSON.stringify({ tagName: 'v1.31.0-beta.2', ...state });
+    }));
+    assert.equal(queries, 1);
+  }
+  assert.throws(() => pruneBetaReleases('example/desktop', 'v1.31.0-beta.2', () => { throw new Error('offline'); }));
+  assert.throws(() => pruneBetaReleases('example/desktop', 'v1.31.0'));
+});
 
 test('Release 查询在 gh 内提取标签，避免完整发布信息撑满子进程缓冲区', () => {
   const tags = readReleaseTags('example/desktop', (command, args, options) => {
