@@ -5,6 +5,18 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { allocateBetaVersion, parseReleaseVersion } from './release-version.mjs';
+import { readReleaseTags } from './release-tags.mjs';
+
+test('Release 查询在 gh 内提取标签，避免完整发布信息撑满子进程缓冲区', () => {
+  const tags = readReleaseTags('example/desktop', (command, args, options) => {
+    assert.equal(command, 'gh');
+    assert.ok(args.includes('--paginate'));
+    assert.equal(args[args.indexOf('--jq') + 1], '.[].tag_name');
+    assert.equal(options.encoding, 'utf8');
+    return 'v1.31.0-beta.9\nv1.31.0-beta.101\r\nv1.30.0\n';
+  });
+  assert.equal(allocateBetaVersion('1.31.0', '1.30.0', tags), '1.31.0-beta.102');
+});
 
 test('beta 编号检查所有标签，并拒绝回退或正式版已发布的目标', () => {
   assert.equal(allocateBetaVersion('1.31.0', '1.30.0', ['v1.31.0-beta.9', 'v1.31.0-beta.101']), '1.31.0-beta.102');
