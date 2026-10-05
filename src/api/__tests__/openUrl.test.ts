@@ -110,7 +110,9 @@ describe('系统浏览器打开链接', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     try {
-      vi.mocked(showToast).mock.calls[0]![3]!.onClick();
+      const action = vi.mocked(showToast).mock.calls[0]![3]!;
+      expect(Array.isArray(action)).toBe(false);
+      if (!Array.isArray(action)) action.onClick();
       await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('链接已复制'));
       expect(writeText).toHaveBeenCalledWith('https://example.com/article');
     } finally { vi.unstubAllGlobals(); }
@@ -121,7 +123,9 @@ describe('系统浏览器打开链接', () => {
     await CoolapkTauriAPI.openUrl('https://example.com');
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
     try {
-      vi.mocked(showToast).mock.calls[0]![3]!.onClick();
+      const action = vi.mocked(showToast).mock.calls[0]![3]!;
+      expect(Array.isArray(action)).toBe(false);
+      if (!Array.isArray(action)) action.onClick();
       await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringContaining('复制失败'), 'error'));
     } finally { vi.unstubAllGlobals(); }
   });

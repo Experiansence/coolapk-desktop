@@ -13,6 +13,20 @@ describe('toast', () => {
     document.body.innerHTML = '';
   });
 
+  it('多个操作按钮分别执行自己的回调', () => {
+    const download = vi.fn();
+    const dismiss = vi.fn();
+    showToast('编码不支持', 'warning', 10000, [
+      { label: '下载扩展', onClick: download },
+      { label: '不再提醒', onClick: dismiss },
+    ]);
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.app-toast-action');
+    expect(buttons).toHaveLength(2);
+    buttons[0].click();
+    expect(download).toHaveBeenCalledOnce();
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
   it('支持操作按钮并在点击后关闭提示', () => {
     const onClick = vi.fn();
 

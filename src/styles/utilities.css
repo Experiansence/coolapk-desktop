@@ -117,6 +117,7 @@ img.coolapk-emoji,
 }
 
 .app-toast {
+  flex-wrap: wrap;
   pointer-events: auto;
   display: inline-flex;
   align-items: center;

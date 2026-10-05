@@ -168,6 +168,7 @@ import { getHdImageUrl, getOriginalImageUrl } from '../../utils/image';
 import { getMemoryCachedResourceSync, loadImageResource, normalizeResourceUrl } from '../../utils/resourceCache';
 import { getErrorMessage } from '../../utils/errors';
 import { showToast } from '../../utils/toast';
+import { showLivePhotoCodecPrompt } from '../../utils/livePhotoCodecPrompt';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
 import { normalizeFeedImageItems, resolveLivePhotoVideo, type FeedImageItem } from '../../utils/livePhoto';
 import { detectLiveVideoCodec, getLiveVideoCodecSupport, waitForDecodedVideoFrame, type LiveVideoCodec } from '../../utils/liveVideoCodec';
@@ -385,17 +386,9 @@ function showUnsupportedLiveVideoToast(codec: LiveVideoCodec, force = false) {
   if (settingsStore.settings.suppressUnsupportedLivePhotoCodecPrompt) return;
   if (!force && liveUnsupportedNoticeUrl === liveVideoUrl.value) return;
   liveUnsupportedNoticeUrl = liveVideoUrl.value;
-  showToast(
-    `当前系统不支持该实况照片的视频编码格式（${codec.name}），请安装对应的视频解码组件后重启应用。`,
-    'warning',
-    6000,
-    {
-      label: '不再提醒',
-      onClick: () => {
-        settingsStore.settings.suppressUnsupportedLivePhotoCodecPrompt = true;
-      },
-    },
-  );
+  void showLivePhotoCodecPrompt(codec, () => {
+    settingsStore.settings.suppressUnsupportedLivePhotoCodecPrompt = true;
+  });
 }
 
 async function playLiveVideo(forceUnsupportedNotice = false): Promise<boolean> {

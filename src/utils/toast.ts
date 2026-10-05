@@ -27,7 +27,7 @@ export function showToast(
   message: string,
   type: ToastType = 'success',
   duration: number = 2200,
-  action?: ToastAction,
+  action?: ToastAction | ToastAction[],
 ): void {
   if (!message || typeof window === 'undefined') return;
 
@@ -58,14 +58,14 @@ export function showToast(
     }, 220);
   };
 
-  if (action) {
+  for (const toastAction of action ? (Array.isArray(action) ? action : [action]) : []) {
     const actionButton = document.createElement('button');
     actionButton.type = 'button';
     actionButton.className = 'app-toast-action';
-    actionButton.textContent = action.label;
+    actionButton.textContent = toastAction.label;
     actionButton.addEventListener('click', () => {
       try {
-        action.onClick();
+        toastAction.onClick();
       } finally {
         dismiss();
       }
