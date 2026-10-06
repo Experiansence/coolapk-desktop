@@ -64,6 +64,7 @@
         >
           <img
             v-if="displaySrc"
+            ref="imageRef"
             :src="displaySrc"
             :data-original-url="originalUrl || undefined"
             alt="Viewer Image"
@@ -71,6 +72,7 @@
             :style="mediaTransformStyle"
             :class="{ 'is-touch-dragging': touchDragging || mediaTransition === 'none', 'is-sliding': mediaTransition === 'smooth' }"
             @dragstart.prevent
+            @load="measureImage"
           />
           <video
             v-if="currentItem?.isLivePhoto && liveVideoUrl"
@@ -194,6 +196,10 @@ const touchDragging = ref(false);
 const savingOriginal = ref(false);
 
 const stageRef = ref<HTMLElement | null>(null);
+const imageRef = ref<HTMLImageElement | null>(null);
+interface ImageSize { width: number; height: number }
+const imageSize = ref<ImageSize | null>(null);
+const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight });
 /**
  * 切图过渡状态：
  * 'none' = 初始摆放（关闭过渡），'smooth' = 正在缓动，null = 默认 50ms 跟手过渡。
@@ -207,6 +213,7 @@ interface SlideGhost {
   offsetX: number;
   scale: number;
   rotation: number;
+  imageSize: ImageSize | null;
 }
 
 /** 正在滑出的旧画面，与 SLIDE_DURATION_MS / CSS 里的过渡时长一起决定滑出动画。 */
@@ -241,8 +248,47 @@ const imageItems = computed(() => normalizeFeedImageItems(viewerData.value?.urls
 const currentItem = computed(() => imageItems.value[currentIndex.value] || null);
 const totalCount = computed(() => imageItems.value.length);
 const rawUrl = computed(() => currentItem.value?.sourceUrl || '');
+/** 让浏览器按实际尺寸重绘，避免 transform 放大合成图层时出现分块接缝。 */
+function scaledImageSize(size: ImageSize | null, zoom: number) {
+  if (!size) return {};
+  const fit = Math.min(1, viewportSize.value.width * 0.9 / size.width, viewportSize.value.height * 0.88 / size.height);
+  const width = size.width * fit * zoom;
+  const height = size.height * fit * zoom;
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    maxWidth: 'none',
+    maxHeight: 'none',
+    // 放大到超过舞台时，图片、实况视频和旧图层都保持相同的中心。
+    position: 'absolute' as const,
+    inset: 'auto',
+    margin: '0',
+    left: `calc(50% - ${width / 2}px)`,
+    top: `calc(50% - ${height / 2}px)`,
+  };
+}
+
+function measureImage() {
+  const image = imageRef.value;
+  if (image?.naturalWidth && image.naturalHeight) {
+    imageSize.value = { width: image.naturalWidth, height: image.naturalHeight };
+  }
+}
+
+function updateViewportSize() {
+  viewportSize.value = { width: window.innerWidth, height: window.innerHeight };
+}
+
+watch(displaySrc, () => {
+  imageSize.value = null;
+  void nextTick(() => {
+    if (imageRef.value?.complete) measureImage();
+  });
+}, { flush: 'sync' });
+
 const mediaTransformStyle = computed(() => ({
-  transform: `translate(${translateX.value + swipeOffsetX.value + slideOffsetX.value}px, ${translateY.value + swipeOffsetY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`,
+  ...scaledImageSize(imageSize.value, scale.value),
+  transform: `translate(${translateX.value + swipeOffsetX.value + slideOffsetX.value}px, ${translateY.value + swipeOffsetY.value}px) rotate(${rotation.value}deg)`,
   cursor: isDragging.value ? 'grabbing' : 'grab',
 }));
 
@@ -250,7 +296,10 @@ const mediaTransformStyle = computed(() => ({
 const ghostTransformStyle = computed(() => {
   const ghost = slideGhost.value;
   if (!ghost) return {};
-  return { transform: `translate(${ghost.offsetX}px, 0) scale(${ghost.scale}) rotate(${ghost.rotation}deg)` };
+  return {
+    ...scaledImageSize(ghost.imageSize, ghost.scale),
+    transform: `translate(${ghost.offsetX}px, 0) rotate(${ghost.rotation}deg)`,
+  };
 });
 
 function itemCoverUrl(item: FeedImageItem): string {
@@ -742,7 +791,7 @@ function slideTo(direction: 1 | -1, fromOffsetX = 0): boolean {
   const ghostSrc = displaySrc.value;
   clearTransitionTimer();
   slideGhost.value = ghostSrc
-    ? { src: ghostSrc, offsetX: fromOffsetX, scale: scale.value, rotation: rotation.value }
+    ? { src: ghostSrc, offsetX: fromOffsetX, scale: scale.value, rotation: rotation.value, imageSize: imageSize.value }
     : null;
   // 跟手位移交接给过渡位移：新画面从手指另一侧的屏幕外滑入。
   swipeOffsetX.value = 0;
@@ -1061,9 +1110,13 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'ArrowRight') slideTo(1);
 }
 
-onMounted(() => window.addEventListener('keydown', handleKeydown));
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+  window.addEventListener('resize', updateViewportSize);
+});
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
+  window.removeEventListener('resize', updateViewportSize);
   clearTransitionTimer();
 });
 </script>
@@ -1219,6 +1272,7 @@ onUnmounted(() => {
 }
 
 .viewer-img {
+  flex-shrink: 0;
   max-width: 90vw;
   max-height: 88vh;
   width: auto;

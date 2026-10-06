@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../../stores/app';
 import { useSettingsStore } from '../../../stores/settings';
 import { getMemoryCachedResourceSync, loadImageResource } from '../../../utils/resourceCache';
@@ -94,7 +94,17 @@ async function mountViewer(count = 3, index = 0) {
     index,
   );
   await flushPromises();
+  if (wrapper.find('.viewer-img').exists()) await loadImageDimensions(wrapper, 200, 100);
   return { wrapper, store, stage: wrapper.get('.image-stage').element };
+}
+
+async function loadImageDimensions(wrapper: ReturnType<typeof mount>, width: number, height: number) {
+  const image = wrapper.get('.viewer-img').element;
+  Object.defineProperties(image, {
+    naturalWidth: { configurable: true, value: width },
+    naturalHeight: { configurable: true, value: height },
+  });
+  await wrapper.get('.viewer-img').trigger('load');
 }
 
 async function swipe(stage: Element, from: Point, to: Point) {
@@ -107,6 +117,101 @@ async function swipe(stage: Element, from: Point, to: Point) {
 function counter(wrapper: ReturnType<typeof mount>): string {
   return wrapper.get('.counter-text').text();
 }
+
+describe('按实际尺寸缩放图片，避免合成图层放大接缝', () => {
+  const originalWidth = window.innerWidth;
+  const originalHeight = window.innerHeight;
+  beforeEach(() => {
+    loadResourceMock.mockImplementation(async url => dataOf(url));
+    memoryCacheMock.mockReturnValue(null);
+    useSettingsStore().settings.autoLoadOriginalImage = false;
+    Object.defineProperties(window, {
+      innerWidth: { configurable: true, value: 1000 },
+      innerHeight: { configurable: true, value: 800 },
+    });
+  });
+  afterEach(() => {
+    Object.defineProperties(window, {
+      innerWidth: { configurable: true, value: originalWidth },
+      innerHeight: { configurable: true, value: originalHeight },
+    });
+  });
+
+  it('大图按视口适配，放大修改宽高，旋转和平移不通过 transform 缩放', async () => {
+    const { wrapper } = await mountViewer();
+    await loadImageDimensions(wrapper, 4000, 3000);
+    const image = wrapper.get('.viewer-img').element as HTMLImageElement;
+    expect(image.style.width).toBe('900px');
+    expect(image.style.height).toBe('675px');
+    await wrapper.get('.image-stage').trigger('wheel', { deltaY: -1 });
+    await wrapper.get('.image-stage').trigger('wheel', { deltaY: -1 });
+    await wrapper.get('.image-stage').trigger('wheel', { deltaY: -1 });
+    expect(wrapper.get('.zoom-text').text()).toBe('145%');
+    expect(image.style.width).toBe('1305px');
+    expect(image.style.height).toBe('978.75px');
+    expect(image.style.maxWidth).toBe('none');
+    expect(image.style.transform).not.toContain('scale(');
+    await wrapper.get('[title="向右旋转 90°"]').trigger('click');
+    expect(image.style.transform).toContain('rotate(90deg)');
+    expect(image.style.width).toBe('1305px');
+    await wrapper.get('[title="重置"]').trigger('click');
+    expect(image.style.width).toBe('900px');
+    expect(image.style.transform).toContain('rotate(0deg)');
+    wrapper.unmount();
+  });
+
+  it('窗口调整时重新适配，不将小图片默认放大', async () => {
+    const { wrapper } = await mountViewer();
+    const image = wrapper.get('.viewer-img').element as HTMLImageElement;
+    expect(image.style.width).toBe('200px');
+    await loadImageDimensions(wrapper, 4000, 3000);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 });
+    window.dispatchEvent(new Event('resize'));
+    await flushPromises();
+    expect(image.style.width).toBe('450px');
+    expect(image.style.height).toBe('337.5px');
+    wrapper.unmount();
+  });
+
+  it('大图放大超过舞台后，实况视频与封面保持相同尺寸和中心', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const { wrapper, store } = await mountViewer();
+    store.openImageViewer([{
+      sourceUrl: 'https://img.example/live.jpg',
+      liveVideoUrl: 'https://video.coolapk.com/live/test.mp4',
+      isLivePhoto: true,
+    }]);
+    await flushPromises();
+    await loadImageDimensions(wrapper, 4000, 3000);
+    await wrapper.get('.image-stage').trigger('dblclick');
+    const image = wrapper.get('.viewer-img').element as HTMLImageElement;
+    const video = wrapper.get('.viewer-live-video').element as HTMLVideoElement;
+    expect(image.style.width).toBe('1620px');
+    for (const property of ['width', 'height', 'left', 'top', 'margin', 'transform'] as const) {
+      expect(video.style[property]).toBe(image.style[property]);
+    }
+    expect(video.style.left).toBe('calc(50% - 810px)');
+    wrapper.unmount();
+  });
+
+  it('切图保存旧图尺寸，新图加载后使用自身比例并重置缩放', async () => {
+    const { wrapper } = await mountViewer();
+    await wrapper.get('[title="放大"]').trigger('click');
+    await wrapper.get('.nav-next').trigger('click');
+    await flushPromises();
+    const ghost = wrapper.get('.viewer-ghost').element as HTMLImageElement;
+    expect(ghost.style.width).toBe('250px');
+    expect(ghost.style.height).toBe('125px');
+    expect(ghost.style.transform).not.toContain('scale(');
+    await loadImageDimensions(wrapper, 100, 300);
+    const image = wrapper.get('.viewer-img').element as HTMLImageElement;
+    expect(image.style.width).toBe('100px');
+    expect(image.style.height).toBe('300px');
+    expect(wrapper.get('.zoom-text').text()).toBe('100%');
+    wrapper.unmount();
+  });
+});
 
 describe('图片查看器触摸手势', () => {
   beforeEach(() => {
@@ -288,7 +393,7 @@ describe('图片查看器触摸手势', () => {
     dispatchTouch(stage, 'touchmove', [point(180, 300), point(260, 300)]);
     await flushPromises();
 
-    expect(wrapper.get('.viewer-img').attributes('style')).toContain('scale(2');
+    expect((wrapper.get('.viewer-img').element as HTMLImageElement).style.width).toBe('400px');
 
     // 捏合结束后不切换图片。
     dispatchTouch(stage, 'touchend', []);
@@ -304,7 +409,7 @@ describe('图片查看器触摸手势', () => {
     dispatchTouch(stage, 'touchmove', [point(100, 300), point(310, 300)]);
     await flushPromises();
 
-    expect(wrapper.get('.viewer-img').attributes('style')).toContain('scale(4)');
+    expect((wrapper.get('.viewer-img').element as HTMLImageElement).style.width).toBe('800px');
     wrapper.unmount();
   });
 
@@ -322,13 +427,13 @@ describe('图片查看器触摸手势', () => {
     await tap();
     clock += 120;
     await tap();
-    expect(wrapper.get('.viewer-img').attributes('style')).toContain('scale(1.8)');
+    expect((wrapper.get('.viewer-img').element as HTMLImageElement).style.width).toBe('360px');
 
     clock += 120;
     await tap();
     clock += 120;
     await tap();
-    expect(wrapper.get('.viewer-img').attributes('style')).toContain('scale(1)');
+    expect((wrapper.get('.viewer-img').element as HTMLImageElement).style.width).toBe('200px');
 
     wrapper.unmount();
   });
@@ -346,7 +451,7 @@ describe('图片查看器触摸手势', () => {
     dispatchTouch(stage, 'touchend', []);
     await flushPromises();
 
-    expect(wrapper.get('.viewer-img').attributes('style')).toContain('scale(1)');
+    expect((wrapper.get('.viewer-img').element as HTMLImageElement).style.width).toBe('200px');
     wrapper.unmount();
   });
 
