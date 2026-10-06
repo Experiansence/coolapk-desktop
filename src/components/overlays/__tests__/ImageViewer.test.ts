@@ -176,6 +176,7 @@ describe('按实际尺寸缩放图片，避免合成图层放大接缝', () => {
   it('大图放大超过舞台后，实况视频与封面保持相同尺寸和中心', async () => {
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
     const { wrapper, store } = await mountViewer();
     store.openImageViewer([{
       sourceUrl: 'https://img.example/live.jpg',

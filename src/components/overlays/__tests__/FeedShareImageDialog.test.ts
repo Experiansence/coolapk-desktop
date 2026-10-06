@@ -23,6 +23,20 @@ vi.mock('../../../api/coolapk', () => ({
 import FeedShareImageDialog from '../FeedShareImageDialog.vue';
 
 describe('FeedShareImageDialog 预览', () => {
+  it('discards a late generation after closing and regenerates normally on reopening', async () => {
+    let finish!: (value: { dataUrl: string; failedImageUrls: string[] }) => void;
+    mocks.generateFeedShareImage.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const wrapper = mount(FeedShareImageDialog, { props: { show: true, feed: { id: '3', message: '正文' } }, global: { stubs: { Teleport: true } } });
+    await flushPromises();
+    await wrapper.setProps({ show: false });
+    finish({ dataUrl: 'data:image/png;base64,LATE', failedImageUrls: [] });
+    await flushPromises();
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+    expect(wrapper.get('.share-preview').attributes('src')).toBe('data:image/png;base64,AAAA');
+    expect(mocks.generateFeedShareImage).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());

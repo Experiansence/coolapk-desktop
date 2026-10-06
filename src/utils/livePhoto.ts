@@ -219,6 +219,7 @@ function extractResolvedVideoUrl(response: unknown): string {
 }
 
 const resolvedLiveVideoCache = new Map<string, string>();
+const RESOLVED_VIDEO_CACHE_LIMIT = 256;
 const pendingLiveVideoRequests = new Map<string, Promise<string>>();
 
 /** 按 APK 的 feed_<id>/reply_<id> 约定解析实况视频，并合并并发请求。 */
@@ -237,7 +238,11 @@ export async function resolveLivePhotoVideo(
   const cacheKey = `${contentType}:${id}:${item.sourceUrl}`;
   if (!options.force) {
     const cached = resolvedLiveVideoCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      resolvedLiveVideoCache.delete(cacheKey);
+      resolvedLiveVideoCache.set(cacheKey, cached);
+      return cached;
+    }
   }
   const pending = pendingLiveVideoRequests.get(cacheKey);
   if (pending) return pending;
@@ -247,6 +252,9 @@ export async function resolveLivePhotoVideo(
     const videoUrl = extractResolvedVideoUrl(response);
     if (!videoUrl) throw new Error('酷安未返回实况视频地址');
     resolvedLiveVideoCache.set(cacheKey, videoUrl);
+    while (resolvedLiveVideoCache.size > RESOLVED_VIDEO_CACHE_LIMIT) {
+      resolvedLiveVideoCache.delete(resolvedLiveVideoCache.keys().next().value!);
+    }
     return videoUrl;
   })();
 

@@ -1,12 +1,21 @@
 <template>
   <article
     ref="cardRef"
+    v-deferred-paint="renderViewportContent && !detailMode && !officialMobileDetail && !showComments && !moreMenuOpen"
+    :style="viewportPlaceholderStyle"
+    @click.capture="retainViewportContent"
+    @pointerdown.capture="retainPointerContent"
+    @selectstart.capture="retainViewportContent"
+    @keydown.capture="retainViewportContent"
+    @focusin="retainViewportContent"
+    @contextmenu.capture="retainViewportContent"
     :class="['feed-card', { 'is-detail-mode': detailMode, 'is-official-mobile-detail': officialMobileDetail, 'has-user-cover': !!userCoverUrl, 'is-question-card': isQuestionCard, 'is-answer-card': isAnswerCard }]"
     :data-feed-id="feed.id"
     :data-feed-text="feed.message || feed.message_raw_output || ''"
     :data-feed-images="JSON.stringify(feedImages)"
     @click="handleCardClick"
   >
+    <template v-if="renderViewportContent">
     <!-- 卡片顶部沉浸式个性空间背景图 -->
     <div v-if="!officialMobileDetail && userCoverUrl && !feedPluginUrl" class="card-cover-backdrop" aria-hidden="true">
       <AppImage :src="userCoverUrl" image-class="card-cover-image" fit="cover" />
@@ -121,6 +130,7 @@
     <FeedVideoCard :feed="feed" />
 
     <FeedImageGrid
+      v-model:image-ratios="feedImageRatios"
       :images="feedImages"
       :content-id="feed.id"
       content-type="feed"
@@ -141,6 +151,7 @@
         v-html="formattedQuotedMessage"
       ></div>
       <FeedImageGrid
+        v-model:image-ratios="quotedImageRatios"
         v-if="quotedImages.length"
         :images="quotedImages"
         :content-id="targetRow?.id || targetRow?.entityId"
@@ -312,12 +323,15 @@
       @close="closeCollectionPicker"
       @confirm="confirmCollectionSelection"
     />
+    </template>
   </article>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, nextTick, onUnmounted, onActivated, onDeactivated, inject } from 'vue';
-import { feedPageVisibleKey } from '../../utils/feedPageVisibility';
+import { vDeferredPaint } from '../../utils/deferredPaint';
+import { useViewportContent } from '../../composables/useViewportContent';
+import { feedPageVisibleKey, feedPageRenderKey } from '../../utils/feedPageVisibility';
 import { useRouter } from 'vue-router';
 import type { FeedItem } from '../../types/feed';
 import { navigateBack } from '../../utils/navigation';
@@ -1205,7 +1219,18 @@ watch(() => settingsStore.settings.commentDefaultSortMode, (sortMode) => {
 });
 
 const cardRef = ref<HTMLElement | null>(null);
+const feedImageRatios = ref<Record<string, number>>({});
+const quotedImageRatios = ref<Record<string, number>>({});
 const pageVisible = inject(feedPageVisibleKey, ref(true));
+const { renderViewportContent, viewportPlaceholderStyle, retainViewportContent } = useViewportContent(cardRef, computed(() => Boolean(
+  props.detailMode || props.officialMobileDetail || props.autoOpenComments || showComments.value || commentsPage.value > 0
+  || moreMenuOpen.value || shareImageOpen.value || forwardOpen.value || dyhShareOpen.value || privateShareOpen.value
+  || interactionMode.value || collectionPickerOpen.value || historyDialogOpen.value || commentsLoading.value || favoritePending.value
+)), inject(feedPageRenderKey, pageVisible));
+function retainPointerContent(event: PointerEvent) {
+  // 鼠标拖动选字需要保留子树；触摸滚动不把途经的所有卡片永久留在内存中。
+  if (event.pointerType !== 'touch') retainViewportContent();
+}
 const componentActive = ref(true);
 useAndroidBackButton(() => !!props.officialMobileDetail && componentActive.value && pageVisible.value && moreMenuOpen.value, () => { moreMenuOpen.value = false; });
 const isCommentsFloatingVisible = ref(false);
@@ -1564,7 +1589,7 @@ defineExpose({
   overflow: hidden;
 }
 
-.feed-plugin-decoration { position: absolute; top: 0; right: 0; width: 50%; height: 48px; pointer-events: none; z-index: 0; background: transparent; }
+.feed-plugin-decoration { position: absolute; top: 0; right: 0; width: 50%; height: 48px; pointer-events: none; z-index: 0; background: transparent; content-visibility: auto; }
 :deep(.feed-plugin-decoration img) { object-position: right top; }
 @media (min-width: 721px) {
   .feed-plugin-decoration { display: none; }
@@ -1572,6 +1597,7 @@ defineExpose({
 
 /* 右上角作者个性空间背景图氛围层 */
 .card-cover-backdrop {
+  content-visibility: auto;
   position: absolute;
   top: 0;
   right: 0;

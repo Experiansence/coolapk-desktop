@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { useAppStore } from '../../stores/app';
 import { useSettingsStore } from '../../stores/settings';
 import LivePhotoPreview from './LivePhotoPreview.vue';
@@ -65,7 +65,7 @@ const contentType = computed<LivePhotoContextType>(() => props.contentType || 'f
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
 const LONG_IMAGE_RATIO = 1.8;
-const imageRatios = ref<Record<string, number>>({});
+const imageRatios = defineModel<Record<string, number>>('imageRatios', { default: () => ({}) });
 
 const processedImages = computed(() => {
   return normalizeFeedImageItems(props.images).flatMap(item => {
@@ -230,8 +230,9 @@ function openViewer(index: number) {
   aspect-ratio: 1 / 1;
   border-radius: 12px;
   overflow: hidden;
-  transform: translateZ(0);
   isolation: isolate;
+  /* 宫格尺寸由宽高比确定，离屏时跳过内部绘制，不改变列表高度。 */
+  content-visibility: auto;
   background-color: var(--background-secondary, rgba(0, 0, 0, 0.03));
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);

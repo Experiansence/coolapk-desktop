@@ -4,6 +4,8 @@ import {
   clearResourceCache,
   clearResourceMemoryCache,
   loadImageResource,
+  getMemoryCachedResourceSync,
+  getResourceMemoryCacheStats,
   normalizeResourceUrl,
 } from '../resourceCache';
 
@@ -82,5 +84,28 @@ describe('资源缓存', () => {
     const reloaded = await loadImageResource(url, freshFetcher);
     expect(reloaded).toBe('data:image/png;base64,bmV3');
     expect(freshFetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('按总字节限制淘汰，同步命中也刷新最近使用顺序', async () => {
+    const value = 'data:image/png;base64,' + 'a'.repeat(1024 * 1024);
+    const fetcher = vi.fn().mockResolvedValue(value);
+    for (let i = 0; i < 10; i++) await loadImageResource(`https://img.example/${i}`, fetcher);
+    expect(getMemoryCachedResourceSync('https://img.example/0')).toBe(value);
+    for (let i = 10; i < 14; i++) await loadImageResource(`https://img.example/${i}`, fetcher);
+    const stats = getResourceMemoryCacheStats();
+    expect(stats.estimatedBytes).toBeLessThanOrEqual(stats.byteLimit);
+    expect(stats.entries).toBeLessThan(14);
+    expect(getMemoryCachedResourceSync('https://img.example/0')).toBe(value);
+    expect(getMemoryCachedResourceSync('https://img.example/1')).toBeNull();
+    clearResourceMemoryCache();
+    expect(getResourceMemoryCacheStats()).toMatchObject({ entries: 0, estimatedBytes: 0 });
+  });
+
+  it('超大原图仍返回给显示组件，但不长期放入全局缓存', async () => {
+    const value = 'data:image/jpeg;base64,' + 'a'.repeat(getResourceMemoryCacheStats().entryByteLimit);
+    const fetcher = vi.fn().mockResolvedValue(value);
+    await expect(loadImageResource('https://img.example/original', fetcher)).resolves.toBe(value);
+    expect(getMemoryCachedResourceSync('https://img.example/original')).toBeNull();
+    expect(getResourceMemoryCacheStats().estimatedBytes).toBe(0);
   });
 });

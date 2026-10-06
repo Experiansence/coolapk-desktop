@@ -17,7 +17,10 @@ export function loadDevicePresets(): Promise<DevicePreset[]> {
     return data.rows.map(([brand, label, device, model], index) => ({
       id: String(index), brand, label: label || model || device, device, model,
     })).filter(item => item.model.trim());
-  }).catch(error => { catalogPromise = null; throw error; });
+  }).finally(() => {
+    // 只合并正在读取的请求；调用方保留需要的表，机型名称索引不额外常驻五万行对象。
+    catalogPromise = null;
+  });
 }
 
 const normalize = (value: string) => value.trim().replace(/\s+/g, '').toLowerCase();

@@ -43,6 +43,9 @@ describe('official device catalog', () => {
       expect(first).toBe(second);
       expect(first.length).toBe(rows.filter((row: { model: string }) => row.model.trim()).length);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+      const reloaded = await loadDevicePresets();
+      expect(reloaded).toEqual(first);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally { vi.unstubAllGlobals(); }
   });
 

@@ -589,11 +589,7 @@ watch(viewerData, (val) => {
     originalLoadingMap.value = {};
     resetTransform();
   } else {
-    liveResolveSequence += 1;
-    livePlaybackSequence += 1;
-    liveVideoUrl.value = '';
-    liveVideoPlaying.value = false;
-    liveVideoUnsupported.value = null;
+    clearMediaForNoImageMode();
   }
 });
 
@@ -612,8 +608,13 @@ function clearMediaForNoImageMode() {
   liveVideoSource.value = 'none';
   liveVideoFallbackAttempted.value = false;
   liveUnsupportedNoticeUrl = '';
+  liveVideoCodecChecks.clear();
   const video = liveVideoRef.value;
-  if (video) video.pause();
+  if (video) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
 }
 
 function loadCurrentMedia() {
@@ -650,6 +651,10 @@ function prefetchAdjacentImages() {
 
 watch(currentItem, () => {
   resetTransform();
+  if (!currentItem.value) {
+    clearMediaForNoImageMode();
+    return;
+  }
   resetLiveState();
   loadCurrentMedia();
 }, { immediate: true });
@@ -1118,6 +1123,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
   window.removeEventListener('resize', updateViewportSize);
   clearTransitionTimer();
+  clearMediaForNoImageMode();
 });
 </script>
 

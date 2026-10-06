@@ -1,9 +1,13 @@
 const MEMORY_CACHE_LIMIT = 300;
+// Data URL 字符串按 UTF-16 保守估算；条数限制无法约束几百张大图的占用。
+const MEMORY_CACHE_BYTE_LIMIT = 24 * 1024 * 1024;
+const MEMORY_CACHE_ENTRY_BYTE_LIMIT = 4 * 1024 * 1024;
 
 type ResourceFetcher = (url: string) => Promise<string>;
 
 const memoryCache = new Map<string, string>();
 const pendingRequests = new Map<string, Promise<string>>();
+let memoryCacheBytes = 0;
 let cacheGeneration = 0;
 
 /**
@@ -34,12 +38,21 @@ export function canPersistResource(url: string): boolean {
 }
 
 function remember(url: string, value: string) {
-  if (memoryCache.has(url)) memoryCache.delete(url);
+  const existing = memoryCache.get(url);
+  if (existing !== undefined) {
+    memoryCacheBytes -= (url.length + existing.length) * 2;
+    memoryCache.delete(url);
+  }
+  const bytes = (url.length + value.length) * 2;
+  // 大图由当前显示组件持有即可，避免在全局缓存中额外延长其生命周期。
+  if (bytes > MEMORY_CACHE_ENTRY_BYTE_LIMIT) return;
   memoryCache.set(url, value);
+  memoryCacheBytes += bytes;
 
-  while (memoryCache.size > MEMORY_CACHE_LIMIT) {
+  while (memoryCache.size > MEMORY_CACHE_LIMIT || memoryCacheBytes > MEMORY_CACHE_BYTE_LIMIT) {
     const oldestKey = memoryCache.keys().next().value as string | undefined;
     if (!oldestKey) break;
+    memoryCacheBytes -= (oldestKey.length + memoryCache.get(oldestKey)!.length) * 2;
     memoryCache.delete(oldestKey);
   }
 }
@@ -54,7 +67,15 @@ export function getMemoryCachedResourceSync(url: string | undefined): string | n
   if (normalizedUrl.startsWith('data:') || normalizedUrl.startsWith('blob:') || normalizedUrl.startsWith('/')) {
     return normalizedUrl;
   }
-  return memoryCache.get(normalizedUrl) || null;
+  const cached = memoryCache.get(normalizedUrl);
+  if (cached) remember(normalizedUrl, cached);
+  return cached || null;
+}
+
+/** 仅返回缓存规模，供诊断使用，不暴露图片或账号信息。 */
+export function getResourceMemoryCacheStats() {
+  return { entries: memoryCache.size, estimatedBytes: memoryCacheBytes,
+    byteLimit: MEMORY_CACHE_BYTE_LIMIT, entryByteLimit: MEMORY_CACHE_ENTRY_BYTE_LIMIT };
 }
 
 /**
@@ -102,6 +123,7 @@ export async function loadImageResource(url: string, fetcher: ResourceFetcher): 
 export function clearResourceMemoryCache(): void {
   cacheGeneration += 1;
   memoryCache.clear();
+  memoryCacheBytes = 0;
   pendingRequests.clear();
 }
 

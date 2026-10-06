@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { onActivated, onDeactivated, onMounted, onUnmounted } from 'vue';
+import { onActivated, onDeactivated, onUnmounted, watch } from 'vue';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
 
 const props = withDefaults(
@@ -75,9 +75,13 @@ function unbindGlobalListeners() {
   window.removeEventListener('keydown', handleKeydown);
 }
 
-onMounted(bindGlobalListeners);
-onActivated(bindGlobalListeners);
-onDeactivated(unbindGlobalListeners);
+let active = true;
+watch(() => props.isOpen, open => {
+  if (active && open) bindGlobalListeners();
+  else unbindGlobalListeners();
+}, { immediate: true });
+onActivated(() => { active = true; if (props.isOpen) bindGlobalListeners(); });
+onDeactivated(() => { active = false; unbindGlobalListeners(); });
 onUnmounted(unbindGlobalListeners);
 </script>
 

@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h, KeepAlive, ref, nextTick } from 'vue';
 import LivePhotoPreview from '../LivePhotoPreview.vue';
 import type { FeedImageItem } from '../../../utils/livePhoto';
 
@@ -31,6 +32,7 @@ describe('LivePhotoPreview 触摸端播放', () => {
   beforeEach(() => {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -95,6 +97,27 @@ describe('LivePhotoPreview 触摸端播放', () => {
 
     expect(onParentClick).toHaveBeenCalledTimes(1);
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('页面进入后台后停止视频下载并卸载播放器，返回保留静态封面', async () => {
+    stubPointer(true);
+    const visible = ref(true);
+    const wrapper = mount(defineComponent(() => () => h(KeepAlive, null, {
+      default: () => visible.value ? h(LivePhotoPreview, { item: liveItem }) : h('div'),
+    })));
+    const preview = wrapper.getComponent(LivePhotoPreview);
+    await preview.get('.live-badge').trigger('click');
+    await flushPromises();
+    const video = preview.get('video').element as HTMLVideoElement;
+    visible.value = false;
+    await nextTick();
+    expect(video.hasAttribute('src')).toBe(false);
+    expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
+    expect(preview.find('video').exists()).toBe(false);
+    visible.value = true;
+    await flushPromises();
+    expect(wrapper.find('video').exists()).toBe(false);
     wrapper.unmount();
   });
 });

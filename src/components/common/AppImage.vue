@@ -1,6 +1,7 @@
 <template>
   <div
     v-if="!noImageMode"
+    ref="containerRef"
     class="app-image-container"
     :class="[imageClass, { 'is-loading': loading, 'is-error': error, 'fit-contain': fit === 'contain' }]"
   >
@@ -25,11 +26,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
 import { sanitizeImageUrl } from '../../utils/image';
 import { loadImageResource, normalizeResourceUrl, getMemoryCachedResourceSync } from '../../utils/resourceCache';
+import { observeResourceVisibility } from '../../utils/resourceVisibility';
 
 const props = withDefaults(defineProps<{
   src?: string;
@@ -52,17 +54,45 @@ const noImageMode = computed(() => settingsStore.settings.noImageMode);
 const contextImageUrl = computed(() => props.src ? normalizeResourceUrl(props.src) : '');
 
 // 同步尝试命中内存缓存
-const initialCached = getMemoryCachedResourceSync(props.src);
+const initialCached = typeof IntersectionObserver === 'undefined' ? getMemoryCachedResourceSync(props.src) : null;
 const renderedSrc = ref<string | undefined>(initialCached || undefined);
 const loading = ref(!initialCached && !!props.src);
 const error = ref(false);
 const isFallback = ref(false);
 
 let loadSequence = 0;
+let active = true;
+let nearViewport = typeof IntersectionObserver === 'undefined';
+const containerRef = ref<HTMLElement | null>(null);
+let stopObserving = () => {};
+
+function releaseRenderedImage() {
+  loadSequence += 1;
+  renderedSrc.value = undefined;
+  loading.value = false;
+}
+
+function observeImage() {
+  stopObserving();
+  if (!containerRef.value || !active) return;
+  nearViewport = typeof IntersectionObserver === 'undefined';
+  stopObserving = observeResourceVisibility(containerRef.value, visible => {
+    nearViewport = visible;
+    if (!active) return;
+    if (visible) void loadImage(props.src);
+    else releaseRenderedImage();
+  });
+}
+
+function releaseImage() {
+  active = false;
+  stopObserving();
+  releaseRenderedImage();
+}
 
 async function loadImage(url: string | undefined) {
   const sequence = ++loadSequence;
-  if (noImageMode.value) {
+  if (!active || !nearViewport || noImageMode.value) {
     renderedSrc.value = undefined;
     error.value = false;
     loading.value = false;
@@ -143,6 +173,16 @@ watch([() => props.src, noImageMode], ([newSrc, disabled]) => {
 
 onMounted(() => {
   void loadImage(props.src);
+});
+watch(containerRef, observeImage, { flush: 'post' });
+
+// 保留页面数据和滚动位置，但不让后台页面继续持有图片和解码图层。
+onDeactivated(releaseImage);
+onUnmounted(releaseImage);
+onActivated(() => {
+  if (active) return;
+  active = true;
+  observeImage();
 });
 
 function handleLoad(event: Event) {

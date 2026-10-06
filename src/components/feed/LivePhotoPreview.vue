@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="previewRef"
     class="live-photo-preview"
     :class="{
       'is-live-photo': item.isLivePhoto,
@@ -54,11 +55,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onActivated, onMounted, onDeactivated, onUnmounted, ref, watch } from 'vue';
 import AppImage from '../common/AppImage.vue';
 import { getHdImageUrl } from '../../utils/image';
 import { normalizeResourceUrl } from '../../utils/resourceCache';
 import { isCoarsePointer } from '../../utils/platform';
+import { observeResourceVisibility } from '../../utils/resourceVisibility';
 import {
   resolveLivePhotoVideo,
   type FeedImageItem,
@@ -82,6 +84,15 @@ const emit = defineEmits<{
 }>();
 
 const videoRef = ref<HTMLVideoElement | null>(null);
+const previewRef = ref<HTMLElement | null>(null);
+let stopObserving = () => {};
+function observePreview() {
+  stopObserving();
+  if (!previewRef.value) return;
+  stopObserving = observeResourceVisibility(previewRef.value, visible => {
+    if (!visible) handleMouseLeave();
+  });
+}
 // 列表默认只挂载静态封面；视频地址在首次悬浮时才交给 <video>。
 const resolvedVideoUrl = ref('');
 // 只有"打算播放"期间才把 <video> 放进 DOM：暂停后浏览器就没有任何视频画面可画，
@@ -213,6 +224,8 @@ function handleMouseLeave() {
   const video = videoRef.value;
   if (video) {
     video.pause();
+    video.removeAttribute('src');
+    video.load();
     try {
       video.currentTime = 0;
     } catch {
@@ -244,8 +257,15 @@ watch(() => props.item.key, () => {
 });
 
 onUnmounted(() => {
+  stopObserving();
   handleMouseLeave();
 });
+onDeactivated(() => {
+  stopObserving();
+  handleMouseLeave();
+});
+onMounted(observePreview);
+onActivated(observePreview);
 </script>
 
 <style scoped>
@@ -254,7 +274,6 @@ onUnmounted(() => {
   inset: 0;
   overflow: hidden;
   border-radius: inherit;
-  transform: translateZ(0);
   background: var(--background-secondary, #f0f0f0);
 }
 

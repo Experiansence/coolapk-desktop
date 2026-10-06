@@ -721,7 +721,13 @@ export async function generateFeedShareImage(feed: FeedItem, images: FeedImageIn
   }
   context.textAlign = 'left';
 
-  return { dataUrl: canvas.toDataURL('image/png'), failedImageUrls };
+  try {
+    return { dataUrl: canvas.toDataURL('image/png'), failedImageUrls };
+  } finally {
+    // 返回的是编码后的图片，画布的大块像素缓冲无需等垃圾回收才释放。
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 export function dataUrlToBlob(dataUrl: string): Blob {

@@ -36,6 +36,19 @@ function mountGrid() {
 }
 
 describe('FeedImageGrid 点击打开方式', () => {
+  it('retains measured image ratios across recycling so long-image layout does not jump', async () => {
+    const images = ['https://img.example/tall.jpg'];
+    const first = mount(FeedImageGrid, { props: { images }, global: { stubs: { LivePhotoPreview: true } } });
+    first.findComponent({ name: 'LivePhotoPreview' }).vm.$emit('load', { target: { naturalWidth: 800, naturalHeight: 2400 } });
+    await flushPromises();
+    const ratios = first.emitted('update:imageRatios')?.[0]?.[0] as Record<string, number>;
+    expect(first.find('.long-image-badge').exists()).toBe(true);
+    first.unmount();
+    const restored = mount(FeedImageGrid, { props: { images, imageRatios: ratios }, global: { stubs: { LivePhotoPreview: true } } });
+    expect(restored.find('.long-image-badge').exists()).toBe(true);
+    expect(restored.find('.grid-item').classes()).toContain('has-natural-size');
+    restored.unmount();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());

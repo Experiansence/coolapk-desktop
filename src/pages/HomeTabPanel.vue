@@ -353,9 +353,10 @@ import { extractHotSearchKeywords, isAnswerSearchEntity } from '../utils/searchE
 import { isQuestionFeedEntity, isQuestionHomeTab } from '../utils/question';
 import { isRatingFeedEntity } from '../utils/rating';
 const props = withDefaults(defineProps<{ embedded?: boolean; tabKey?: string; tabs?: ConfigPageTab[]; selected?: boolean }>(), { embedded: false, selected: true });
-import { feedPageVisibleKey, homePagerMovingKey } from '../utils/feedPageVisibility';
+import { feedPageVisibleKey, feedPageRenderKey, homePagerMovingKey } from '../utils/feedPageVisibility';
 const pagerMoving = inject(homePagerMovingKey, ref(false));
 provide(feedPageVisibleKey, computed(() => props.selected && !pagerMoving.value));
+provide(feedPageRenderKey, computed(() => props.selected || pagerMoving.value));
 
 const settingsStore = useSettingsStore();
 
@@ -1240,6 +1241,7 @@ async function loadFeeds(isRefresh: boolean = false) {
 }
 
 function handleScroll(e: Event) {
+  if (!props.selected || pagerMoving.value) return;
   const el = e.target as HTMLElement;
   if (!el) return;
   if (el.scrollHeight - el.scrollTop - el.clientHeight < 250) {

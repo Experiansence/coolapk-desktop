@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onUnmounted, ref, watch } from 'vue';
 import type { FeedItem } from '../../types/feed';
 import type { FeedImageInput } from '../../utils/livePhoto';
 import { CoolapkTauriAPI } from '../../api/coolapk';
@@ -92,6 +92,14 @@ const saving = ref(false);
 const imageDataUrl = ref('');
 const error = ref('');
 const failedImageUrls = ref<string[]>([]);
+let generation = 0;
+function releasePreview() {
+  generation += 1;
+  imageDataUrl.value = '';
+  failedImageUrls.value = [];
+  error.value = '';
+  generating.value = false;
+}
 
 async function loadHotComments(): Promise<FeedShareComment[]> {
   const feedId = String(props.feed.id || '');
@@ -123,16 +131,20 @@ function openPreviewFullscreen() {
 
 async function generate() {
   if (!props.show || generating.value) return;
+  const request = ++generation;
   generating.value = true;
   error.value = '';
   imageDataUrl.value = '';
   failedImageUrls.value = [];
   try {
     const comments = await loadHotComments();
+    if (request !== generation) return;
     const result = await generateFeedShareImage(props.feed, props.images || [], { comments });
+    if (request !== generation) return;
     imageDataUrl.value = result.dataUrl;
     failedImageUrls.value = result.failedImageUrls;
   } catch (reason) {
+    if (request !== generation) return;
     if (reason instanceof FeedShareImageError) {
       failedImageUrls.value = reason.failedImageUrls;
       error.value = `有 ${reason.failedImageUrls.length} 张图片加载失败，请重试后再保存。`;
@@ -140,7 +152,7 @@ async function generate() {
       error.value = reason instanceof Error ? reason.message : String(reason);
     }
   } finally {
-    generating.value = false;
+    if (request === generation) generating.value = false;
   }
 }
 
@@ -189,9 +201,11 @@ watch(
   () => props.show,
   (show) => {
     if (show) void generate();
+    else releasePreview();
   },
   { immediate: true },
 );
+onUnmounted(releasePreview);
 </script>
 
 <style scoped>

@@ -1,5 +1,5 @@
 <template>
-  <div :class="['app-avatar-container', `size-${size}`]" :style="{ width: `${sizePx}px`, height: `${sizePx}px` }">
+  <div ref="containerRef" :class="['app-avatar-container', `size-${size}`]" :style="{ width: `${sizePx}px`, height: `${sizePx}px` }">
     <div class="app-avatar">
       <AppImage :src="src || defaultAvatar" :alt="alt || 'avatar'" image-class="avatar-img" :hide-spinner="true" />
     </div>
@@ -15,11 +15,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue';
 import AppImage from './AppImage.vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
 import { loadImageResource, normalizeResourceUrl, getMemoryCachedResourceSync } from '../../utils/resourceCache';
+import { observeResourceVisibility } from '../../utils/resourceVisibility';
 
 const props = withDefaults(
   defineProps<{
@@ -37,13 +38,39 @@ const settingsStore = useSettingsStore();
 const noImageMode = computed(() => settingsStore.settings.noImageMode);
 const defaultAvatar = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23b0b0b0"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>';
 
-const initialTargetUrl = !noImageMode.value && props.pluginUrl ? normalizeResourceUrl(props.pluginUrl) : '';
+const initialTargetUrl = typeof IntersectionObserver === 'undefined' && !noImageMode.value && props.pluginUrl ? normalizeResourceUrl(props.pluginUrl) : '';
 const pluginDataUrl = ref<string>(initialTargetUrl ? (getMemoryCachedResourceSync(initialTargetUrl) || '') : '');
 let pluginLoadSequence = 0;
+let active = true;
+let nearViewport = typeof IntersectionObserver === 'undefined';
+const containerRef = ref<HTMLElement | null>(null);
+let stopObserving = () => {};
+
+function observePluginImage() {
+  stopObserving();
+  if (!containerRef.value || !active) return;
+  nearViewport = typeof IntersectionObserver === 'undefined';
+  stopObserving = observeResourceVisibility(containerRef.value, visible => {
+    nearViewport = visible;
+    if (!active) return;
+    if (visible) void loadPluginImage(props.pluginUrl);
+    else {
+      pluginLoadSequence += 1;
+      pluginDataUrl.value = '';
+    }
+  });
+}
+
+function releasePluginImage() {
+  active = false;
+  stopObserving();
+  pluginLoadSequence += 1;
+  pluginDataUrl.value = '';
+}
 
 async function loadPluginImage(url?: string) {
   const sequence = ++pluginLoadSequence;
-  if (noImageMode.value) {
+  if (!active || !nearViewport || noImageMode.value) {
     pluginDataUrl.value = '';
     return;
   }
@@ -78,7 +105,15 @@ watch([() => props.pluginUrl, noImageMode], ([newUrl, disabled]) => {
 });
 
 onMounted(() => {
-  void loadPluginImage(props.pluginUrl);
+  observePluginImage();
+});
+
+onDeactivated(releasePluginImage);
+onUnmounted(releasePluginImage);
+onActivated(() => {
+  if (active) return;
+  active = true;
+  observePluginImage();
 });
 
 const sizePx = computed(() => {

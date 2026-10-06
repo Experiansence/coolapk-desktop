@@ -7,6 +7,7 @@ interface UserCacheEntry {
 }
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 分钟缓存
+const MAX_CACHED_PROFILES = 128;
 const MAX_CONCURRENT_PRELOAD = 3; // 后台静默并发数限制，避免拥堵主请求
 
 // 全局单例缓存
@@ -16,6 +17,38 @@ const globalUserCache: Map<string, UserCacheEntry> =
 
 // 全局 Vue 响应式缓存映射（供模板和计算属性即时响应数据更新）
 export const reactiveUserProfileMap = reactive<Record<string, any>>({});
+
+function pruneProfiles() {
+  const now = Date.now();
+  for (const [uid, entry] of globalUserCache) {
+    if (entry.expireAt <= now) {
+      globalUserCache.delete(uid);
+      delete reactiveUserProfileMap[uid];
+    }
+  }
+  while (globalUserCache.size > MAX_CACHED_PROFILES) {
+    const uid = globalUserCache.keys().next().value!;
+    globalUserCache.delete(uid);
+    delete reactiveUserProfileMap[uid];
+  }
+}
+
+function rememberProfile(uid: string, data: any) {
+  globalUserCache.delete(uid);
+  globalUserCache.set(uid, { data, expireAt: Date.now() + CACHE_TTL });
+  reactiveUserProfileMap[uid] = data;
+  pruneProfiles();
+}
+
+function readProfile(uid: string): UserCacheEntry | undefined {
+  pruneProfiles();
+  const cached = globalUserCache.get(uid);
+  if (cached) {
+    globalUserCache.delete(uid);
+    globalUserCache.set(uid, cached);
+  }
+  return cached;
+}
 
 const inFlightRequests = new Map<string, Promise<any>>();
 const preloadQueue: string[] = [];
@@ -51,11 +84,7 @@ function pumpPreloadQueue() {
       .then((res: any) => {
         if (!res) return null;
         const data = res?.data || res || {};
-        globalUserCache.set(uid, {
-          data,
-          expireAt: Date.now() + CACHE_TTL,
-        });
-        reactiveUserProfileMap[uid] = data;
+        rememberProfile(uid, data);
         return data;
       })
       .catch(() => {
@@ -86,7 +115,7 @@ export function preloadUserProfile(rawUid: string | number | undefined | null) {
   if (!uid || uid === '0' || uid === 'undefined' || uid === 'null') return;
 
   const now = Date.now();
-  const cached = globalUserCache.get(uid);
+  const cached = readProfile(uid);
   if (cached && cached.expireAt > now) {
     reactiveUserProfileMap[uid] = cached.data;
     return;
@@ -123,7 +152,7 @@ export async function getUserProfileCached(rawUid: string | number | undefined |
   if (!uid) return fallback || null;
 
   const now = Date.now();
-  const cached = globalUserCache.get(uid);
+  const cached = readProfile(uid);
   if (cached && cached.expireAt > now) {
     reactiveUserProfileMap[uid] = cached.data;
     return cached.data;
@@ -147,11 +176,7 @@ export async function getUserProfileCached(rawUid: string | number | undefined |
     }
     const res: any = await CoolapkTauriAPI.getPublicUserSpace(uid);
     const data = res?.data || res || {};
-    globalUserCache.set(uid, {
-      data,
-      expireAt: Date.now() + CACHE_TTL,
-    });
-    reactiveUserProfileMap[uid] = data;
+    rememberProfile(uid, data);
     return data;
   } catch (err) {
     return fallback || null;
@@ -166,12 +191,8 @@ export function getCachedUserProfileSync(rawUid: string | number | undefined | n
   const uid = String(rawUid).trim();
   if (!uid) return null;
 
-  if (reactiveUserProfileMap[uid]) {
-    return reactiveUserProfileMap[uid];
-  }
-
   const now = Date.now();
-  const cached = globalUserCache.get(uid);
+  const cached = readProfile(uid);
   if (cached && cached.expireAt > now) {
     reactiveUserProfileMap[uid] = cached.data;
     return cached.data;
