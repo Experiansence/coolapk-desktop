@@ -107,7 +107,7 @@
         </div>
 
         <!-- 底部一体化灵动毛玻璃控制岛 -->
-        <div class="viewer-bottombar" @click.stop>
+        <div v-if="currentItem?.isLivePhoto || showOriginalControl" class="viewer-bottombar" @click.stop>
           <div class="viewer-control-island">
             <template v-if="currentItem?.isLivePhoto">
               <button
@@ -134,21 +134,21 @@
                 <span>{{ liveSoundEnabled ? '原声' : '静音' }}</span>
               </button>
 
-              <div class="island-divider"></div>
+              <div v-if="showOriginalControl" class="island-divider"></div>
             </template>
 
             <button
+              v-if="showOriginalControl"
               class="island-btn raw-image-btn"
-              :class="{ 'is-loaded': isCurrentOriginalLoaded, 'is-loading': isCurrentOriginalLoading }"
-              :disabled="isCurrentOriginalLoading || isCurrentOriginalLoaded"
+              :class="{ 'is-loading': isCurrentOriginalLoading }"
+              :disabled="isCurrentOriginalLoading"
               @click.stop="loadOriginal"
             >
               <i :class="[
-                isCurrentOriginalLoading ? 'fas fa-circle-notch fa-spin' :
-                isCurrentOriginalLoaded ? 'fas fa-check-circle' : 'fas fa-file-image'
+                isCurrentOriginalLoading ? 'fas fa-circle-notch fa-spin' : 'fas fa-file-image'
               ]"></i>
               <span>
-                {{ isCurrentOriginalLoading ? '正在加载原图...' : (isCurrentOriginalLoaded ? '已加载原图' : '查看原图') }}
+                {{ isCurrentOriginalLoading ? '正在加载原图...' : '查看原图' }}
               </span>
             </button>
           </div>
@@ -298,6 +298,7 @@ const originalUrl = computed(() => {
 
 const isCurrentOriginalLoaded = computed(() => Boolean(originalLoadedMap.value[currentIndex.value]));
 const isCurrentOriginalLoading = computed(() => Boolean(originalLoadingMap.value[currentIndex.value]));
+const showOriginalControl = computed(() => !isCurrentOriginalLoaded.value);
 
 async function resolveImageData(url: string): Promise<boolean> {
   const sequence = ++resolveSequence;

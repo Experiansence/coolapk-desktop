@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../../stores/app';
+import { useSettingsStore } from '../../../stores/settings';
 import { getMemoryCachedResourceSync, loadImageResource } from '../../../utils/resourceCache';
 import ImageViewer from '../ImageViewer.vue';
 
@@ -21,6 +22,47 @@ vi.mock('../../../utils/resourceCache', () => ({
 
 const loadResourceMock = vi.mocked(loadImageResource);
 const memoryCacheMock = vi.mocked(getMemoryCachedResourceSync);
+
+describe('原图加载成功后隐藏入口', () => {
+  beforeEach(() => {
+    loadResourceMock.mockImplementation(async url => dataOf(url));
+    memoryCacheMock.mockReturnValue(null);
+    useSettingsStore().settings.autoLoadOriginalImage = false;
+    useSettingsStore().settings.imageQuality = 'hd';
+  });
+
+  it('手动加载原图成功后立即隐藏按钮和空工具栏，不显示成功提示', async () => {
+    const { wrapper } = await mountViewer();
+    expect(wrapper.get('.viewer-bottombar .raw-image-btn').text()).toBe('查看原图');
+    await wrapper.get('.raw-image-btn').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('已加载原图');
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    expect(wrapper.find('.viewer-bottombar').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('开启自动加载原图时，加载成功后不显示成功提示', async () => {
+    useSettingsStore().settings.autoLoadOriginalImage = true;
+    const { wrapper } = await mountViewer();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf('https://img.example/0.jpg'));
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('切到未加载原图的图片显示入口，返回已加载的图片隐藏入口', async () => {
+    const { wrapper } = await mountViewer();
+    await wrapper.get('.raw-image-btn').trigger('click');
+    await flushPromises();
+    await wrapper.get('.nav-next').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.raw-image-btn').text()).toBe('查看原图');
+    await wrapper.get('.nav-prev').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
 
 /** 与资源缓存的真实行为一致：返回可区分的 data URL，便于断言画面上是哪一张。 */
 function dataOf(url: string): string {
