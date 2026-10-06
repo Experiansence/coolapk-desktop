@@ -108,6 +108,8 @@ export interface DeviceFingerprintSettings {
   androidVersion: string;
   /** UA 内 Build 号，如 "AQ3A.250226.002" */
   build: string;
+  /** UA 的 ROM 信息，如 "HyperOS_3.0; 3.0.310.0"；留空使用 Android 版本 */
+  rom?: string;
   /** X-App-Version，如 "16.2.0" */
   appVersion: string;
   /** X-App-Code / X-App-Supported，如 "2604201" */

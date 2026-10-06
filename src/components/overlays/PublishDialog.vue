@@ -204,6 +204,7 @@
       </div>
       <!-- APK 的更多区域使用图标网格，在工具栏下方展开。 -->
       <div v-if="showMore" id="publish-more-panel" class="publish-more-grid" aria-label="更多发布选项">
+        <button v-if="!isEditMode" type="button" class="mobile-device-option" role="switch" aria-label="发动态时附带型号" :aria-checked="includeDeviceModel" :class="{ 'is-active': includeDeviceModel }" :disabled="submitting" @click="includeDeviceModel = !includeDeviceModel"><span class="more-icon"><i class="fas fa-mobile-alt"></i></span><span>附带型号</span><small>{{ includeDeviceModel ? '已开启' : '已关闭' }}</small></button>
         <button v-if="!isEditMode && publishMode === 'feed'" type="button" :disabled="processingMedia" @click="openVideoPicker"><span class="more-icon"><i class="fas fa-video"></i></span><span>视频</span></button>
         <button v-if="!isEditMode" type="button" @click="showMore = false; extrasPicker?.openDeclaration()"><span class="more-icon"><i class="far fa-file-alt"></i></span><span>内容声明</span></button>
         <button v-if="!isEditMode && extrasPicker?.hasDyhs" type="button" @click="showMore = false; extrasPicker?.openDyh()"><span class="more-icon"><i class="far fa-newspaper"></i></span><span>订阅号</span></button>
@@ -219,6 +220,7 @@
 
     <template #footer>
       <div class="footer-actions">
+        <button v-if="!isEditMode" type="button" class="publish-device-option" role="switch" aria-label="发动态时附带型号" :aria-checked="includeDeviceModel" :class="{ 'is-active': includeDeviceModel }" :disabled="submitting" @click="includeDeviceModel = !includeDeviceModel"><i class="fas fa-mobile-alt" aria-hidden="true"></i><span>附带型号</span><span class="device-switch-track" aria-hidden="true"></span></button>
         <AppButton variant="ghost" :disabled="submitting" @click="closePublish">取消</AppButton>
         <AppButton
           variant="primary"
@@ -293,6 +295,11 @@ const topicSourceText = computed(() => publishMode.value === 'article'
 const publishTarget = ref<PublishTarget | null>(null);
 const productOptions = ref<PublishOptions>({});
 const extraOptions = ref<PublishOptions>({ originalType: 0, extraUrl: '', dyhId: '' });
+const defaultIncludeDeviceModel = ref(false);
+const includeDeviceModel = computed({
+  get: () => extraOptions.value.includeDeviceModel ?? defaultIncludeDeviceModel.value,
+  set: (value: boolean) => { extraOptions.value = { ...extraOptions.value, includeDeviceModel: value }; },
+});
 const attachmentTitle = ref('');
 const targetPicker = ref<InstanceType<typeof PublishTargetPicker> | null>(null);
 const extrasPicker = ref<InstanceType<typeof PublishExtras> | null>(null);
@@ -537,6 +544,12 @@ watch(() => appStore.isPublishOpen, async (open) => {
         if (revision === openRevision) editLoading.value = false;
       }
     } else {
+      defaultIncludeDeviceModel.value = false;
+      try {
+        const response = await CoolapkTauriAPI.getDeviceInfo();
+        if (revision !== openRevision || !appStore.isPublishOpen) return;
+        defaultIncludeDeviceModel.value = response?.data?.defaultProfile?.includeDeviceModel === true;
+      } catch { /* 无法确认真实设备时默认不附带型号。 */ }
       try {
         draftList.value = await listFullPublishDrafts(draftAccount);
         if (revision !== openRevision || !appStore.isPublishOpen) return;
@@ -1045,6 +1058,7 @@ async function handlePublish() {
             : { largeCover: largeCover.value && !['3', '4'].includes(productOptions.value.subTypeId || '') }),
           ...productOptions.value,
           ...extraOptions.value,
+          includeDeviceModel: includeDeviceModel.value,
           ...(publishMode.value === 'feed' && videoAttachment.value ? { mediaUrl: videoAttachment.value.mediaUrl, mediaInfo: videoAttachment.value.mediaInfo } : {}),
         };
         return await CoolapkTauriAPI.createFeed(requestMessage, pic || undefined, postToken, options);
@@ -1167,6 +1181,18 @@ async function handlePublish() {
 </script>
 
 <style scoped>
+.publish-device-option { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; padding: 8px 10px; border: 1px solid var(--border-light); border-radius: 20px; background: var(--bg-primary); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.publish-device-option.is-active { color: var(--brand-primary); }
+.publish-device-option:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 3px; }
+.publish-device-option:disabled { opacity: .5; cursor: not-allowed; }
+.device-switch-track { display: block; width: 28px; height: 16px; border-radius: 9px; background: var(--border); transition: background .15s; }
+.device-switch-track::after { content: ''; display: block; width: 12px; height: 12px; margin: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 3px rgb(0 0 0 / 15%); transition: transform .15s; }
+.is-active .device-switch-track { background: var(--brand-primary); }
+.is-active .device-switch-track::after { transform: translateX(12px); }
+.publish-more-grid > .mobile-device-option { display: none; }
+.mobile-device-option small { font-size: 10px; color: var(--text-tertiary); }
+.mobile-device-option.is-active, .mobile-device-option.is-active small { color: var(--brand-primary); }
+@media (max-width: 600px) { .publish-more-grid > .mobile-device-option { display: flex; } }
 .publish-visibility { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-size-sub); }
 .publish-visibility select { padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
 
@@ -1747,6 +1773,7 @@ async function handlePublish() {
 }
 .footer-actions {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 10px;
   margin-left: auto;

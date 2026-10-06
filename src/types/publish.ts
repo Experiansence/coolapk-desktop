@@ -10,6 +10,7 @@ export interface PublishTarget {
 
 // 仅传递已明确设置的发布选项，重新编辑时由服务端读取原始值。
 export interface PublishOptions {
+  includeDeviceModel?: boolean;
   targetType?: PublishTarget['type'] | '';
   targetId?: string;
   subTypeId?: string;

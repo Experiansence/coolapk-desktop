@@ -1,6 +1,42 @@
 use super::*;
 
 #[test]
+fn test_publish_device_model_is_scoped_and_preserves_identity() {
+    let client = CoolapkClient::new();
+    client.update_device_profile(DeviceProfile {
+        device_id: Some("publish-identity".into()),
+        manufacturer: Some("Apple".into()), brand: Some("Apple".into()),
+        model: Some("iPhone17,3".into()), build: Some("real-build".into()),
+        user_agent: Some("native-UA iPhone17,3".into()),
+        ..Default::default()
+    });
+    let original_code = client.device_code.read().unwrap().clone();
+    let form = build_create_feed_form("正文", None, None);
+    let hidden = client.create_feed_request(&form, false).unwrap().build().unwrap();
+    let visible = client.create_feed_request(&form, true).unwrap().build().unwrap();
+    let decode = |request: &reqwest::Request| {
+        let mut encoded: String = request.headers()["X-App-Device"].to_str().unwrap().chars().rev().collect();
+        while encoded.len() % 4 != 0 { encoded.push('='); }
+        String::from_utf8(BASE64.decode(encoded).unwrap()).unwrap()
+            .split(';').map(|part| part.trim().to_string()).collect::<Vec<_>>()
+    };
+    let hidden_fields = decode(&hidden);
+    let visible_fields = decode(&visible);
+    assert_eq!(&hidden_fields[..4], &visible_fields[..4]);
+    assert_eq!(hidden_fields[0], "publish-identity");
+    assert!(hidden_fields[4..8].iter().all(String::is_empty));
+    assert_eq!(visible_fields[6], "iPhone17,3");
+    assert_eq!(hidden.headers()[USER_AGENT], "CoolMarket/16.2.0-2604201-universal");
+    assert_eq!(hidden.headers().get_all(USER_AGENT).iter().count(), 1);
+    assert_eq!(visible.headers()[USER_AGENT], "native-UA iPhone17,3");
+    assert_eq!(hidden.body().unwrap().as_bytes(), visible.body().unwrap().as_bytes());
+    assert_eq!(*client.device_code.read().unwrap(), original_code);
+    assert!(device_code_without_model("invalid").is_err());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    assert!(!client.default_publish_device_model());
+}
+
+#[test]
 fn test_cdn_upload_url_https() {
     assert_eq!(normalize_cdn_upload_url("http://image.coolapk.com/feed/file@0x0.zip?token=a%2Fb"), "https://image.coolapk.com/feed/file@0x0.zip?token=a%2Fb");
     for url in ["https://image.coolapk.com/file.zip", "http://image.coolapk.com.evil.com/file.zip", "http://example.com/file.zip"] {
@@ -1004,6 +1040,35 @@ fn test_parse_reply_user_agent_keeps_real_device_metadata() {
     assert_eq!(device_rom, "Android 16 · HyperOS 3.0.310.0");
 }
 
+#[test]
+fn test_parse_reply_user_agent_android_rom_fallback_is_not_duplicated() {
+    let ua = "Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) (#Build; Redmi; 23113RKC6C; AQ3A.250226.002; 16) +CoolMarket/16.2.0-2604201-universal";
+    let (title, build, rom) = parse_reply_user_agent(ua);
+    assert_eq!(title, "Redmi 23113RKC6C");
+    assert_eq!(build, "AQ3A.250226.002");
+    assert_eq!(rom, "Android 16");
+}
+
+#[test]
+fn test_user_agent_device_profile_headers_for_publish_request() {
+    let client = CoolapkClient::new();
+    let ua = "Dalvik/2.1.0 (Linux; U; Android 16; 2210132C Build/BP2A.250605.031.A3) (#Build; Xiaomi; 2210132C; BP2A.250605.031.A3; HyperOS_3.0; 3.0.310.0) +CoolMarket/16.2.0-2604201-universal";
+    client.update_device_profile(DeviceProfile {
+        user_agent: Some(ua.into()), manufacturer: Some("Xiaomi".into()),
+        brand: Some("Xiaomi".into()), model: Some("2210132C".into()),
+        build: Some("BP2A.250605.031.A3".into()), ..Default::default()
+    });
+    let request = client.apply_device_profile(client.client.post("https://api.coolapk.com/v6/feed/createFeed"))
+        .unwrap().build().unwrap();
+    assert_eq!(request.headers().get(USER_AGENT).unwrap().to_str().unwrap(), ua);
+    let code = request.headers().get("X-App-Device").unwrap().to_str().unwrap();
+    assert_eq!(code, client.device_code.read().unwrap().as_str());
+    let mut encoded: String = code.chars().rev().collect();
+    while encoded.len() % 4 != 0 { encoded.push('='); }
+    let decoded = String::from_utf8(BASE64.decode(encoded).unwrap()).unwrap();
+    assert!(decoded.contains("; Xiaomi; Xiaomi; 2210132C; BP2A.250605.031.A3;"));
+}
+
 /// 模拟「登录 → 保存 Cookie → 落盘 JSON → 重启恢复 → 登出」完整链路（不依赖网络）
 #[tokio::test]
 async fn test_login_cookie_persistence_flow() {
@@ -1615,4 +1680,38 @@ fn test_device_profile_model_applies_without_custom_device_id() {
     let decoded = String::from_utf8(BASE64.decode(encoded).unwrap()).unwrap();
     assert!(decoded.contains("; Samsung; samsung; SM-S9280; actual-build;"));
     assert!(is_valid_device_code(&active));
+}
+
+#[test]
+fn test_native_device_profile_survives_settings_sync_and_custom_reset() {
+    let mut client = CoolapkClient::new();
+    let native_ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) (#Build; Apple; iPhone17,3; 22A3354; 18.0) +CoolMarket/16.2.0-2604201-universal";
+    client.native_device_profile = DeviceProfile {
+        manufacturer: Some("Apple".into()), brand: Some("Apple".into()),
+        model: Some("iPhone17,3".into()), build: Some("22A3354".into()),
+        user_agent: Some(native_ua.into()), ..Default::default()
+    };
+    let verify = |expected_ua: &str, expected_model_fields: &str| {
+        let request = client.apply_device_profile(client.client.post("https://api.coolapk.com/v6/feed/createFeed"))
+            .unwrap().build().unwrap();
+        assert_eq!(request.headers().get(USER_AGENT).unwrap().to_str().unwrap(), expected_ua);
+        let code = request.headers().get("X-App-Device").unwrap().to_str().unwrap();
+        let mut encoded: String = code.chars().rev().collect();
+        while encoded.len() % 4 != 0 { encoded.push('='); }
+        let decoded = String::from_utf8(BASE64.decode(encoded).unwrap()).unwrap();
+        assert!(decoded.starts_with("saved-device-id;"));
+        assert!(decoded.contains(expected_model_fields));
+    };
+    // 前端关闭自定义时仍发送保存的设备 ID，不能抹掉本机信息。
+    client.update_device_profile(DeviceProfile { device_id: Some("saved-device-id".into()), ..Default::default() });
+    verify(native_ua, "; Apple; Apple; iPhone17,3; 22A3354;");
+    assert_eq!(client.get_device_info().unwrap()["data"]["defaultProfile"]["source"], "native");
+    client.update_device_profile(DeviceProfile {
+        device_id: Some("saved-device-id".into()), manufacturer: Some("Xiaomi".into()), brand: Some("Redmi".into()),
+        model: Some("24117RK2CC".into()), build: Some("custom-build".into()),
+        user_agent: Some("custom-user-agent".into()), ..Default::default()
+    });
+    verify("custom-user-agent", "; Xiaomi; Redmi; 24117RK2CC; custom-build;");
+    client.update_device_profile(DeviceProfile { device_id: Some("saved-device-id".into()), ..Default::default() });
+    verify(native_ua, "; Apple; Apple; iPhone17,3; 22A3354;");
 }

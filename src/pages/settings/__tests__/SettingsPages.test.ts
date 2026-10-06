@@ -177,6 +177,8 @@ describe('设置页面交互', () => {
     expect(settings.settings.deviceFingerprint.androidVersion).toBe('15');
     expect(settings.settings.deviceFingerprint.build).toBe('actual-build');
     expect(settings.settings.deviceFingerprint.sdkInt).toBe('35');
+    await wrapper.get('[aria-label="ROM 信息"]').setValue('HyperOS_3.0; 3.0.310.0');
+    expect(wrapper.get('.preview-box').text()).toContain('; HyperOS_3.0; 3.0.310.0)');
     await wrapper.get('[aria-label="官方机型表"]').setValue('');
     expect((wrapper.get('[aria-label="官方机型表"]').element as HTMLSelectElement).value).toBe('');
     const appCodeInput = inputs.find((i) => i.attributes('placeholder') === '2604201') || inputs[5];
@@ -187,6 +189,7 @@ describe('设置页面交互', () => {
     expect(settings.settings.deviceFingerprint.appCode).toBe('2604201');
     expect(settings.settings.deviceFingerprint.sdkInt).toBe('36');
     expect(settings.settings.deviceFingerprint.deviceId).toBe('saved-id');
+    expect(settings.settings.deviceFingerprint.rom).toBe('');
   });
 
   it('设备页支持数盟设备 ID 输入、智能提取与保存', async () => {
@@ -197,6 +200,22 @@ describe('设置页面交互', () => {
     expect(wrapper.find('.success-tip').exists()).toBe(true);
     await wrapper.find('.primary-btn').trigger('click');
     expect(settings.settings.deviceFingerprint.deviceId).toBe('DU-MOCK-SAMPLE-DEVICE-ID-12345');
+  });
+
+  it('设备页展示原生默认机型和默认 UA', async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => command === 'get_device_info' ? {
+      code: 200, data: { loggedIn: true, deviceCode: 'encoded-device', defaultProfile: {
+        source: 'native', brand: 'Apple', model: 'iPhone17,3', userAgent: 'native-ios-user-agent',
+      } },
+    } : undefined);
+    const { wrapper } = mountPage(DeviceSettingsPage);
+    await flushPromises();
+    expect(wrapper.text()).toContain('Apple iPhone17,3（本机真实设备）');
+    expect(wrapper.get('.native-ua').text()).toBe('native-ios-user-agent');
+    await wrapper.find('.switch-input').setValue(true);
+    expect(wrapper.find('.native-ua').exists()).toBe(false);
+    wrapper.unmount();
+    vi.mocked(invoke).mockResolvedValue(undefined);
   });
 
   it('下载页展示缓存总量与明细', async () => {

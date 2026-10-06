@@ -21,6 +21,14 @@
           <span class="status-key">设备码（X-App-Device）</span>
           <code class="status-code" :title="deviceInfo?.deviceCode">{{ deviceInfo?.deviceCode || '加载中...' }}</code>
         </div>
+        <div v-if="deviceInfo?.defaultProfile" class="status-row">
+          <span class="status-key">默认请求机型</span>
+          <span class="status-value">{{ deviceInfo.defaultProfile.brand }} {{ deviceInfo.defaultProfile.model }}（{{ deviceInfo.defaultProfile.source === 'native' ? '本机真实设备' : '兼容模板' }}）</span>
+        </div>
+        <details v-if="deviceInfo?.defaultProfile && !settingsStore.settings.deviceFingerprint.customFingerprint">
+          <summary class="row-sub">查看默认 User-Agent</summary>
+          <code class="native-ua">{{ deviceInfo.defaultProfile.userAgent }}</code>
+        </details>
         <p class="tray-tip">
           <i class="fas fa-info-circle"></i>
           粘贴手机官方酷安复制的设备日志，保存后会用于生成应用请求的设备码。
@@ -141,7 +149,7 @@
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">启用自定义设备信息</span>
-          <span class="row-sub">自定义请求头中的机型、版本与系统信息（关闭后使用客户端默认值）</span>
+          <span class="row-sub">自定义请求头中的机型、版本与系统信息；关闭后 Android、iOS 和 macOS 使用本机信息，Windows/Linux 使用兼容模板</span>
         </div>
         <AppSwitch v-model="settingsStore.settings.deviceFingerprint.customFingerprint" />
       </div>
@@ -235,6 +243,13 @@
             placeholder="AQ3A.250226.002"
             maxlength="40"
           />
+        </div>
+        <div class="setting-row">
+          <div class="row-info">
+            <span class="row-label">ROM 信息（可选）</span>
+            <span class="row-sub">留空使用 Android 版本号；定制系统可填写名称和版本，如 HyperOS_3.0; 3.0.310.0</span>
+          </div>
+          <input v-model="settingsStore.settings.deviceFingerprint.rom" type="text" class="text-input" placeholder="留空使用 Android 版本" maxlength="120" aria-label="ROM 信息" />
         </div>
       </div>
 
@@ -368,7 +383,10 @@ defineProps<{ editorOnly?: boolean }>();
 const emit = defineEmits<{ deviceIdSaved: [] }>();
 
 /** 当前生效设备信息（Rust 端查询）：登录态 + 设备码 + 设备ID */
-const deviceInfo = ref<{ loggedIn: boolean; deviceCode: string; deviceId?: string } | null>(null);
+const deviceInfo = ref<{
+  loggedIn: boolean; deviceCode: string; deviceId?: string;
+  defaultProfile?: { source: string; brand: string; model: string; userAgent: string };
+} | null>(null);
 
 const authStore = useAuthStore();
 
@@ -556,6 +574,7 @@ function resetToDefault() {
     brand: '',
     androidVersion: '16',
     build: 'AQ3A.250226.002',
+    rom: '',
     appVersion: '16.2.0',
     appCode: '2604201',
     sdkInt: '36',
@@ -736,6 +755,8 @@ function resetToDefault() {
   white-space: nowrap;
   flex: 0 0 190px;
 }
+
+.native-ua { display: block; margin-top: var(--space-2); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
 
 .status-value {
   font-size: var(--font-size-sub);

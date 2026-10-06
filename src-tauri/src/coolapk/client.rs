@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PublishOptions {
+    pub include_device_model: Option<bool>,
     pub target_type: Option<String>,
     pub target_id: Option<String>,
     pub sub_type_id: Option<String>,
@@ -247,6 +248,7 @@ pub struct CoolapkClient {
     user_cookie: RwLock<Option<String>>,
     cookie_file: RwLock<Option<PathBuf>>,
     device_profile: RwLock<DeviceProfile>,
+    native_device_profile: DeviceProfile,
     device_code: RwLock<String>,
 }
 
@@ -1097,13 +1099,16 @@ impl CoolapkClient {
     /// - 已登录：使用账号绑定的固定设备码（首次登录生成随机并持久化，之后固定）
     /// 设备码与 Token V3 绑定，切换时 auth 签名同步切换。
     pub fn new() -> Self {
-        let device_code = generate_random_device_code();
+        let native_device_profile = super::native_device::detect();
+        let device_code = device_code_with_profile(&generate_random_device_code(), &native_device_profile);
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) (#Build; Redmi; 23113RKC6C; AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal"),
+            native_device_profile.user_agent.as_deref().and_then(|value| HeaderValue::from_str(value).ok())
+                .unwrap_or_else(|| HeaderValue::from_static(super::native_device::COMPATIBILITY_UA)),
         );
-        headers.insert("X-Sdk-Int", HeaderValue::from_static("36"));
+        headers.insert("X-Sdk-Int", native_device_profile.sdk_int.as_deref()
+            .and_then(|value| HeaderValue::from_str(value).ok()).unwrap_or_else(|| HeaderValue::from_static("36")));
         headers.insert("X-Sdk-Locale", HeaderValue::from_static("zh-CN"));
         headers.insert("X-App-Mode", HeaderValue::from_static("universal"));
         headers.insert("X-App-Channel", HeaderValue::from_static("coolapk"));
@@ -1131,6 +1136,7 @@ impl CoolapkClient {
             user_cookie: RwLock::new(None),
             cookie_file: RwLock::new(None),
             device_profile: RwLock::new(DeviceProfile::default()),
+            native_device_profile,
             device_code: RwLock::new(device_code),
         }
     }
@@ -1154,9 +1160,7 @@ impl CoolapkClient {
             self.guest_device_code()
         };
         // 保留账号/游客设备标识，只覆盖机型部分；无数盟 ID 时也必须生效。
-        let code = self.device_profile.read().ok()
-            .map(|profile| device_code_with_profile(&code, &profile))
-            .unwrap_or(code);
+        let code = device_code_with_profile(&code, &self.effective_device_profile());
         if let Ok(mut auth) = self.auth.write() {
             auth.set_device_code(code.clone());
         }
@@ -1278,10 +1282,7 @@ impl CoolapkClient {
         request: reqwest::RequestBuilder,
         device_code: &str,
     ) -> Result<reqwest::RequestBuilder, String> {
-        let profile = self
-            .device_profile
-            .read()
-            .map_err(|_| "failed to read device profile".to_string())?;
+        let profile = self.effective_device_profile();
         let mut request = request;
         if let Ok(header_value) = HeaderValue::from_str(device_code) {
             request = request.header("X-App-Device", header_value);
@@ -1313,6 +1314,24 @@ impl CoolapkClient {
         Ok(request)
     }
 
+    fn effective_device_profile(&self) -> DeviceProfile {
+        let mut profile = self.native_device_profile.clone();
+        if let Ok(custom) = self.device_profile.read() {
+            macro_rules! override_fields {
+                ($($field:ident),*) => { $(if let Some(value) = custom.$field.as_ref().filter(|value| !value.trim().is_empty()) {
+                    profile.$field = Some(value.clone());
+                })* };
+            }
+            override_fields!(manufacturer, brand, model, build, device_id, ddid, user_agent,
+                sdk_int, locale, app_version, app_code, api_version, dark_mode);
+        }
+        profile
+    }
+
+    fn default_publish_device_model(&self) -> bool {
+        cfg!(any(target_os = "android", target_os = "ios")) && self.native_device_profile.model.is_some()
+    }
+
     /// 更新设备信息覆盖配置（由设置页调用；传空字段即恢复默认）
     pub fn update_device_profile(&self, profile: DeviceProfile) {
         if let Ok(mut guard) = self.device_profile.write() {
@@ -1339,7 +1358,18 @@ impl CoolapkClient {
             "data": {
                 "loggedIn": logged_in,
                 "deviceCode": code,
-                "deviceId": device_id
+                "deviceId": device_id,
+                "defaultProfile": {
+                    "source": if self.native_device_profile.model.is_some() { "native" } else { "compatibility" },
+                    "platform": std::env::consts::OS,
+                    "includeDeviceModel": self.default_publish_device_model(),
+                    "manufacturer": self.native_device_profile.manufacturer.as_deref().unwrap_or("Xiaomi"),
+                    "brand": self.native_device_profile.brand.as_deref().unwrap_or("Redmi"),
+                    "model": self.native_device_profile.model.as_deref().unwrap_or("23113RKC6C"),
+                    "build": self.native_device_profile.build.as_deref().unwrap_or("AQ3A.250226.002"),
+                    "userAgent": self.native_device_profile.user_agent.as_deref().unwrap_or(super::native_device::COMPATIBILITY_UA),
+                    "sdkInt": self.native_device_profile.sdk_int.as_deref().unwrap_or("36")
+                }
             }
         }))
     }
@@ -1843,7 +1873,7 @@ impl CoolapkClient {
 
         // 公开内容只读回退使用本机持久化的游客设备码，不携带账号 Cookie。
         // 这样既能避开登录设备触发的 -415，也不会改变已绑定账号的写操作指纹。
-        let public_device_code = self.guest_device_code();
+        let public_device_code = device_code_with_profile(&self.guest_device_code(), &self.effective_device_profile());
         let public_token = CoolapkAuth::new(public_device_code.clone()).get_app_token()?;
         let device_header = HeaderValue::from_str(&public_device_code)
             .map_err(|_| "公开读取设备码格式无效".to_string())?;
@@ -7174,8 +7204,15 @@ impl CoolapkClient {
         form: Vec<(&'static str, String)>,
         failure_prefix: &str,
     ) -> Result<Value, String> {
-        let token = self.get_token()?;
-        let mut request = self.apply_device_profile(
+        self.submit_create_feed_form_with_device(form, failure_prefix, true).await
+    }
+
+    fn create_feed_request(&self, form: &[(&str, String)], include_device_model: bool) -> Result<reqwest::RequestBuilder, String> {
+        let code = self.device_code.read().map_err(|_| "failed to read device code")?.clone();
+        let code = if include_device_model { code } else { device_code_without_model(&code)? };
+        // 发布时单独签名，不能改动共享登录指纹或影响并发请求。
+        let token = CoolapkAuth::new(code.clone()).get_app_token()?;
+        let request = self.apply_device_profile_with_code(
             self.client
                 .request(
                     reqwest::Method::POST,
@@ -7183,8 +7220,21 @@ impl CoolapkClient {
                 )
                 .header("X-App-Token", token)
                 .header("X-Requested-With", "XMLHttpRequest")
-                .form(&form),
+                .form(form),
+            &code,
         )?;
+        if include_device_model { return Ok(request); }
+        let profile = self.effective_device_profile();
+        // 覆盖默认 UA 和自定义 UA，避免从 #Build 或 Dalvik 片段重新识别机型。
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_str(&format!("CoolMarket/{}-{}-universal",
+            profile.app_version.as_deref().unwrap_or("16.2.0"),
+            profile.app_code.as_deref().unwrap_or("2604201"))).map_err(|_| "发布 UA 格式无效")?);
+        Ok(request.headers(headers))
+    }
+
+    async fn submit_create_feed_form_with_device(&self, form: Vec<(&'static str, String)>, failure_prefix: &str, include_device_model: bool) -> Result<Value, String> {
+        let mut request = self.create_feed_request(&form, include_device_model)?;
 
         let cookie = self
             .user_cookie
@@ -7229,9 +7279,10 @@ impl CoolapkClient {
         // createFeed 在 `PostToken.List` 内，官方建议携带网易易盾 _v2_post_token。
         // 实测服务端对该字段并非强制（无 token 亦能发布成功），因此 token 为可选，
         // 仅在调用方（前端）提供时附加；缺失时仍正常提交，若服务端拒绝再提示验证。
-        self.submit_create_feed_form(
+        self.submit_create_feed_form_with_device(
             build_create_feed_form(message, pic, post_token),
             "发布动态失败：",
+            self.default_publish_device_model(),
         )
         .await
     }
@@ -7240,7 +7291,7 @@ impl CoolapkClient {
     pub async fn create_feed_with_options(&self, message: &str, pic: Option<&str>, post_token: Option<&str>, options: Option<&PublishOptions>) -> Result<Value, String> {
         let mut form = build_create_feed_form(message, pic, post_token);
         if let Some(options) = options { apply_publish_options(&mut form, options)?; }
-        self.submit_create_feed_form(form, "发布动态失败：").await
+        self.submit_create_feed_form_with_device(form, "发布动态失败：", options.and_then(|value| value.include_device_model).unwrap_or_else(|| self.default_publish_device_model())).await
     }
 
     /// 回答问题（需登录）。APK 仍使用 createFeed，只是 type=answer 且 fid 为问题 ID。
@@ -8960,6 +9011,17 @@ fn is_valid_device_code(code: &str) -> bool {
 /// 官方标准 X-App-Device 格式为：
 /// `{device_id}; ; ; ; {manufacturer}; {brand}; {model}; {build}; {oaid}`
 /// 经 Base64 编码、字符逆序并剔除换行与 `=` 填充符生成。
+fn device_code_without_model(code: &str) -> Result<String, String> {
+    let mut encoded: String = code.chars().rev().collect();
+    while encoded.len() % 4 != 0 { encoded.push('='); }
+    let raw = BASE64.decode(encoded).ok().and_then(|bytes| String::from_utf8(bytes).ok()).ok_or("发布设备码格式无效")?;
+    let mut fields: Vec<&str> = raw.split(';').map(str::trim).collect();
+    if fields.len() != 9 { return Err("发布设备码格式无效".into()); }
+    // 保留设备标识/OAID 等身份字段，仅清除厂商、品牌、机型和 Build。
+    fields[4..8].fill("");
+    Ok(BASE64.encode(fields.join("; ")).chars().rev().filter(|value| *value != '=').collect())
+}
+
 fn device_code_with_profile(code: &str, profile: &DeviceProfile) -> String {
     let mut encoded: String = code.chars().rev().collect();
     while encoded.len() % 4 != 0 { encoded.push('='); }
@@ -9118,7 +9180,7 @@ fn parse_reply_user_agent(user_agent: &str) -> (String, String, String) {
         .join(" ");
     let device_rom = [
         (!android_version.is_empty()).then(|| format!("Android {android_version}")),
-        (!rom_label.is_empty()).then_some(rom_label),
+        (!rom_label.is_empty() && rom_label != android_version).then_some(rom_label),
     ]
     .into_iter()
     .flatten()

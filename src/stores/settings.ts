@@ -91,6 +91,7 @@ const defaultDeviceFingerprint: DeviceFingerprintSettings = {
   model: '23113RKC6C',
   androidVersion: '16',
   build: 'AQ3A.250226.002',
+  rom: '',
   appVersion: '16.2.0',
   appCode: '2604201',
   sdkInt: '36',
@@ -106,7 +107,8 @@ export function buildDeviceUserAgent(f: DeviceFingerprintSettings): string {
   const version = f.appVersion.trim() || defaultDeviceFingerprint.appVersion;
   const code = f.appCode.trim() || defaultDeviceFingerprint.appCode;
   const { brand } = resolveDeviceIdentity({ ...f, model });
-  return `Dalvik/2.1.0 (Linux; U; Android ${android}; ${model} Build/${build}) (#Build; ${brand}; ${model}; ${build}) +CoolMarket/${version}-${code}-universal`;
+  const rom = f.rom?.trim() || android;
+  return `Dalvik/2.1.0 (Linux; U; Android ${android}; ${model} Build/${build}) (#Build; ${brand}; ${model}; ${build}; ${rom}) +CoolMarket/${version}-${code}-universal`;
 }
 
 const defaultSettings: AppSettings = {
@@ -334,6 +336,7 @@ export function normalizeSettings(value: unknown): AppSettings {
     result.deviceFingerprint.brand = readString(fingerprint.brand, '').trim();
     result.deviceFingerprint.androidVersion = readString(fingerprint.androidVersion, result.deviceFingerprint.androidVersion);
     result.deviceFingerprint.build = readString(fingerprint.build, result.deviceFingerprint.build);
+    result.deviceFingerprint.rom = readString(fingerprint.rom, '').trim();
     result.deviceFingerprint.appVersion = readString(fingerprint.appVersion, result.deviceFingerprint.appVersion);
     result.deviceFingerprint.appCode = readString(fingerprint.appCode, result.deviceFingerprint.appCode);
     result.deviceFingerprint.sdkInt = readString(fingerprint.sdkInt, result.deviceFingerprint.sdkInt);

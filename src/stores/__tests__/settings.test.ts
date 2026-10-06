@@ -32,10 +32,25 @@ describe('settings store', () => {
     expect(invoke).toHaveBeenCalledWith('update_device_profile', {
       profile: expect.objectContaining({ manufacturer: 'Samsung', brand: 'samsung', model: 'SM-S9280', deviceId: 'saved-id', sdkInt: '35' }),
     });
-    expect(buildDeviceUserAgent(store.settings.deviceFingerprint)).toContain('(#Build; samsung; SM-S9280;');
+    expect(buildDeviceUserAgent(store.settings.deviceFingerprint)).toContain('(#Build; samsung; SM-S9280; AQ3A.250226.002; 15)');
+    store.settings.deviceFingerprint.rom = 'HyperOS_3.0; 3.0.310.0';
+    await store.syncDeviceProfile(store.settings);
+    expect(invoke).toHaveBeenLastCalledWith('update_device_profile', {
+      profile: expect.objectContaining({ userAgent: expect.stringContaining('; HyperOS_3.0; 3.0.310.0)') }),
+    });
     store.settings.deviceFingerprint.customFingerprint = false;
     await store.syncDeviceProfile(store.settings);
     expect(invoke).toHaveBeenLastCalledWith('update_device_profile', { profile: { deviceId: 'saved-id' } });
+  });
+
+  it('migrates legacy device settings and preserves custom ROM information', () => {
+    const legacy = normalizeSettings({ deviceFingerprint: { androidVersion: '15', model: '2210132C', deviceId: 'saved-id' } });
+    expect(legacy.deviceFingerprint.rom).toBe('');
+    expect(legacy.deviceFingerprint.deviceId).toBe('saved-id');
+    expect(buildDeviceUserAgent(legacy.deviceFingerprint)).toContain('; 15) +CoolMarket/');
+    const custom = normalizeSettings({ deviceFingerprint: { rom: ' HyperOS_3.0; 3.0.310.0 ' } });
+    expect(custom.deviceFingerprint.rom).toBe('HyperOS_3.0; 3.0.310.0');
+    expect(buildDeviceUserAgent({ ...legacy.deviceFingerprint, androidVersion: '', rom: ' ' })).toContain('; 16) +CoolMarket/');
   });
 
   beforeEach(() => {

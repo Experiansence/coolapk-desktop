@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod android_notifications;
 pub mod client;
+mod native_device;
 pub mod commands;
 #[cfg(windows)]
 mod equipment_cookie_windows;
