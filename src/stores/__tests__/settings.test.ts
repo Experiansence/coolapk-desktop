@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { normalizeSettings, useSettingsStore } from '../../stores/settings';
+import { buildDeviceUserAgent, normalizeSettings, useSettingsStore } from '../../stores/settings';
 import type { AppSettings } from '../../types/settings';
 
 const fileStoreState = vi.hoisted(() => {
@@ -20,6 +20,24 @@ const fileStoreState = vi.hoisted(() => {
 vi.mock('@tauri-apps/plugin-store', () => ({ Store: { load: fileStoreState.load } }));
 
 describe('settings store', () => {
+  it('synchronizes selected device identity while preserving saved device IDs', async () => {
+    setActivePinia(createPinia());
+    const store = useSettingsStore();
+    (window as any).__TAURI_INTERNALS__ = {};
+    Object.assign(store.settings.deviceFingerprint, {
+      customFingerprint: true, manufacturer: 'Samsung', brand: 'samsung',
+      model: 'SM-S9280', deviceId: 'saved-id', androidVersion: '15', sdkInt: '35',
+    });
+    await store.syncDeviceProfile(store.settings);
+    expect(invoke).toHaveBeenCalledWith('update_device_profile', {
+      profile: expect.objectContaining({ manufacturer: 'Samsung', brand: 'samsung', model: 'SM-S9280', deviceId: 'saved-id', sdkInt: '35' }),
+    });
+    expect(buildDeviceUserAgent(store.settings.deviceFingerprint)).toContain('(#Build; samsung; SM-S9280;');
+    store.settings.deviceFingerprint.customFingerprint = false;
+    await store.syncDeviceProfile(store.settings);
+    expect(invoke).toHaveBeenLastCalledWith('update_device_profile', { profile: { deviceId: 'saved-id' } });
+  });
+
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());

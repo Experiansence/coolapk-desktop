@@ -99,7 +99,10 @@ export interface DeviceFingerprintSettings {
   deviceId: string;
   /** 手动填写的 DDI 会话值，仅作为对应写请求的 ddid Cookie 值 */
   ddid: string;
-  /** 机型型号，内嵌 UA，如 "23113RKC6C"（小米 14） */
+  /** 系统制造商与品牌，旧配置可由已核实的预设补齐 */
+  manufacturer?: string;
+  brand?: string;
+  /** 机型型号，内嵌 UA，如 "23127PN0CC"（小米 14） */
   model: string;
   /** UA 内 Android 版本，如 "16" */
   androidVersion: string;

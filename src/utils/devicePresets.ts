@@ -1,118 +1,114 @@
-/**
- * 设备机型预设：UA 机型（model/build/android）与常用设备显示名映射。
- * 注意：这里只控制 UA 机型外观，设备码（X-App-Device）由账号绑定，不在此列。
- */
+import catalogUrl from '../../data/android-devices/catalog.json?url';
 
 export interface DevicePreset {
-  /** 预设展示名 */
+  id: string;
   label: string;
-  /** 匹配 UserPage 动态 deviceTitle 的别名（常用设备一键应用） */
-  aliases: string[];
-  /** UA 内嵌机型代码，如 23113RKC6C（小米 14） */
+  brand: string;
+  device: string;
   model: string;
-  androidVersion: string;
-  build: string;
 }
 
-export const DEVICE_PRESETS: DevicePreset[] = [
-  {
-    label: '小米 14',
-    aliases: ['小米14', '小米 14', 'Xiaomi 14', '小米14 Pro', '小米 14 Pro', '23113RKC6C'],
-    model: '23113RKC6C',
-    androidVersion: '16',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: '小米 13 Pro',
-    aliases: ['小米13 Pro', '小米 13 Pro', 'Xiaomi 13 Pro', '2211133C'],
-    model: '2211133C',
-    androidVersion: '15',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: '小米 15 Pro',
-    aliases: ['小米15 Pro', '小米 15 Pro', 'Xiaomi 15 Pro', '25019PN48C'],
-    model: '25019PN48C',
-    androidVersion: '16',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: 'Redmi K50 电竞版',
-    aliases: ['Redmi K50 电竞版', '红米K50电竞版', 'Redmi K50 Gaming', '22041211AC'],
-    model: '22041211AC',
-    androidVersion: '15',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: 'Redmi K80 Pro',
-    aliases: ['Redmi K80 Pro', '红米K80 Pro', '24122RKC7C'],
-    model: '24122RKC7C',
-    androidVersion: '15',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: 'Redmi K80',
-    aliases: ['Redmi K80', '红米K80', '24117RK2CC'],
-    model: '24117RK2CC',
-    androidVersion: '15',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: '三星 Galaxy S24 Ultra',
-    aliases: ['三星Galaxy S24 Ultra', '三星 Galaxy S24 Ultra', 'Galaxy S24 Ultra', 'SM-S9280'],
-    model: 'SM-S9280',
-    androidVersion: '15',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: '三星 Galaxy S25 Ultra',
-    aliases: ['三星Galaxy S25 Ultra', '三星 Galaxy S25 Ultra', 'Galaxy S25 Ultra', 'SM-S9380'],
-    model: 'SM-S9380',
-    androidVersion: '16',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: '一加 13',
-    aliases: ['一加13', '一加 13', 'OnePlus 13', 'PJZ110'],
-    model: 'PJZ110',
-    androidVersion: '16',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: 'OPPO Find X8',
-    aliases: ['OPPO Find X8', 'OPPO Find X8 Pro', 'Find X8', 'PKB110'],
-    model: 'PKB110',
-    androidVersion: '15',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: 'vivo X200 Pro',
-    aliases: ['vivo X200 Pro', 'vivoX200 Pro', 'X200 Pro', 'V2405A'],
-    model: 'V2405A',
-    androidVersion: '16',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: '华为 Mate 70 Pro',
-    aliases: ['华为Mate 70 Pro', '华为 Mate 70 Pro', 'Mate 70 Pro', 'HBP-AL00'],
-    model: 'HBP-AL00',
-    androidVersion: '14',
-    build: 'AQ3A.250226.002',
-  },
-  {
-    label: 'Google Pixel 9 Pro',
-    aliases: ['Pixel 9 Pro', 'Google Pixel 9 Pro', 'Pixel 9', 'comet'],
-    model: 'comet',
-    androidVersion: '16',
-    build: 'AQ3A.250226.002',
-  },
-];
+let catalogPromise: Promise<DevicePreset[]> | null = null;
+/** 从随安装包提供的完整官方表读取，不向第三方发送设备或账号信息。 */
+export function loadDevicePresets(): Promise<DevicePreset[]> {
+  return catalogPromise ??= fetch(catalogUrl).then(async response => {
+    if (!response.ok) throw new Error('机型表加载失败');
+    const data = await response.json() as { rows: [string, string, string, string][] };
+    return data.rows.map(([brand, label, device, model], index) => ({
+      id: String(index), brand, label: label || model || device, device, model,
+    })).filter(item => item.model.trim());
+  }).catch(error => { catalogPromise = null; throw error; });
+}
 
-/** 用常用设备显示名（动态 deviceTitle）匹配预设，匹配不到返回 undefined */
-export function findPresetByDeviceTitle(title: string): DevicePreset | undefined {
-  const t = (title || '').trim();
-  if (!t) return undefined;
-  return DEVICE_PRESETS.find((p) =>
-    p.aliases.some((a) => a.toLowerCase() === t.toLowerCase() || t.toLowerCase().includes(a.toLowerCase()))
-  );
+const normalize = (value: string) => value.trim().replace(/\s+/g, '').toLowerCase();
+/** 搜索整张表，不截断匹配结果；由品牌、系列和机型分级展示。 */
+export function searchDevicePresets(rows: DevicePreset[], query: string, limit = Infinity): DevicePreset[] {
+  const value = normalize(query);
+  const result: DevicePreset[] = [];
+  for (const row of rows) {
+    if (!value || [row.label, row.brand, row.device, row.model].some(field => normalize(field).includes(value))) {
+      result.push(row);
+      if (result.length >= limit) break;
+    }
+  }
+  return result;
+}
+
+/** 官方表不含系列字段，仅根据销售名称归类，不修改官方型号映射。 */
+export function getDeviceSeries(row: DevicePreset): string {
+  const brand = row.brand.toLowerCase();
+  const name = row.label.trim();
+  if (brand === 'xiaomi') {
+    if (/\b(?:pad|mipad)\b/i.test(name)) return '平板系列';
+    if (/^(?:xiaomi|mi)\s*mix\b/i.test(name)) return 'MIX 系列';
+    if (/^(?:xiaomi|mi)\s*max\b/i.test(name)) return 'Max 系列';
+    if (/^(?:xiaomi|mi)\s*note\b/i.test(name)) return 'Note 系列';
+    if (/^(?:xiaomi|mi)\s*\d/i.test(name)) return '数字系列';
+  }
+  if (brand === 'redmi') {
+    if (/\bpad\b/i.test(name)) return '平板系列';
+    if (/\bnote\s*\d/i.test(name)) return 'Note 系列';
+    if (/\bk\d/i.test(name)) return 'K 系列';
+    if (/\ba\d/i.test(name)) return 'A 系列';
+    if (/\bturbo\b/i.test(name)) return 'Turbo 系列';
+    if (/^redmi\s*\d/i.test(name)) return '数字系列';
+  }
+  if (brand === 'poco') {
+    const family = name.match(/\b([CFMX])\s*\d/i)?.[1];
+    if (family) return `${family.toUpperCase()} 系列`;
+  }
+  if (brand === 'samsung') {
+    if (/galaxy\s*(?:z\b|fold|flip)/i.test(name)) return 'Galaxy Z 折叠系列';
+    if (/galaxy\s*tab/i.test(name)) return 'Galaxy Tab 平板系列';
+    const family = name.match(/galaxy\s*([SAFMJN])\s*\d/i)?.[1];
+    if (family) return `Galaxy ${family.toUpperCase()} 系列`;
+  }
+  if (brand === 'google' && /^pixel/i.test(name)) {
+    if (/tablet/i.test(name)) return 'Pixel Tablet 系列';
+    if (/fold/i.test(name)) return 'Pixel 折叠系列';
+    return 'Pixel 数字系列';
+  }
+  // 其他品牌按名称的字母系列分组；没有可识别系列的仍完整保留。
+  const stripped = name.toLowerCase().startsWith(brand) ? name.slice(row.brand.length).trim() : name;
+  const family = stripped.match(/^([a-z][a-z -]*?)\s*\d/i)?.[1]?.trim();
+  return family ? `${family.toUpperCase()} 系列` : '其他机型';
+}
+
+export interface DeviceCatalogBrand {
+  key: string;
+  label: string;
+  series: Map<string, Map<string, DevicePreset[]>>;
+}
+
+export function groupDevicePresets(rows: DevicePreset[]): DeviceCatalogBrand[] {
+  const brands = new Map<string, DeviceCatalogBrand>();
+  for (const row of rows) {
+    const key = row.brand.trim().toLowerCase() || 'unknown';
+    let brand = brands.get(key);
+    if (!brand) {
+      brand = { key, label: row.brand.trim() || '未注明品牌', series: new Map() };
+      brands.set(key, brand);
+    }
+    const seriesName = getDeviceSeries(row);
+    let series = brand.series.get(seriesName);
+    if (!series) { series = new Map(); brand.series.set(seriesName, series); }
+    const name = row.label.trim() || row.model;
+    const variants = series.get(name) ?? [];
+    variants.push(row);
+    series.set(name, variants);
+  }
+  return [...brands.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN', { numeric: true }));
+}
+
+/** Google 表中的 Retail Branding 是销售品牌，制造商可另行按实际设备覆盖。 */
+export function resolveDeviceIdentity(f: { model: string; manufacturer?: string; brand?: string }) {
+  const brand = f.brand?.trim() || (f.model.trim() === '23113RKC6C' ? 'Redmi' : 'Xiaomi');
+  const manufacturer = f.manufacturer?.trim() || (/^(redmi|poco|xiaomi)$/i.test(brand) ? 'Xiaomi' : brand);
+  return { manufacturer, brand };
+}
+
+export function getAndroidSdkWarning(androidVersion: string, sdkInt: string): string {
+  const sdk = ({ '12': '31', '12.1': '32', '13': '33', '14': '34', '15': '35', '16': '36', '17': '37' } as Record<string, string>)[androidVersion.trim()];
+  return sdk && sdkInt.trim() && sdkInt.trim() !== sdk
+    ? `Android ${androidVersion.trim()} 通常对应 SDK ${sdk}，当前填写 ${sdkInt.trim()}，请按设备实际系统核对。` : '';
 }

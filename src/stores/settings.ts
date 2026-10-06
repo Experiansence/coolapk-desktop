@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { resolveDeviceIdentity } from '../utils/devicePresets';
 import type {
   AppSettings,
   ThemeMode,
@@ -92,7 +93,7 @@ const defaultDeviceFingerprint: DeviceFingerprintSettings = {
   build: 'AQ3A.250226.002',
   appVersion: '16.2.0',
   appCode: '2604201',
-  sdkInt: '35',
+  sdkInt: '36',
   locale: 'zh-CN',
   darkMode: '0',
 };
@@ -104,7 +105,8 @@ export function buildDeviceUserAgent(f: DeviceFingerprintSettings): string {
   const build = f.build.trim() || defaultDeviceFingerprint.build;
   const version = f.appVersion.trim() || defaultDeviceFingerprint.appVersion;
   const code = f.appCode.trim() || defaultDeviceFingerprint.appCode;
-  return `Dalvik/2.1.0 (Linux; U; Android ${android}; ${model} Build/${build}) +CoolMarket/${version}-${code}-universal`;
+  const { brand } = resolveDeviceIdentity({ ...f, model });
+  return `Dalvik/2.1.0 (Linux; U; Android ${android}; ${model} Build/${build}) (#Build; ${brand}; ${model}; ${build}) +CoolMarket/${version}-${code}-universal`;
 }
 
 const defaultSettings: AppSettings = {
@@ -328,6 +330,8 @@ export function normalizeSettings(value: unknown): AppSettings {
     result.deviceFingerprint.deviceId = readString(fingerprint.deviceId, result.deviceFingerprint.deviceId).trim();
     result.deviceFingerprint.ddid = readString(fingerprint.ddid, result.deviceFingerprint.ddid).trim();
     result.deviceFingerprint.model = readString(fingerprint.model, result.deviceFingerprint.model);
+    result.deviceFingerprint.manufacturer = readString(fingerprint.manufacturer, '').trim();
+    result.deviceFingerprint.brand = readString(fingerprint.brand, '').trim();
     result.deviceFingerprint.androidVersion = readString(fingerprint.androidVersion, result.deviceFingerprint.androidVersion);
     result.deviceFingerprint.build = readString(fingerprint.build, result.deviceFingerprint.build);
     result.deviceFingerprint.appVersion = readString(fingerprint.appVersion, result.deviceFingerprint.appVersion);
@@ -672,6 +676,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 darkMode: f.darkMode,
                 model: f.model.trim() || undefined,
                 build: f.build.trim() || undefined,
+                ...resolveDeviceIdentity(f),
               }
             : {}),
           deviceId,

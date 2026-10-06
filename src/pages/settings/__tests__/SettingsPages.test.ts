@@ -32,6 +32,13 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
   isTauri: vi.fn(() => false),
 }));
+vi.mock('../../../utils/devicePresets', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../utils/devicePresets')>(),
+  loadDevicePresets: vi.fn().mockResolvedValue([
+    { id: 'official-13-pro', brand: 'Xiaomi', label: 'Xiaomi 13 pro', device: 'nuwa', model: '2210132C' },
+    { id: 'official-k80', brand: 'Redmi', label: 'REDMI K80', device: 'zorn', model: '24117RK2CC' },
+  ]),
+}));
 
 import AppearanceSettingsPage from '../AppearanceSettingsPage.vue';
 import AccountSettingsPage from '../AccountSettingsPage.vue';
@@ -153,17 +160,33 @@ describe('设置页面交互', () => {
     const { wrapper, settings } = mountPage(DeviceSettingsPage);
     await flushPromises();
     await wrapper.find('.switch-input').setValue(true);
+    expect(wrapper.findAll('.catalog-field > .row-label').map(label => label.text())).toEqual(['品牌', '系列', '机型', '型号']);
+    expect(wrapper.get('[aria-label="机型系列"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="机型系列"]').text()).toContain('请先选择品牌');
     const inputs = wrapper.findAll('input[type="text"]');
-    await wrapper.get('select').setValue('2211133C');
-    expect(settings.settings.deviceFingerprint.model).toBe('2211133C');
+    Object.assign(settings.settings.deviceFingerprint, { deviceId: 'saved-id', androidVersion: '15', build: 'actual-build', sdkInt: '35' });
+    await wrapper.get('[aria-label="搜索官方机型表"]').setValue('nuwa');
+    await wrapper.get('[aria-label="机型品牌"]').setValue('xiaomi');
+    await wrapper.get('[aria-label="机型系列"]').setValue('数字系列');
+    await wrapper.get('[aria-label="机型名称"]').setValue('Xiaomi 13 pro');
+    expect(wrapper.get('[aria-label="官方机型表"]').text()).toContain('2210132C');
+    expect(wrapper.get('[aria-label="官方机型表"]').text()).not.toContain('24117RK2CC');
+    await wrapper.get('[aria-label="官方机型表"]').setValue('official-13-pro');
+    expect(settings.settings.deviceFingerprint.model).toBe('2210132C');
+    expect(wrapper.get('.catalog-selection').text()).toBe('已选择：Xiaomi > 数字系列 > Xiaomi 13 pro > 2210132C');
     expect(settings.settings.deviceFingerprint.androidVersion).toBe('15');
+    expect(settings.settings.deviceFingerprint.build).toBe('actual-build');
+    expect(settings.settings.deviceFingerprint.sdkInt).toBe('35');
+    await wrapper.get('[aria-label="官方机型表"]').setValue('');
+    expect((wrapper.get('[aria-label="官方机型表"]').element as HTMLSelectElement).value).toBe('');
     const appCodeInput = inputs.find((i) => i.attributes('placeholder') === '2604201') || inputs[5];
     await appCodeInput.setValue('2600000');
     expect(wrapper.find('.version-warning').exists()).toBe(true);
     await wrapper.get('.reset-button').trigger('click');
     expect(settings.settings.deviceFingerprint.model).toBe('23113RKC6C');
     expect(settings.settings.deviceFingerprint.appCode).toBe('2604201');
-    expect(settings.settings.deviceFingerprint.sdkInt).toBe('35');
+    expect(settings.settings.deviceFingerprint.sdkInt).toBe('36');
+    expect(settings.settings.deviceFingerprint.deviceId).toBe('saved-id');
   });
 
   it('设备页支持数盟设备 ID 输入、智能提取与保存', async () => {

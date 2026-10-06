@@ -1576,3 +1576,43 @@ fn test_update_device_profile_with_device_id() {
     let active_code = client.device_code.read().unwrap().clone();
     assert!(is_valid_device_code(&active_code));
 }
+
+#[test]
+fn test_device_profile_preserves_identity_and_updates_all_model_fields() {
+    let raw = "stable-id; ; ; ; Xiaomi; Xiaomi; old-model; old-build; stable-oaid";
+    let code: String = BASE64.encode(raw).chars().rev().filter(|c| *c != '=').collect();
+    let profile = DeviceProfile {
+        manufacturer: Some("Samsung".into()),
+        brand: Some("samsung".into()),
+        model: Some("SM-S9280".into()),
+        build: Some("actual-build".into()),
+        ..Default::default()
+    };
+    let decode = |code: String| {
+        let mut encoded: String = code.chars().rev().collect();
+        while encoded.len() % 4 != 0 { encoded.push('='); }
+        String::from_utf8(BASE64.decode(encoded).unwrap()).unwrap()
+    };
+    assert_eq!(decode(device_code_with_profile(&code, &profile)),
+        "stable-id; ; ; ; Samsung; samsung; SM-S9280; actual-build; stable-oaid");
+    assert_eq!(decode(device_code_with_profile(&code, &DeviceProfile::default())),
+        "stable-id; ; ; ; Xiaomi; Redmi; 23113RKC6C; AQ3A.250226.002; stable-oaid");
+    assert_eq!(device_code_with_profile("invalid", &profile), "invalid");
+}
+
+#[test]
+fn test_device_profile_model_applies_without_custom_device_id() {
+    let client = CoolapkClient::new();
+    client.update_device_profile(DeviceProfile {
+        manufacturer: Some("Samsung".into()), brand: Some("samsung".into()),
+        model: Some("SM-S9280".into()), build: Some("actual-build".into()),
+        ..Default::default()
+    });
+    assert_eq!(client.effective_custom_device_id(), None);
+    let active = client.device_code.read().unwrap().clone();
+    let mut encoded: String = active.chars().rev().collect();
+    while encoded.len() % 4 != 0 { encoded.push('='); }
+    let decoded = String::from_utf8(BASE64.decode(encoded).unwrap()).unwrap();
+    assert!(decoded.contains("; Samsung; samsung; SM-S9280; actual-build;"));
+    assert!(is_valid_device_code(&active));
+}

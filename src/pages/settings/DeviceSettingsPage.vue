@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-section">
+  <div class="settings-section" @change="refreshDeviceProfile">
     <h3 v-if="!editorOnly" class="section-title">设备信息</h3>
 
     <div v-if="!editorOnly" class="setting-group">
@@ -8,7 +8,7 @@
         <div class="status-row">
           <span class="status-key">登录状态</span>
           <span :class="['status-value', deviceInfo?.loggedIn ? 'status-on' : 'status-off']">
-            {{ deviceInfo?.loggedIn ? '已登录（设备码固定）' : '未登录（设备码随机）' }}
+            {{ deviceInfo?.loggedIn ? '已登录' : '未登录' }}
           </span>
         </div>
         <div class="status-row">
@@ -150,31 +150,66 @@
     <template v-if="!editorOnly && settingsStore.settings.deviceFingerprint.customFingerprint">
       <div class="setting-group">
         <h4 class="group-title">机型模板</h4>
-        <div class="setting-row">
-          <div class="row-info">
-            <span class="row-label">预设机型</span>
-            <span class="row-sub">一键套用常见机型模板，或选择"自定义"手动输入</span>
+        <div class="catalog-section">
+          <p class="row-sub">从 Google 官方机型表选择设备</p>
+          <div class="catalog-picker">
+            <input v-model="presetSearch" class="text-input" placeholder="搜索名称、型号或设备代号" aria-label="搜索官方机型表" />
+            <div class="catalog-grid">
+              <label class="catalog-field">
+                <span class="row-label">品牌</span>
+                <select v-model="catalogBrand" class="text-input select-input" :disabled="!devicePresets.length" aria-label="机型品牌" @change="clearCatalogChildren('brand')">
+                  <option value="">{{ devicePresets.length ? '选择品牌' : '正在加载机型表' }}</option>
+                  <option v-for="brand in catalogGroups" :key="brand.key" :value="brand.key">{{ brand.label }}</option>
+                </select>
+              </label>
+              <label class="catalog-field">
+                <span class="row-label">系列</span>
+                <select v-model="catalogSeries" class="text-input select-input" :disabled="!catalogBrand" aria-label="机型系列" @change="clearCatalogChildren('series')">
+                  <option value="">{{ catalogBrand ? '选择系列' : '请先选择品牌' }}</option>
+                  <option v-for="series in catalogSeriesOptions" :key="series" :value="series">{{ series }}</option>
+                </select>
+              </label>
+              <label class="catalog-field">
+                <span class="row-label">机型</span>
+                <select v-model="catalogName" class="text-input select-input" :disabled="!catalogSeries" aria-label="机型名称" @change="clearCatalogChildren('name')">
+                  <option value="">{{ catalogSeries ? '选择机型' : '请先选择系列' }}</option>
+                  <option v-for="name in catalogNameOptions" :key="name" :value="name">{{ name }}</option>
+                </select>
+              </label>
+              <label class="catalog-field">
+                <span class="row-label">型号</span>
+                <select v-model="presetModel" class="text-input select-input" :disabled="!catalogName" aria-label="官方机型表">
+                  <option value="">{{ catalogName ? '选择型号 / 自定义' : '请先选择机型' }}</option>
+                  <option v-for="p in catalogVariants" :key="p.id" :value="p.id">{{ p.model }}（{{ p.device }}）</option>
+                </select>
+              </label>
+            </div>
+            <p v-if="catalogSelectionPath" class="catalog-selection" aria-live="polite">已选择：{{ catalogSelectionPath }}</p>
+            <p v-else-if="presetSearch && !catalogGroups.length && !catalogError" class="row-sub">没有匹配的设备，可更换搜索词或在下方手动填写型号。</p>
+            <p class="row-sub">{{ catalogError || `共 ${devicePresets.length.toLocaleString()} 条记录，完整保留匹配结果；系列按名称归类。` }}</p>
+            <p class="row-sub">Android、SDK 和 Build 请按实际系统填写。</p>
           </div>
-          <select v-model="presetModel" class="text-input select-input">
-            <option value="">自定义机型</option>
-            <option v-for="p in DEVICE_PRESETS" :key="p.model" :value="p.model">
-              {{ p.label }}（{{ p.model }}）
-            </option>
-          </select>
         </div>
 
         <div class="setting-row">
           <div class="row-info">
             <span class="row-label">机型型号</span>
-            <span class="row-sub">内嵌于 User-Agent，如 23113RKC6C（小米 14）</span>
+            <span class="row-sub">用于 User-Agent 和设备请求头，如 23127PN0CC（小米 14）</span>
           </div>
           <input
             v-model="settingsStore.settings.deviceFingerprint.model"
             type="text"
             class="text-input"
-            placeholder="如：23113RKC6C"
+            placeholder="如：23127PN0CC"
             maxlength="40"
           />
+        </div>
+
+        <div class="field-row">
+          <div class="row-info"><span class="row-label">制造商</span><span class="row-sub">如 Xiaomi、samsung、OPPO</span></div>
+          <input v-model="settingsStore.settings.deviceFingerprint.manufacturer" class="text-input" :placeholder="deviceIdentity.manufacturer" maxlength="40" />
+          <div class="row-info"><span class="row-label">品牌</span><span class="row-sub">如 Redmi、OnePlus、google</span></div>
+          <input v-model="settingsStore.settings.deviceFingerprint.brand" class="text-input" :placeholder="deviceIdentity.brand" maxlength="40" />
         </div>
 
         <div class="field-row">
@@ -191,7 +226,7 @@
           />
           <div class="row-info">
             <span class="row-label">Build 号</span>
-            <span class="row-sub">UA 中的 Build 版本</span>
+            <span class="row-sub">按“关于手机”填写；默认模板不代表该机型的真实固件</span>
           </div>
           <input
             v-model="settingsStore.settings.deviceFingerprint.build"
@@ -239,7 +274,7 @@
             v-model="settingsStore.settings.deviceFingerprint.sdkInt"
             type="text"
             class="text-input small-input"
-            placeholder="35"
+            placeholder="36"
             maxlength="4"
           />
           <div class="row-info">
@@ -282,7 +317,7 @@
           </div>
           <div class="preview-row">
             <span class="preview-key">X-Sdk-Int</span>
-            <code class="preview-value">{{ fingerprint.sdkInt || '35' }}</code>
+            <code class="preview-value">{{ fingerprint.sdkInt || '36' }}</code>
             <span class="preview-key">X-Sdk-Locale</span>
             <code class="preview-value">{{ fingerprint.locale || 'zh-CN' }}</code>
             <span class="preview-key">X-Dark-Mode</span>
@@ -292,6 +327,7 @@
             <i class="fas fa-exclamation-triangle"></i>
             {{ versionWarning }}
           </p>
+          <p v-if="sdkWarning" class="version-warning"><i class="fas fa-exclamation-triangle"></i> {{ sdkWarning }}</p>
         </div>
       </div>
 
@@ -307,11 +343,11 @@
       <h4 class="group-title">注意事项</h4>
       <p class="tray-tip">
         <i class="fas fa-info-circle"></i>
-        设备码（X-App-Device）与请求令牌（X-App-Token）绑定账号，不支持自定义。修改机型、版本等字段后，若酷安返回"网络环境异常"或"请升级客户端"，说明该组合被服务端拒绝，请恢复默认或改用其他机型模板。
+        机型信息会同步到设备请求头；修改机型不会更换已保存的数盟设备 ID。若酷安返回“网络环境异常”或“请升级客户端”，请恢复默认设置后重试。
       </p>
       <p class="tray-tip">
         <i class="fas fa-info-circle"></i>
-        修改立即生效，无需重启客户端，作用于所有请求（含发布动态、评论、点赞等）。
+        修改会同步到后续 API 请求，无需重启客户端；服务端显示的机型名称仍由酷安识别结果决定。
       </p>
     </div>
   </div>
@@ -321,7 +357,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useSettingsStore, buildDeviceUserAgent } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
-import { DEVICE_PRESETS } from '../../utils/devicePresets';
+import { loadDevicePresets, searchDevicePresets, groupDevicePresets, getDeviceSeries, getAndroidSdkWarning, resolveDeviceIdentity, type DevicePreset } from '../../utils/devicePresets';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '../../stores/auth';
 import type { DeviceFingerprintSettings } from '../../types/settings';
@@ -354,6 +390,11 @@ watch(
 );
 
 const settingsStore = useSettingsStore();
+
+async function refreshDeviceProfile() {
+  await nextTick();
+  if (await settingsStore.syncDeviceProfile(settingsStore.settings)) await loadDeviceInfo();
+}
 
 const currentDeviceId = computed(() => settingsStore.settings.deviceFingerprint?.deviceId || '');
 const deviceIdInput = ref(currentDeviceId.value);
@@ -434,20 +475,57 @@ async function clearSavedDeviceId() {
 }
 
 const fingerprint = computed(() => settingsStore.settings.deviceFingerprint);
+const devicePresets = ref<DevicePreset[]>([]);
+const presetSearch = ref('');
+const catalogBrand = ref('');
+const catalogSeries = ref('');
+const catalogName = ref('');
+const forceCustomPreset = ref(false);
+const catalogError = ref('');
+onMounted(async () => {
+  try { devicePresets.value = await loadDevicePresets(); }
+  catch { catalogError.value = '机型表加载失败，可继续手动填写型号。'; }
+});
+const selectedPreset = computed(() => devicePresets.value.find(item => item.model === fingerprint.value.model.trim()
+  && (!fingerprint.value.brand?.trim() || item.brand === fingerprint.value.brand.trim())));
+const catalogGroups = computed(() => groupDevicePresets(searchDevicePresets(devicePresets.value, presetSearch.value)));
+const activeBrand = computed(() => catalogGroups.value.find(brand => brand.key === catalogBrand.value));
+const sortNames = (items: Iterable<string>) => [...items].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
+const catalogSeriesOptions = computed(() => sortNames(activeBrand.value?.series.keys() ?? []));
+const activeSeries = computed(() => activeBrand.value?.series.get(catalogSeries.value));
+const catalogNameOptions = computed(() => sortNames(activeSeries.value?.keys() ?? []));
+const catalogVariants = computed(() => activeSeries.value?.get(catalogName.value) ?? []);
+const catalogSelectionPath = computed(() => {
+  const preset = selectedPreset.value;
+  if (forceCustomPreset.value || !preset) return '';
+  return [preset.brand || '未注明品牌', getDeviceSeries(preset), preset.label, preset.model].join(' > ');
+});
+function clearCatalogChildren(level: 'brand' | 'series' | 'name') {
+  if (level === 'brand') catalogSeries.value = '';
+  if (level !== 'name') catalogName.value = '';
+  forceCustomPreset.value = true;
+}
+watch(presetSearch, () => { catalogBrand.value = ''; clearCatalogChildren('brand'); });
+watch(selectedPreset, (preset) => {
+  if (!preset) { catalogBrand.value = ''; catalogSeries.value = ''; catalogName.value = ''; return; }
+  catalogBrand.value = preset.brand.trim().toLowerCase() || 'unknown';
+  catalogSeries.value = getDeviceSeries(preset);
+  catalogName.value = preset.label.trim() || preset.model;
+}, { immediate: true });
+const deviceIdentity = computed(() => resolveDeviceIdentity(fingerprint.value));
+const sdkWarning = computed(() => getAndroidSdkWarning(fingerprint.value.androidVersion, fingerprint.value.sdkInt));
 const previewUserAgent = computed(() => buildDeviceUserAgent(fingerprint.value));
 
 const presetModel = computed({
-  get: () => {
-    const f = fingerprint.value;
-    return DEVICE_PRESETS.some((p) => p.model === f.model.trim()) ? f.model.trim() : '';
-  },
-  set: (model: string) => {
-    const preset = DEVICE_PRESETS.find((item) => item.model === model);
+  get: () => forceCustomPreset.value ? '' : selectedPreset.value?.id || '',
+  set: (id: string) => {
+    forceCustomPreset.value = id === '';
+    const preset = devicePresets.value.find((item) => item.id === id);
     if (!preset) return;
     Object.assign(fingerprint.value, {
       model: preset.model,
-      androidVersion: preset.androidVersion,
-      build: preset.build,
+      manufacturer: '',
+      brand: preset.brand,
     });
   },
 });
@@ -456,13 +534,13 @@ const versionWarning = computed(() => {
   const f = fingerprint.value;
   const code = Number(f.appCode);
   if (!Number.isNaN(code) && code > 0 && code < 2604201) {
-    return `版本号 ${f.appCode} 低于当前官方版本 2604201，服务端可能拒绝请求（err_request_need_upgrade_new_version）。`;
+    return `版本号 ${f.appCode} 低于客户端默认请求版本 2604201，服务端可能要求升级。`;
   }
   const version = f.appVersion.trim();
   if (version) {
     const major = Number(version.split('.')[0]);
     if (!Number.isNaN(major) && major > 0 && major < 16) {
-      return `App 版本 ${version} 低于当前官方主版本 16，服务端可能拒绝请求。`;
+      return `App 版本 ${version} 低于客户端默认请求主版本 16，服务端可能要求升级。`;
     }
   }
   return '';
@@ -471,18 +549,21 @@ const versionWarning = computed(() => {
 function resetToDefault() {
   const defaults: DeviceFingerprintSettings = {
     customFingerprint: true,
-    deviceId: '',
-    ddid: '',
+    deviceId: fingerprint.value.deviceId,
+    ddid: fingerprint.value.ddid,
     model: '23113RKC6C',
+    manufacturer: '',
+    brand: '',
     androidVersion: '16',
     build: 'AQ3A.250226.002',
     appVersion: '16.2.0',
     appCode: '2604201',
-    sdkInt: '35',
+    sdkInt: '36',
     locale: 'zh-CN',
     darkMode: '0',
   };
   Object.assign(settingsStore.settings.deviceFingerprint, defaults);
+  forceCustomPreset.value = false;
 }
 </script>
 
@@ -492,6 +573,23 @@ function resetToDefault() {
   flex-direction: column;
   gap: var(--space-6);
   max-width: 760px;
+}
+.catalog-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-light);
+}
+.catalog-section p { margin: 0; }
+.catalog-picker { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.catalog-picker .text-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.catalog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.catalog-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.catalog-field select:disabled { cursor: default; color: var(--text-tertiary); }
+.catalog-selection { font-size: var(--font-size-caption); color: var(--text-secondary); overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .catalog-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .section-title {

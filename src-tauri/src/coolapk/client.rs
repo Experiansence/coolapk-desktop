@@ -576,6 +576,10 @@ fn build_forward_form(message: &str, pic: Option<&str>, forward_id: &str) -> Vec
 #[derive(Clone, Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceProfile {
+    #[serde(default)]
+    pub manufacturer: Option<String>,
+    #[serde(default)]
+    pub brand: Option<String>,
     /// 用户手动填写的数盟设备 ID，用于设备码首字段。
     #[serde(default)]
     pub device_id: Option<String>,
@@ -1097,9 +1101,9 @@ impl CoolapkClient {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal"),
+            HeaderValue::from_static("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) (#Build; Redmi; 23113RKC6C; AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal"),
         );
-        headers.insert("X-Sdk-Int", HeaderValue::from_static("35"));
+        headers.insert("X-Sdk-Int", HeaderValue::from_static("36"));
         headers.insert("X-Sdk-Locale", HeaderValue::from_static("zh-CN"));
         headers.insert("X-App-Mode", HeaderValue::from_static("universal"));
         headers.insert("X-App-Channel", HeaderValue::from_static("coolapk"));
@@ -1149,6 +1153,10 @@ impl CoolapkClient {
         } else {
             self.guest_device_code()
         };
+        // 保留账号/游客设备标识，只覆盖机型部分；无数盟 ID 时也必须生效。
+        let code = self.device_profile.read().ok()
+            .map(|profile| device_code_with_profile(&code, &profile))
+            .unwrap_or(code);
         if let Ok(mut auth) = self.auth.write() {
             auth.set_device_code(code.clone());
         }
@@ -1439,7 +1447,7 @@ impl CoolapkClient {
         let request = request
             .header("X-App-Token", self.get_token()?)
             .header("X-Requested-With", "XMLHttpRequest")
-            .header("X-Sdk-Int", "35")
+            .header("X-Sdk-Int", "36")
             .header("X-Sdk-Locale", "zh-CN")
             .header("X-App-Mode", "universal")
             .header("X-App-Channel", "coolapk")
@@ -8952,6 +8960,27 @@ fn is_valid_device_code(code: &str) -> bool {
 /// 官方标准 X-App-Device 格式为：
 /// `{device_id}; ; ; ; {manufacturer}; {brand}; {model}; {build}; {oaid}`
 /// 经 Base64 编码、字符逆序并剔除换行与 `=` 填充符生成。
+fn device_code_with_profile(code: &str, profile: &DeviceProfile) -> String {
+    let mut encoded: String = code.chars().rev().collect();
+    while encoded.len() % 4 != 0 { encoded.push('='); }
+    let Some(raw) = BASE64.decode(&encoded).ok().and_then(|bytes| String::from_utf8(bytes).ok()) else {
+        return code.to_string();
+    };
+    let mut fields: Vec<String> = raw.split(';').map(|field| field.trim().to_string()).collect();
+    if fields.len() != 9 { return code.to_string(); }
+    for (index, value, fallback) in [
+        (4, profile.manufacturer.as_deref(), "Xiaomi"),
+        (5, profile.brand.as_deref(), "Redmi"),
+        (6, profile.model.as_deref(), "23113RKC6C"),
+        (7, profile.build.as_deref(), "AQ3A.250226.002"),
+    ] {
+        fields[index] = value.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(fallback).to_string();
+    }
+    let mut result: String = BASE64.encode(fields.join("; ")).chars().rev().collect();
+    result.retain(|char| char != '=');
+    result
+}
+
 fn generate_device_code_with_device_id(
     device_id: &str,
     model: Option<&str>,
