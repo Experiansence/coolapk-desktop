@@ -31,6 +31,7 @@
       :verify-title="feed.userInfo?.verify_title || feed.verifyTitle"
       :dateline="feed.dateline || feed.infoHtml"
       :device="feed.device_title || feed.deviceTitle"
+      :self-only="Number(feed.publishStatus ?? feed.publish_status) === 1"
       :read-num="[feed.readNum, feed.read_num, feed.viewnum, feed.hitnum].find((count) => Number(count) > 0)"
       :rank-index="rankIndex"
       :recommend-source="feed.recommendSource"
@@ -46,8 +47,9 @@
     </FeedHeader>
     </div>
 
-    <div v-if="moreMenuOpen" class="more-menu-backdrop" @click.stop="moreMenuOpen = false"></div>
-    <div v-if="moreMenuOpen" class="more-menu" :class="{ 'official-share-sheet': officialMobileDetail }" @click.stop>
+    <Teleport to="body" :disabled="officialMobileDetail">
+    <div v-if="moreMenuOpen" class="more-menu-backdrop" :class="{ 'is-floating': !officialMobileDetail }" @click.stop="moreMenuOpen = false"></div>
+    <div v-if="moreMenuOpen" ref="moreMenuRef" class="more-menu" :class="{ 'official-share-sheet': officialMobileDetail, 'is-floating': !officialMobileDetail }" :style="officialMobileDetail ? undefined : moreMenuStyle" @click.stop>
       <template v-if="officialMobileDetail">
         <div class="official-share-handle" aria-hidden="true"></div>
         <div class="official-share-tools">
@@ -91,6 +93,7 @@
       </button>
       <button v-if="officialMobileDetail" class="official-share-cancel" @click="moreMenuOpen = false">取消</button>
     </div>
+    </Teleport>
 
     <FeedContent
       :feed-id="feed.id"
@@ -705,6 +708,44 @@ function shareToPrivate(contact: any) { privateShareOpen.value = false; void rou
 const forwardOpen = ref(false);
 const interactionMode = ref<'likes' | 'forwards' | null>(null);
 const moreMenuOpen = ref(false);
+const moreMenuRef = ref<HTMLElement | null>(null);
+const moreMenuStyle = ref({ top: '8px', left: '8px', maxHeight: 'calc(100dvh - 16px)' });
+
+function positionMoreMenu() {
+  if (!moreMenuOpen.value || props.officialMobileDetail || !cardRef.value || !moreMenuRef.value) return;
+  const card = cardRef.value.getBoundingClientRect();
+  const menu = moreMenuRef.value.getBoundingClientRect();
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const menuHeight = Math.min(Math.max(menu.height, moreMenuRef.value.scrollHeight + 2), Math.max(0, height - 16));
+  const top = Math.max(8, Math.min(card.top + 40, height - menuHeight - 8));
+  moreMenuStyle.value = {
+    top: `${top}px`,
+    left: `${Math.max(8, Math.min(card.right - menu.width - 12, width - menu.width - 8))}px`,
+    maxHeight: `${Math.max(0, height - 16)}px`,
+  };
+}
+
+function closeMenuOnScroll(event: Event) {
+  // 菜单内滚动保留浮层；页面滚动时关闭，避免与动态卡片脱离。
+  if (event.target instanceof Node && moreMenuRef.value?.contains(event.target)) return;
+  moreMenuOpen.value = false;
+}
+
+watch(moreMenuOpen, async (open) => {
+  window.removeEventListener('resize', positionMoreMenu);
+  window.removeEventListener('scroll', closeMenuOnScroll, true);
+  if (!open || props.officialMobileDetail) return;
+  await nextTick();
+  if (!moreMenuOpen.value || !moreMenuRef.value || !cardRef.value) return;
+  positionMoreMenu();
+  window.addEventListener('resize', positionMoreMenu);
+  window.addEventListener('scroll', closeMenuOnScroll, true);
+});
+onUnmounted(() => {
+  window.removeEventListener('resize', positionMoreMenu);
+  window.removeEventListener('scroll', closeMenuOnScroll, true);
+});
 const historyDialogOpen = ref(false);
 const historyLoading = ref(false);
 const historyError = ref('');
@@ -2088,6 +2129,9 @@ defineExpose({
   display: flex;
   flex-direction: column;
 }
+
+.more-menu-backdrop.is-floating { z-index: 1900; }
+.more-menu.is-floating { position: fixed; right: auto; z-index: 1901; max-width: calc(100vw - 16px); min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 .more-menu-item {
   display: flex;

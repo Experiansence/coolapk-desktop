@@ -2266,6 +2266,8 @@ impl CoolapkClient {
         // APK 列表分页使用 Entity.entityId 生成 firstItem 和 lastItem，清洗时需要保留该游标字段。
         copy_first_field(&mut cleaned, obj, "entityId", &["entityId", "entity_id"]);
         copy_first_field(&mut cleaned, obj, "enableModify", &["enableModify", "enable_modify"]);
+        // 官方 publish_status=1 表示仅自己可见；不能用审核/发布状态 status 代替。
+        copy_first_field(&mut cleaned, obj, "publishStatus", &["publishStatus", "publish_status"]);
 
         // 列表接口会把关联标的和视频字段放在这些扩展字段中，必须在归一化时保留下来。
         copy_first_field(&mut cleaned, obj, "targetRow", &["targetRow", "target_row"]);

@@ -38,6 +38,7 @@
       </div>
       <div class="meta-row">
         <span class="dateline">{{ formatDateline(dateline) }}</span>
+        <span v-if="selfOnly" class="self-only-badge" title="这条动态仅自己可见"><i class="fas fa-lock" aria-hidden="true"></i><span>仅自己可见</span></span>
         <span v-if="showDeviceInfo && device" class="device-badge" :title="device">
           <i class="fas fa-mobile-alt device-icon"></i>
           <span>{{ device }}</span>
@@ -117,6 +118,7 @@ const props = withDefaults(defineProps<{
   entityId?: string | number;
   questionMode?: boolean;
   isEdited?: boolean;
+  selfOnly?: boolean;
 }>(), {
   showDeviceInfo: true,
 });
@@ -238,6 +240,8 @@ function normalizeTimestamp(value: number | string): number | null {
 </script>
 
 <style scoped>
+.self-only-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 5px; background: var(--surface-hover); color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+.self-only-badge i { font-size: 10px; }
 .feed-header {
   position: relative;
   z-index: 1;

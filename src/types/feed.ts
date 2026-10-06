@@ -51,6 +51,9 @@ export interface FeedItem {
   product_rows?: any[];
   device_title?: string;
   dateline?: number | string;
+  /** 官方可见范围：1 仅自己可见，0 公开；与审核状态 status 相互独立。 */
+  publishStatus?: number | string;
+  publish_status?: number | string;
   isModified?: boolean | number | string;
   is_modified?: boolean | number | string;
   changeCount?: number | string;

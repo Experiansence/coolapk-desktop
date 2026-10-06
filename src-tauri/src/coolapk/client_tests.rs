@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn test_feed_cleaning_preserves_private_visibility() {
+    for raw in [
+        json!({ "id": "42", "uid": "123", "username": "作者", "message": "正文", "publish_status": 1 }),
+        json!({ "id": "42", "uid": "123", "username": "作者", "message": "正文", "publishStatus": "1" }),
+    ] {
+        let expected = raw.get("publish_status").or_else(|| raw.get("publishStatus")).unwrap();
+        let cleaned = CoolapkClient::clean_single_feed(&raw, 0).unwrap();
+        assert_eq!(&cleaned["publishStatus"], expected);
+    }
+    let reviewed = CoolapkClient::clean_single_feed(&json!({ "id": "42", "uid": "123", "username": "作者", "message": "正文", "status": -1 }), 0).unwrap();
+    assert!(reviewed.get("publishStatus").is_none());
+}
+
+#[test]
 fn test_publish_device_model_is_scoped_and_preserves_identity() {
     let client = CoolapkClient::new();
     client.update_device_profile(DeviceProfile {

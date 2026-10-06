@@ -30,18 +30,65 @@ vi.mock('../../../api/coolapk', () => ({
 }));
 
 import FeedCard from '../FeedCard.vue';
+import { useAuthStore } from '../../../stores/auth';
 
 describe('动态卡片编辑记录', () => {
+  it.each([
+    [{ publishStatus: 1 }, true],
+    [{ publish_status: '1' }, true],
+    [{ publishStatus: 0, status: -1 }, false],
+    [{ status: -1 }, false],
+  ] as const)('将明确的可见范围 %j 传给动态头部', (visibility, expected) => {
+    const wrapper = mount(FeedCard, {
+      props: { feed: { id: '42', uid: '456', username: '作者', message: '正文', ...visibility } },
+      global: { stubs: { FeedHeader: true, FeedContent: true, FeedActionBar: true, FeedCommentSection: true, FeedDyhShareDialog: true, FeedShareImageDialog: true, FeedInteractionListDialog: true, FeedCollectionPickerDialog: true, AppDialog: true, ForwardDialog: true } },
+    });
+    expect(wrapper.findComponent({ name: 'FeedHeader' }).props('selfOnly')).toBe(expected);
+    wrapper.unmount();
+  });
+  it.each([false, true])('自己的动态菜单不受卡片高度或图片影响（图片=%s）', async (withImages) => {
+    const auth = useAuthStore();
+    auth.isLoggedIn = true;
+    auth.user = { uid: '456', username: '作者' } as any;
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return (this as HTMLElement).classList.contains('more-menu')
+        ? { top: 0, left: 0, right: 280, bottom: 500, width: 280, height: 500 } as DOMRect
+        : { top: 600, left: 20, right: 500, bottom: 720, width: 480, height: 120 } as DOMRect;
+    });
+    const wrapper = mount(FeedCard, {
+      attachTo: document.body,
+      props: { feed: { id: '42', uid: '456', username: '作者', message: '正文', ...(withImages ? { pic: 'https://example.com/pic.jpg' } : {}) } },
+      global: { stubs: { FeedHeader: { template: '<button class="test-more" @click="$emit(\'more\')">更多</button>' }, FeedContent: true, FeedImageGrid: true, FeedActionBar: true, FeedCommentSection: true, FeedDyhShareDialog: true, FeedShareImageDialog: true, FeedInteractionListDialog: true, FeedCollectionPickerDialog: true, AppDialog: true, ForwardDialog: true } },
+    });
+    try {
+      await wrapper.get('.test-more').trigger('click');
+      await nextTick();
+      const menu = document.body.querySelector<HTMLElement>('.more-menu.is-floating')!;
+      expect(menu).not.toBeNull();
+      expect(menu.parentElement).toBe(document.body);
+      expect(wrapper.get('.feed-card').element.contains(menu)).toBe(false);
+      for (const label of ['删除动态', '重新编辑', '生成长图', '查看点赞用户', '查看转发列表']) expect(menu.textContent).toContain(label);
+      expect(parseFloat(menu.style.top)).toBeGreaterThanOrEqual(8);
+      expect(parseFloat(menu.style.top) + 500).toBeLessThanOrEqual(window.innerHeight - 8);
+      menu.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      expect(document.body.querySelector('.more-menu.is-floating')).not.toBeNull();
+      window.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      expect(document.body.querySelector('.more-menu.is-floating')).toBeNull();
+    } finally { wrapper.unmount(); bounds.mockRestore(); }
+  });
   it.each([false, true])('桌面与官方移动菜单均提供完整分享入口（移动=%s）', async (officialMobileDetail) => {
     setActivePinia(createPinia());
     const wrapper = mount(FeedCard, {
       props: { feed: { id: '42', uid: '456', username: '作者', message: '正文' }, detailMode: true, officialMobileDetail },
-      global: { stubs: { FeedHeader: { template: '<button class="test-more" @click="$emit(\'more\')">更多</button>' }, FeedContent: true, FeedActionBar: true, FeedCommentSection: true, FeedDyhShareDialog: true, FeedShareImageDialog: true, FeedInteractionListDialog: true, FeedCollectionPickerDialog: true, AppDialog: true, ForwardDialog: true } },
+      global: { stubs: { teleport: true, FeedHeader: { template: '<button class="test-more" @click="$emit(\'more\')">更多</button>' }, FeedContent: true, FeedActionBar: true, FeedCommentSection: true, FeedDyhShareDialog: true, FeedShareImageDialog: true, FeedInteractionListDialog: true, FeedCollectionPickerDialog: true, AppDialog: true, ForwardDialog: true } },
     });
     await wrapper.find('.test-more').trigger('click');
     const menu = wrapper.find('.more-menu');
     for (const label of ['复制', '收藏', '举报', '动态', '私信', '看看号', '复制链接']) expect(menu.text()).toContain(label);
     expect(menu.text()).toContain(officialMobileDetail ? '生成分享图' : '生成长图');
+    expect(menu.classes('is-floating')).toBe(!officialMobileDetail);
     if (officialMobileDetail) {
       expect(wrapper.findAll('.official-share-tools button')).toHaveLength(3);
       expect(wrapper.findAll('.official-share-destinations button')).toHaveLength(5);
@@ -114,6 +161,7 @@ describe('动态卡片编辑记录', () => {
       },
       global: {
         stubs: {
+          teleport: true,
           FeedHeader: {
             template: '<button class="stub-more" @click="$emit(\'more\')">更多</button>',
           },

@@ -13,6 +13,16 @@ vi.mock('vue-router', async (importOriginal) => {
 });
 
 describe('动态头部信息布局', () => {
+  it.each([true, false])('仅自己可见标识不依赖机型显示开关（私密=%s）', (selfOnly) => {
+    setActivePinia(createPinia());
+    const wrapper = mount(FeedHeader, {
+      props: { uid: '123', username: '用户', selfOnly, showDeviceInfo: false },
+      global: { stubs: { AppAvatar: true, AppIconButton: true, UserHoverCard: { template: '<div><slot /></div>' } } },
+    });
+    expect(wrapper.find('.self-only-badge').exists()).toBe(selfOnly);
+    if (selfOnly) expect(wrapper.get('.self-only-badge').text()).toBe('仅自己可见');
+    wrapper.unmount();
+  });
   it('当前用户卸下挂件后立即覆盖卡片中的旧挂件', async () => {
     setActivePinia(createPinia());
     const auth = useAuthStore();
