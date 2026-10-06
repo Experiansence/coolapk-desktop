@@ -20,23 +20,30 @@
     </section>
 
     <template v-else-if="isCategoryTab || isDynamicCategoryView">
-      <div class="digital-body">
+      <div v-if="isCategoryTab && compactSidebar" class="library-filter-bar" aria-label="数码库筛选">
+        <button v-for="mode in modes" :key="mode.key" type="button" :class="{ active: activeMode === mode.key }" :aria-expanded="activeMode === mode.key && sidebarExpanded" @click="switchMode(mode.key)">
+          {{ mode.label }}<i :class="activeMode === mode.key && sidebarExpanded ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" aria-hidden="true"></i>
+        </button>
+        <button v-if="sidebarExpanded" type="button" class="library-collapse" aria-label="收起品牌和分类" @click="sidebarExpanded = false"><i class="fas fa-angles-left" aria-hidden="true"></i></button>
+      </div>
+      <div class="digital-body" :class="{ 'is-library': isCategoryTab, 'is-selector-collapsed': isCategoryTab && compactSidebar && !sidebarExpanded }">
       <aside class="digital-sidebar">
         <div class="sidebar-toolbar">
-          <div v-if="isCategoryTab" class="mode-switch" role="tablist" aria-label="数码服务端分类模式">
-            <button v-for="mode in modes" :key="mode.key" type="button" role="tab" :aria-selected="activeMode === mode.key" :class="['mode-button', { active: activeMode === mode.key }]" @click="switchMode(mode.key)">
+          <div v-if="isCategoryTab && !compactSidebar" class="mode-switch" role="tablist" aria-label="数码服务端分类模式">
+            <button v-for="mode in modes" :key="mode.key" type="button" role="tab" :aria-selected="activeMode === mode.key" :aria-expanded="compactSidebar ? activeMode === mode.key && sidebarExpanded : undefined" :class="['mode-button', { active: activeMode === mode.key }]" @click="switchMode(mode.key)">
               <i :class="mode.icon"></i>
               {{ mode.label }}
             </button>
           </div>
-          <div v-else class="dynamic-mode-label"><i class="fas fa-layer-group"></i><span>数码栏目</span><button type="button" aria-label="返回数码首页" title="返回数码首页" @click="clearDynamicCategoryView"><i class="fas fa-arrow-left"></i></button></div>
-          <label class="digital-search">
+          <div v-if="!isCategoryTab" class="dynamic-mode-label"><i class="fas fa-layer-group"></i><span>数码栏目</span><button type="button" aria-label="返回数码首页" title="返回数码首页" @click="clearDynamicCategoryView"><i class="fas fa-arrow-left"></i></button></div>
+          <label v-show="!isCategoryTab || !compactSidebar || sidebarExpanded" class="digital-search">
             <i class="fas fa-search" aria-hidden="true"></i>
             <input v-model="searchQuery" type="search" :placeholder="isCategoryTab ? activeMode === 'brand' ? '搜索品牌' : '搜索分类' : '搜索数码栏目'" :aria-label="isCategoryTab ? activeMode === 'brand' ? '搜索品牌' : '搜索分类' : '搜索数码栏目'" @keydown.esc="searchQuery = ''" />
             <button v-if="searchQuery" type="button" aria-label="清除搜索" @click="searchQuery = ''"><i class="fas fa-times"></i></button>
           </label>
         </div>
 
+        <div v-show="!isCategoryTab || !compactSidebar || sidebarExpanded" class="sidebar-options">
         <template v-if="isCategoryTab">
           <div v-if="sideLoading" class="digital-state"><LoadingState text="正在获取服务端列表..." /></div>
           <div v-else-if="sideError" class="digital-state"><ErrorState title="列表加载失败" message="无法获取服务端数码列表" @retry="loadSide" /></div>
@@ -61,6 +68,7 @@
             </button>
           </nav>
         </template>
+        </div>
       </aside>
 
       <main ref="productScrollContainer" class="digital-content" @scroll.passive="handleScroll">
@@ -255,6 +263,8 @@ type DigitalBlock = { kind: 'title' | 'more' | 'products' | 'entity'; title?: st
 const router = useRouter();
 const settingsStore = useSettingsStore();
 const viewportWidth = ref(window.innerWidth);
+const compactSidebar = computed(() => viewportWidth.value <= 720);
+const sidebarExpanded = ref(true);
 const updateViewport = () => { viewportWidth.value = window.innerWidth; };
 const mobilePresentation = computed(() => viewportWidth.value <= 720
   && (isTouchMobilePlatform() || !settingsStore.settings.disableAutoMobileMode));
@@ -621,7 +631,11 @@ async function loadTabItems(isLoadMore = false, expectedSelectionVersion = tabSe
 
 async function switchMode(mode: DigitalMode) {
   if (!isCategoryTab.value) return;
-  if (activeMode.value === mode && sideItems.value.length > 0) return;
+  if (activeMode.value === mode && sideItems.value.length > 0) {
+    if (compactSidebar.value) sidebarExpanded.value = !sidebarExpanded.value;
+    return;
+  }
+  sidebarExpanded.value = true;
   activeMode.value = mode;
   searchQuery.value = '';
   sideItems.value = [];
@@ -638,7 +652,7 @@ async function loadSide(forceReload = false) {
     const response = activeMode.value === 'brand' ? await CoolapkTauriAPI.getProductBrandList() : await CoolapkTauriAPI.getProductCategoryList();
     sideItems.value = asResponseList(response).filter((item) => sideItemKey(item));
     const nextSelection = sideItems.value.find((item) => sideItemKey(item) === selectedId.value) || sideItems.value[0];
-    if (nextSelection && (forceReload || !selected.value || sideItemKey(nextSelection) !== selectedId.value)) selectSide(nextSelection);
+    if (nextSelection && (forceReload || !selected.value || sideItemKey(nextSelection) !== selectedId.value)) selectSide(nextSelection, false);
     if (!nextSelection) {
       selected.value = null;
       selectedId.value = '';
@@ -735,7 +749,8 @@ function resetProducts() {
   lastItem.value = '';
 }
 
-function selectSide(item: ProductBrand) {
+function selectSide(item: ProductBrand, closeSelector = true) {
+  if (closeSelector && compactSidebar.value) sidebarExpanded.value = false;
   selected.value = item;
   selectedId.value = sideItemKey(item);
   resetProducts();
@@ -927,6 +942,12 @@ onBeforeUnmount(() => { productObserver?.disconnect(); dynamicCategoryObserver?.
 .digital-search button:hover { background: var(--surface-hover); color: var(--brand-primary); }
 .digital-body { display: grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; }
 .digital-sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--divider); background: var(--surface); }
+.sidebar-options { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.library-filter-bar { display: flex; flex-shrink: 0; align-items: center; border-bottom: 1px solid var(--divider); background: var(--surface); }
+.library-filter-bar button { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-height: 44px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: 14px; cursor: pointer; }
+.library-filter-bar button.active { color: var(--brand-primary); font-weight: 600; }
+.library-filter-bar i { font-size: 11px; }
+.library-filter-bar .library-collapse { flex: 0 0 40px; }
 .sidebar-toolbar { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-bottom: 1px solid var(--divider); }
 .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-hover); }
 .mode-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border-radius: 7px; font-size: 13px; }
@@ -1067,4 +1088,23 @@ onBeforeUnmount(() => { productObserver?.disconnect(); dynamicCategoryObserver?.
 }
 @media (max-width: 980px) { .digital-body { grid-template-columns: minmax(220px, 250px) minmax(0, 1fr); } .series-products.horizontal { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .digital-subtabs { padding-inline: 16px; } .digital-web-route { align-items: flex-start; flex-wrap: wrap; width: calc(100% - 32px); margin: 16px auto; } .digital-web-route button { margin-left: 38px; } .digital-body { display: flex; flex-direction: column; overflow: hidden; } .digital-sidebar { flex: 0 0 auto; max-height: 285px; border-right: 0; border-bottom: 1px solid var(--divider); } .digital-content, .digital-server-content { flex: 1 1 0; height: auto; } .digital-side-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-y: auto; } .digital-side-item { min-height: 50px; } .digital-side-logo, .digital-side-logo-fallback { flex-basis: 32px; width: 32px; height: 32px; } .digital-result-list, .digital-server-list { padding: 14px 16px 24px; } .series-products.horizontal { grid-template-columns: 1fr; } }
+/* 官方 product_brand_list 为左右结构，品牌分组栏宽 84dp。 */
+@media (max-width: 720px) {
+  .digital-body.is-library { display: grid; grid-template-columns: 84px minmax(0, 1fr); }
+  .is-library .digital-sidebar { max-height: none; border-bottom: 0; border-right: 1px solid var(--divider); }
+  .is-library.is-selector-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .is-selector-collapsed .digital-sidebar { display: none; }
+  .is-library .sidebar-toolbar { padding: 8px 4px; }
+  .is-library .digital-search { gap: 3px; padding-inline: 4px; }
+  .is-library .digital-search input { width: 0; min-width: 0; font-size: 11px; }
+  .is-library .digital-search > i { font-size: 11px; }
+  .is-library .digital-side-list { display: flex; flex-direction: column; }
+  .is-library .digital-side-item { flex-shrink: 0; justify-content: center; min-height: 48px; padding: 12px 8px; border-radius: 0; font-size: 12px; }
+  .is-library .digital-side-name { text-align: center; white-space: normal; overflow-wrap: anywhere; }
+  .is-library .digital-side-logo, .is-library .digital-side-logo-fallback, .is-library .digital-side-count { display: none; }
+  .is-library .digital-content-toolbar { padding: 10px 12px; gap: 6px; flex-wrap: wrap; }
+  .is-library .toolbar-title { font-size: 15px; }
+  .is-library .digital-result-list { padding: 12px; }
+  .is-library .series-products.grid { grid-template-columns: minmax(0, 1fr); }
+}
 </style>
