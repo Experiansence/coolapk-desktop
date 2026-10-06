@@ -33,5 +33,6 @@ for (const pattern of required) {
   checksums.push(`${createHash('sha256').update(readFileSync(matches[0])).digest('hex')}  ${name}`);
 }
 writeFileSync('beta-release/SHA256SUMS', checksums.join('\n') + '\n');
-writeFileSync('beta-notes.md', `测试版本 v${version}\n\n源码提交：${process.env.SOURCE_SHA}\n\n构建记录：https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}\n\n开启「实验性功能」，将更新渠道切换为「测试版」即可接收更新。\n\niOS 提供未签名 IPA，需要自行签名安装。\n`);
+const releaseNotes = process.env.RELEASE_NOTES?.trim();
+writeFileSync('beta-notes.md', `测试版本 v${version}\n\n${releaseNotes ? `${releaseNotes}\n\n` : ''}源码提交：${process.env.SOURCE_SHA}\n\n构建记录：https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}\n\n开启「实验性功能」，将更新渠道切换为「测试版」即可接收更新。\n\niOS 提供未签名 IPA，需要自行签名安装。\n`);
 console.log(`全平台 ${required.length} 个更新包校验通过`);

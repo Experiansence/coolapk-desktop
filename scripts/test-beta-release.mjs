@@ -8,6 +8,7 @@ import { allocateBetaVersion, parseReleaseVersion, resolveBetaTarget } from './r
 import { readReleaseTags } from './release-tags.mjs';
 import { pruneBetaReleases } from './prune-beta-releases.mjs';
 import { createBetaTag } from './create-beta-tag.mjs';
+import { archiveBetaNotes } from './beta-release-summary.mjs';
 
 test('测试标签直接指向原源码，不提交临时 beta 版本，也不改动 main', () => {
   const dir = mkdtempSync(join(tmpdir(), 'coolapk-beta-tag-'));
@@ -75,6 +76,7 @@ test('新测试版公开完整后仅删除更旧的 beta Release，保留正式�
     { tag_name: 'v1.30.1-beta.1', prerelease: true, draft: true },
   ];
   const deleted = [];
+  const archived = [];
   const removed = pruneBetaReleases('example/desktop', 'v1.31.0-beta.2', (command, args) => {
     assert.equal(command, 'gh');
     if (args[1] === 'view') return JSON.stringify({ tagName: 'v1.31.0-beta.2', isDraft: false, isPrerelease: true, assetCount: 13 });
@@ -84,12 +86,33 @@ test('新测试版公开完整后仅删除更旧的 beta Release，保留正式�
     }
     assert.equal(args[1], 'delete');
     assert.ok(!args.includes('--cleanup-tag'));
+    assert.ok(archived.includes(args[2]), '删除前必须归档更新日志');
     deleted.push(args[2]);
     return '';
-  });
+  }, tag => archived.push(tag));
   assert.deepEqual(removed, ['v1.30.1-beta.9', 'v1.31.0-beta.1']);
   assert.deepEqual(deleted, removed);
+  assert.deepEqual(archived, removed);
   assert.equal(allocateBetaVersion('1.31.0', '1.30.0', releases.map((release) => release.tag_name)), '1.31.0-beta.4');
+});
+
+test('归档保留 Markdown 原文，写入失败时阻止清理旧 Release', () => {
+  const body = '### 优化\n- 缓存释放\n\n### 修复\n- 图片接缝\n';
+  let saved = '';
+  archiveBetaNotes('example/desktop', 'v1.31.0-beta.1', 'summary.md', (_, args) => {
+    assert.deepEqual(args.slice(-4), ['--json', 'body', '--jq', '.body']);
+    return body;
+  }, (path, text) => { assert.equal(path, 'summary.md'); saved += text; });
+  assert.ok(saved.includes(body.trim()));
+  assert.ok(saved.includes('v1.31.0-beta.1 更新日志'));
+  let deleted = false;
+  assert.throws(() => pruneBetaReleases('example/desktop', 'v1.31.0-beta.2', (_, args) => {
+    if (args[1] === 'view') return JSON.stringify({ tagName: 'v1.31.0-beta.2', isDraft: false, isPrerelease: true, assetCount: 13 });
+    if (args[0] === 'api') return JSON.stringify({ tag_name: 'v1.31.0-beta.1', prerelease: true });
+    deleted = true;
+  }, () => { throw new Error('summary write failed'); }), /summary write failed/);
+  assert.equal(deleted, false);
+  assert.throws(() => archiveBetaNotes('example/desktop', 'v1.31.0-beta.1', ''), /Summary/);
 });
 
 test('草稿、未完整上传、正式版和查询失败均不触发测试版清理', () => {
@@ -189,7 +212,7 @@ test('产物收集需要全部十二个平台包，缺失或重复时失败', ()
     ...['android-arm64.apk', 'android-arm64.aab', 'ios-arm64-unsigned.ipa'].map((suffix) => `coolapk-v${version}-${suffix}`),
   ];
   const run = () => spawnSync(process.execPath, [resolve('scripts/collect-beta-assets.mjs')], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, BETA_VERSION: version },
+    cwd: root, encoding: 'utf8', env: { ...process.env, BETA_VERSION: version, RELEASE_NOTES: '### 优化\n- 示例更新日志' },
   });
   try {
     mkdirSync(join(root, 'beta-artifacts'));
@@ -198,6 +221,7 @@ test('产物收集需要全部十二个平台包，缺失或重复时失败', ()
     writeFileSync(join(root, 'beta-artifacts', names[0]), 'fixture');
     const result = run();
     assert.equal(result.status, 0, result.stderr);
+    assert.ok(readFileSync(join(root, 'beta-notes.md'), 'utf8').includes('### 优化\n- 示例更新日志'));
     assert.equal(readFileSync(join(root, 'beta-release/SHA256SUMS'), 'utf8').trim().split('\n').length, 12);
     mkdirSync(join(root, 'beta-artifacts/duplicate'));
     writeFileSync(join(root, 'beta-artifacts/duplicate', names[0]), 'fixture');

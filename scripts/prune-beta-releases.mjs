@@ -2,9 +2,10 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseReleaseVersion } from './release-version.mjs';
+import { archiveBetaNotes } from './beta-release-summary.mjs';
 
 // Only delete older public beta Releases. Tags remain as the numbering history.
-export function pruneBetaReleases(repository, keepTag, run = execFileSync) {
+export function pruneBetaReleases(repository, keepTag, run = execFileSync, archive = () => { throw new Error('缺少更新日志归档操作'); }) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository || '')) throw new Error('缺少有效仓库名称');
   if (!keepTag?.startsWith('v')) throw new Error('必须指定完整测试标签');
   const keep = parseReleaseVersion(keepTag.slice(1));
@@ -25,6 +26,8 @@ export function pruneBetaReleases(repository, keepTag, run = execFileSync) {
     let version;
     try { version = parseReleaseVersion(release.tag_name.slice(1)); } catch { continue; }
     if (version.beta === null || version.code >= keep.code) continue;
+    // 必须先保存正文；读取或写入 Summary 失败时不删除该 Release。
+    archive(release.tag_name);
     run('gh', ['release', 'delete', release.tag_name, '--repo', repository, '--yes'], options);
     removed.push(release.tag_name);
   }
@@ -32,6 +35,8 @@ export function pruneBetaReleases(repository, keepTag, run = execFileSync) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const removed = pruneBetaReleases(process.env.GITHUB_REPOSITORY, process.env.BETA_TAG);
+  const repository = process.env.GITHUB_REPOSITORY;
+  const removed = pruneBetaReleases(repository, process.env.BETA_TAG, execFileSync,
+    tag => archiveBetaNotes(repository, tag, process.env.GITHUB_STEP_SUMMARY));
   console.log(`保留 ${process.env.BETA_TAG}；已清理旧测试 Release：${removed.join('、') || '无'}。历史标签保留。`);
 }

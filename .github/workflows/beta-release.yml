@@ -16,6 +16,10 @@ on:
         description: '自定义目标版本（可留空，填写后优先使用，例如 1.31.0）'
         required: false
         type: string
+      release_notes:
+        description: '本次更新日志（可选，Markdown；保存至 Release 和构建 Summary）'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -70,6 +74,7 @@ jobs:
       BETA_VERSION: ${{ needs.prepare.outputs.version }}
       BETA_TAG: ${{ needs.prepare.outputs.tag }}
       SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -90,5 +95,7 @@ jobs:
           gh release create "$BETA_TAG" beta-release/* --draft --prerelease --latest=false --title "酷安测试版 $BETA_TAG" --notes-file beta-notes.md
           gh release edit "$BETA_TAG" --draft=false --prerelease --latest=false
           git ls-remote --exit-code --tags origin "refs/tags/$BETA_TAG^{}"
-      - name: 仅保留最新公开测试版 Release
+      - name: 保存本次更新日志到构建 Summary
+        run: node scripts/beta-release-summary.mjs
+      - name: 归档旧日志到构建 Summary 并清理旧测试版 Release
         run: node scripts/prune-beta-releases.mjs
