@@ -7,6 +7,16 @@
           <div class="topbar-left">
             <span class="counter-text">{{ currentIndex + 1 }} / {{ totalCount }}</span>
             <button
+              v-if="showOriginalControl"
+              class="island-btn raw-image-btn"
+              :class="{ 'is-loaded': isCurrentOriginalLoaded, 'is-loading': isCurrentOriginalLoading }"
+              :disabled="isCurrentOriginalLoading || isCurrentOriginalLoaded"
+              @click.stop="loadOriginal(true)"
+            >
+              <i :class="isCurrentOriginalLoading ? 'fas fa-circle-notch fa-spin' : (isCurrentOriginalLoaded ? 'fas fa-check-circle' : 'fas fa-file-image')"></i>
+              <span aria-live="polite">{{ originalControlLabel }}</span>
+            </button>
+            <button
               v-if="currentItem?.isLivePhoto"
               type="button"
               class="topbar-live-badge"
@@ -106,8 +116,9 @@
           />
         </div>
 
-        <!-- 底部一体化灵动毛玻璃控制岛 -->
-        <div class="viewer-bottombar" @click.stop>
+        <!-- 手机底部工具区独立占位，避免控制按钮遮挡长图。 -->
+        <div v-if="showOriginalControl || currentItem?.isLivePhoto" class="viewer-bottom-space" @click.stop></div>
+        <div v-if="currentItem?.isLivePhoto" class="viewer-bottombar" @click.stop>
           <div class="viewer-control-island">
             <template v-if="currentItem?.isLivePhoto">
               <button
@@ -121,7 +132,6 @@
                 <i :class="liveVideoPlaying ? 'fas fa-pause' : (liveVideoUnsupported ? 'fas fa-ban' : 'fas fa-play')"></i>
                 <span>{{ liveResolving ? '加载中' : (liveVideoUnsupported ? '不支持' : (liveVideoError ? '重试' : (liveVideoPlaying ? '实况' : '播放'))) }}</span>
               </button>
-
               <button
                 type="button"
                 class="island-btn live-sound-btn"
@@ -134,23 +144,7 @@
                 <span>{{ liveSoundEnabled ? '原声' : '静音' }}</span>
               </button>
 
-              <div class="island-divider"></div>
             </template>
-
-            <button
-              class="island-btn raw-image-btn"
-              :class="{ 'is-loaded': isCurrentOriginalLoaded, 'is-loading': isCurrentOriginalLoading }"
-              :disabled="isCurrentOriginalLoading || isCurrentOriginalLoaded"
-              @click.stop="loadOriginal"
-            >
-              <i :class="[
-                isCurrentOriginalLoading ? 'fas fa-circle-notch fa-spin' :
-                isCurrentOriginalLoaded ? 'fas fa-check-circle' : 'fas fa-file-image'
-              ]"></i>
-              <span>
-                {{ isCurrentOriginalLoading ? '正在加载原图...' : (isCurrentOriginalLoaded ? '已加载原图' : '查看原图') }}
-              </span>
-            </button>
           </div>
         </div>
       </div>
@@ -233,6 +227,17 @@ const liveVideoCodecChecks = new Map<string, Promise<{ codec: LiveVideoCodec | n
 
 const originalLoadedMap = ref<Record<number, boolean>>({});
 const originalLoadingMap = ref<Record<number, boolean>>({});
+const originalFailedMap = ref<Record<number, boolean>>({});
+const originalSuccessNotice = ref(false);
+let originalNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+let viewerSession = 0;
+const originalRequests = new Map<number, symbol>();
+
+function clearOriginalNotice() {
+  if (originalNoticeTimer) clearTimeout(originalNoticeTimer);
+  originalNoticeTimer = null;
+  originalSuccessNotice.value = false;
+}
 
 let startX = 0;
 let startY = 0;
@@ -298,8 +303,13 @@ const originalUrl = computed(() => {
 
 const isCurrentOriginalLoaded = computed(() => Boolean(originalLoadedMap.value[currentIndex.value]));
 const isCurrentOriginalLoading = computed(() => Boolean(originalLoadingMap.value[currentIndex.value]));
+const showOriginalControl = computed(() => Boolean(originalUrl.value)
+  && (!isCurrentOriginalLoaded.value || originalSuccessNotice.value));
+const originalControlLabel = computed(() => isCurrentOriginalLoading.value ? '正在加载原图…'
+  : isCurrentOriginalLoaded.value ? '已加载原图'
+    : originalFailedMap.value[currentIndex.value] ? '重试原图' : '查看原图');
 
-async function resolveImageData(url: string): Promise<boolean> {
+async function resolveImageData(url: string, preserveImage = false): Promise<boolean> {
   const sequence = ++resolveSequence;
   if (noImageMode.value) {
     displaySrc.value = '';
@@ -319,7 +329,7 @@ async function resolveImageData(url: string): Promise<boolean> {
     displaySrc.value = cached;
     return true;
   }
-  displaySrc.value = '';
+  if (!preserveImage) displaySrc.value = '';
   try {
     const dataUrl = await loadImageResource(url, CoolapkTauriAPI.getImageDataUrl);
     if (sequence !== resolveSequence) return false;
@@ -328,7 +338,7 @@ async function resolveImageData(url: string): Promise<boolean> {
   } catch (err) {
     if (sequence !== resolveSequence) return false;
     console.warn('看图器加载图片失败:', err);
-    displaySrc.value = url; // 备用回退直接使用原 url
+    if (!preserveImage || !displaySrc.value) displaySrc.value = url; // 保留已有预览，首次加载才回退直链。
     return false;
   }
 }
@@ -532,11 +542,16 @@ async function toggleLiveSound() {
 }
 
 watch(viewerData, (val) => {
+  viewerSession += 1;
+  originalRequests.clear();
+  resolveSequence += 1;
+  clearOriginalNotice();
   settleTransitionNow();
   if (val) {
     currentIndex.value = Math.min(Math.max(val.currentIndex, 0), Math.max(imageItems.value.length - 1, 0));
     originalLoadedMap.value = {};
     originalLoadingMap.value = {};
+    originalFailedMap.value = {};
     resetTransform();
   } else {
     liveResolveSequence += 1;
@@ -548,12 +563,16 @@ watch(viewerData, (val) => {
 });
 
 function clearMediaForNoImageMode() {
+  viewerSession += 1;
+  originalRequests.clear();
+  clearOriginalNotice();
   resolveSequence += 1;
   liveResolveSequence += 1;
   livePlaybackSequence += 1;
   displaySrc.value = '';
   originalLoadedMap.value = {};
   originalLoadingMap.value = {};
+  originalFailedMap.value = {};
   liveResolving.value = false;
   liveVideoUrl.value = '';
   liveVideoPlaying.value = false;
@@ -571,7 +590,7 @@ function loadCurrentMedia() {
     clearMediaForNoImageMode();
     return;
   }
-  if (settingsStore.settings.autoLoadOriginalImage && originalUrl.value) {
+  if (originalUrl.value && (settingsStore.settings.autoLoadOriginalImage || currentUrl.value === originalUrl.value)) {
     void loadOriginal();
   } else if (currentUrl.value) {
     void resolveImageData(currentUrl.value);
@@ -599,6 +618,8 @@ function prefetchAdjacentImages() {
 }
 
 watch(currentItem, () => {
+  clearOriginalNotice();
+  displaySrc.value = '';
   resetTransform();
   resetLiveState();
   loadCurrentMedia();
@@ -609,11 +630,14 @@ watch(noImageMode, (enabled) => {
   else if (viewerData.value) loadCurrentMedia();
 });
 
-async function loadOriginal() {
+async function loadOriginal(manual = false) {
   if (noImageMode.value) return;
   const idx = currentIndex.value;
   const itemSourceUrl = rawUrl.value;
   const url = originalUrl.value;
+  const session = viewerSession;
+  const request = Symbol();
+  originalRequests.set(idx, request);
 
   // 没有原图地址（接口本身只给缩略图）时退回当前显示地址，避免切图后空着。
   if (!itemSourceUrl || !url) {
@@ -624,19 +648,31 @@ async function loadOriginal() {
   // 不再用 originalLoadingMap 拦截"同一张图正在加载"：同一地址的并发请求由
   // resourceCache 合并，而拦截会让「切走再切回」跳过加载，画面停在上一次的结果。
   originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: true };
+  originalFailedMap.value = { ...originalFailedMap.value, [idx]: false };
   try {
-    const loaded = await resolveImageData(url);
+    const loaded = await resolveImageData(url, true);
+    if (session !== viewerSession || originalRequests.get(idx) !== request) return;
     if (
       loaded
       && idx === currentIndex.value
       && currentItem.value?.sourceUrl === itemSourceUrl
     ) {
       originalLoadedMap.value = { ...originalLoadedMap.value, [idx]: true };
+      if (manual) {
+        clearOriginalNotice();
+        originalSuccessNotice.value = true;
+        originalNoticeTimer = setTimeout(clearOriginalNotice, 1500);
+      }
+    } else if (idx === currentIndex.value && currentItem.value?.sourceUrl === itemSourceUrl) {
+      originalFailedMap.value = { ...originalFailedMap.value, [idx]: true };
     }
   } finally {
     // 无论成功、失败还是被切图顶掉都要释放标记：只按"当前是否还是这张图"
     // 清理会让被切走的那张永久停在加载中，之后切回来既不重新加载也不更新画面。
-    originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: false };
+    if (session === viewerSession && originalRequests.get(idx) === request) {
+      originalLoadingMap.value = { ...originalLoadingMap.value, [idx]: false };
+      originalRequests.delete(idx);
+    }
   }
 }
 
@@ -1062,6 +1098,10 @@ function handleKeydown(e: KeyboardEvent) {
 
 onMounted(() => window.addEventListener('keydown', handleKeydown));
 onUnmounted(() => {
+  viewerSession += 1;
+  originalRequests.clear();
+  resolveSequence += 1;
+  clearOriginalNotice();
   window.removeEventListener('keydown', handleKeydown);
   clearTransitionTimer();
 });
@@ -1381,6 +1421,10 @@ onUnmounted(() => {
   justify-content: center;
 }
 
+.viewer-bottom-space {
+  display: none;
+}
+
 .viewer-control-island {
   display: inline-flex;
   align-items: center;
@@ -1436,15 +1480,17 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.island-divider {
-  width: 1px;
-  height: 16px;
-  background: rgba(255, 255, 255, 0.16);
-  margin: 0 2px;
-}
-
 .raw-image-btn i {
   font-size: 12px;
+}
+
+.raw-image-btn {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.raw-image-btn.is-loaded:disabled {
+  opacity: 1;
 }
 
 .raw-image-btn.is-loaded {
@@ -1529,6 +1575,43 @@ onUnmounted(() => {
 
   .viewer-bottombar {
     bottom: calc(16px + env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
+    transform: none;
+  }
+
+  .viewer-control-island {
+    gap: 2px;
+  }
+
+  .viewer-control-island .island-btn {
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .raw-image-btn {
+    position: absolute;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    height: 38px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+
+  .viewer-bottom-space {
+    display: block;
+    flex-shrink: 0;
+    height: calc(70px + env(safe-area-inset-bottom));
+  }
+
+  .image-stage {
+    min-height: 0;
+  }
+
+  .viewer-img,
+  .viewer-ghost,
+  .viewer-live-video {
+    max-height: 100%;
   }
 }
 </style>

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../../stores/app';
+import { useSettingsStore } from '../../../stores/settings';
 import { getMemoryCachedResourceSync, loadImageResource } from '../../../utils/resourceCache';
 import ImageViewer from '../ImageViewer.vue';
 
@@ -21,6 +22,105 @@ vi.mock('../../../utils/resourceCache', () => ({
 
 const loadResourceMock = vi.mocked(loadImageResource);
 const memoryCacheMock = vi.mocked(getMemoryCachedResourceSync);
+
+describe('图片查看器原图状态', () => {
+  const original = 'https://image.coolapk.com/example.jpg';
+  const preview = `${original}.m.jpg`;
+
+  beforeEach(() => {
+    loadResourceMock.mockImplementation(async (url) => dataOf(url));
+    memoryCacheMock.mockReturnValue(null);
+    useSettingsStore().settings.autoLoadOriginalImage = false;
+    useSettingsStore().settings.imageQuality = 'hd';
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  async function openViewer(urls = [original]) {
+    const store = useAppStore();
+    const wrapper = mount(ImageViewer, { global: { stubs: { Teleport: true } } });
+    store.openImageViewer(urls, 0);
+    await flushPromises();
+    return { wrapper, store };
+  }
+
+  it('质量选择原图时，加载成功后不再显示重复入口', async () => {
+    useSettingsStore().settings.imageQuality = 'raw';
+    const { wrapper } = await openViewer();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(original));
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('自动加载原图时先显示加载状态，成功后隐藏入口', async () => {
+    useSettingsStore().settings.autoLoadOriginalImage = true;
+    let finish!: (value: string) => void;
+    loadResourceMock.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const { wrapper } = await openViewer();
+    expect(wrapper.get('.raw-image-btn').text()).toContain('正在加载原图');
+    expect(wrapper.get('.raw-image-btn').attributes('disabled')).toBeDefined();
+    finish(dataOf(original));
+    await flushPromises();
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('手动加载保留预览，失败可重试，成功提示在 1.5 秒后消失', async () => {
+    vi.useFakeTimers();
+    const { wrapper } = await openViewer();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(preview));
+    let fail!: (error: Error) => void;
+    loadResourceMock.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
+    await wrapper.get('.raw-image-btn').trigger('click');
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(preview));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fail(new Error('offline'));
+    await flushPromises();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(preview));
+    expect(wrapper.get('.raw-image-btn').text()).toBe('重试原图');
+    await wrapper.get('.raw-image-btn').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(original));
+    expect(wrapper.get('.raw-image-btn').text()).toBe('已加载原图');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('手动加载后切走再切回继续显示原图，并清除成功提示', async () => {
+    const { wrapper } = await openViewer([original, 'https://image.coolapk.com/second.jpg']);
+    await wrapper.get('.raw-image-btn').trigger('click');
+    await flushPromises();
+    await wrapper.get('.nav-next').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.raw-image-btn').text()).toBe('查看原图');
+    await wrapper.get('.nav-prev').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(original));
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('关闭并重开后，旧请求不能清除新请求的加载状态或替换图片', async () => {
+    useSettingsStore().settings.autoLoadOriginalImage = true;
+    const pending: Array<(value: string) => void> = [];
+    loadResourceMock.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+    const { wrapper, store } = await openViewer();
+    store.closeImageViewer();
+    await flushPromises();
+    store.openImageViewer([original], 0);
+    await flushPromises();
+    pending[0](dataOf('old'));
+    await flushPromises();
+    expect(wrapper.get('.raw-image-btn').text()).toContain('正在加载原图');
+    expect(wrapper.find('.viewer-img').exists()).toBe(false);
+    pending[1](dataOf(original));
+    await flushPromises();
+    expect(wrapper.find('.raw-image-btn').exists()).toBe(false);
+    expect(wrapper.get('.viewer-img').attributes('src')).toBe(dataOf(original));
+    wrapper.unmount();
+  });
+});
 
 /** 与资源缓存的真实行为一致：返回可区分的 data URL，便于断言画面上是哪一张。 */
 function dataOf(url: string): string {
