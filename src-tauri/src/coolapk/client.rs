@@ -1,3 +1,4 @@
+use super::http_session::{session, Policy as SessionPolicy};
 use crate::coolapk::auth::CoolapkAuth;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::header::{COOKIE, HeaderMap, HeaderValue, LOCATION, USER_AGENT};
@@ -3738,11 +3739,6 @@ impl CoolapkClient {
                 .map_err(|_| "failed to upgrade image URL to HTTPS".to_string())?;
         }
 
-        let img_client = http_client_builder()
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .unwrap_or_default();
-
         // 酷安 API 域下的图片接口（如 /v6/message/showImage）需要完整的 App 指纹头
         // （X-Sdk-Int/X-App-Id/X-App-Version 等）+ Token 认证，必须复用主 client；
         // 其余 CDN 图片用独立浏览器 UA 客户端（浏览器 UA 访问 image.coolapk.com 会被 CDN 放行）
@@ -3767,8 +3763,9 @@ impl CoolapkClient {
             } else {
                 "https://www.coolapk.com/"
             };
-            img_client
+            session(url.as_str(), SessionPolicy::Follow, None)?
                 .get(url)
+                .timeout(std::time::Duration::from_secs(12))
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .header("Referer", referer)
         };
@@ -3827,17 +3824,15 @@ impl CoolapkClient {
         let did = self.effective_custom_device_id();
         let ddid = if path == "getPlugin" || path == "savePlugin" { self.effective_custom_ddid() } else { None };
         let cookie = user_plugin_cookie(&cookie, did.as_deref(), ddid.as_deref());
-        let client = http_client_builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(20)).build().map_err(|e| e.to_string())?;
         let url = format!("https://m.coolapk.com/mp/userPlugin/{path}");
+        let client = session(&url, SessionPolicy::NoRedirect, None)?;
         let request = match form {
             Some(form) => client.post(&url).form(form),
             None => client.get(&url),
         };
         // APK UserAgentHandler 经 C2304 添加 (#Build; ...) 后追加 CoolMarket 版本。
         // 缺少 Build 段时，服务端会将该页面判为普通移动浏览器并拒绝访问。
-        let response = request.query(query)
+        let response = request.timeout(std::time::Duration::from_secs(20)).query(query)
             .header(USER_AGENT, "Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36 (#Build; nubia; NX789J; AQ3A.250226.002; Android) +CoolMarket/16.6.2-2609151-universal")
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", "https://m.coolapk.com/mp/userPlugin/myPlugin?autoTheme=1")
@@ -3881,16 +3876,14 @@ impl CoolapkClient {
             return Err("仅支持 http(s) 链接".to_string());
         }
 
-        let page_client = http_client_builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let page_client = session(url, SessionPolicy::Follow, None)?;
 
         let parsed_url = reqwest::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
         let is_coolapk_target = parsed_url.host_str().map(is_coolapk_host).unwrap_or(false);
 
         let mut request = page_client
             .get(url)
+            .timeout(std::time::Duration::from_secs(15))
             .header("User-Agent", MOBILE_UA)
             .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
 
@@ -3960,14 +3953,14 @@ impl CoolapkClient {
         }
         let cookie = self.user_cookie.read().map_err(|_| "无法读取登录状态".to_string())?.clone()
             .ok_or_else(|| "请先登录后举报".to_string())?;
-        let client = http_client_builder().timeout(std::time::Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
+        let client = session("https://m.coolapk.com", SessionPolicy::NoRedirect, None)?;
         let form = reqwest::multipart::Form::new()
             .text("requestHash", request_hash.to_string()).text("submit", "1")
             .text("id", id.to_string()).text("type", report_type.to_string())
             .text("report_reason", reason.to_string()).text("custom_report_reason", custom_reason.to_string())
             .text("pic", pictures.join(","));
         let response = client.post("https://m.coolapk.com/mp/do?c=feed&m=report")
+            .timeout(std::time::Duration::from_secs(30))
             .header("User-Agent", MOBILE_UA).header("X-Requested-With", "XMLHttpRequest")
             .header("Origin", "https://m.coolapk.com").header("Referer", "https://m.coolapk.com/mp/do?c=feed&m=report")
             .header(COOKIE, cookie_without_ddid(&cookie)).multipart(form).send().await.map_err(|e| e.to_string())?;
@@ -4162,12 +4155,10 @@ impl CoolapkClient {
             return Err("仅允许代理微博 HTTPS 视频地址".to_string());
         }
 
-        let client = http_client_builder()
-            .timeout(std::time::Duration::from_secs(90))
-            .build()
-            .map_err(|error| format!("创建视频代理客户端失败：{error}"))?;
+        let client = session(parsed.as_str(), SessionPolicy::Follow, None)?;
         let mut request = client
             .get(parsed)
+            .timeout(std::time::Duration::from_secs(90))
             .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .header("Accept", "video/mp4,video/*;q=0.9,*/*;q=0.8")
             .header("Referer", "https://weibo.com/");
@@ -4337,12 +4328,10 @@ impl CoolapkClient {
             return Err("Live Photo 视频地址必须来自酷安官方 HTTPS 域名".to_string());
         }
 
-        let client = http_client_builder()
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .map_err(|e| format!("failed to create Live Photo codec client: {e}"))?;
+        let client = session(parsed_url.as_str(), SessionPolicy::Follow, None)?;
         let mut response = client
             .get(parsed_url)
+            .timeout(std::time::Duration::from_secs(12))
             .header("Range", format!("bytes=0-{}", HEADER_LIMIT - 1))
             .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .header("Referer", "https://www.coolapk.com/")

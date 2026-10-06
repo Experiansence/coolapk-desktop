@@ -1,3 +1,4 @@
+use super::http_session::{session, Policy as SessionPolicy, UPDATE_ALLOWED_HOSTS};
 use crate::coolapk::client::{CoolapkClient, DeviceProfile};
 use crate::download_manager::{DownloadControl, DownloadManager};
 use crate::diagnostics::{login_checkpoint, LoginStage};
@@ -2210,13 +2211,7 @@ async fn run_apk_download(
         return Ok(json!({ "status": "canceled", "path": target, "partialPath": partial }));
     }
 
-    let mut builder = crate::coolapk::client::http_client_builder()
-        .user_agent("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal")
-        .redirect(reqwest::redirect::Policy::limited(10));
-    if let Some(proxy) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
-        builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|error| format!("代理设置无效：{error}"))?);
-    }
-    let http_client = builder.build().map_err(|error| format!("创建下载客户端失败：{error}"))?;
+    let http_client = session(request_url.as_str(), SessionPolicy::Download, proxy_url)?;
     let mut request = if is_coolapk_download {
         http_client
             .post(request_url.clone())
@@ -4272,12 +4267,6 @@ mod login_callback_tests {
 ///
 /// 安全约束：仅允许 https + GitHub 官方域名白名单（含 release 资源重定向目标），
 /// 文件名净化 + 体积上限，防止前端被注入时被利用下载并执行任意文件。
-const UPDATE_ALLOWED_HOSTS: &[&str] = &[
-    "github.com",
-    "www.github.com",
-    "objects.githubusercontent.com",
-    "release-assets.githubusercontent.com",
-];
 const UPDATE_MAX_BYTES: u64 = 500 * 1024 * 1024;
 
 #[tauri::command]
@@ -4329,24 +4318,7 @@ pub async fn download_update(
     let path = dir.join(unique_name);
     let partial_path = path.with_extension(format!("{extension}.part"));
 
-    let mut builder = crate::coolapk::client::http_client_builder()
-        .user_agent("coolapk-desktop-updater")
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            let host = attempt.url().host_str().unwrap_or_default().to_ascii_lowercase();
-            if attempt.previous().len() >= 10
-                || attempt.url().scheme() != "https"
-                || !UPDATE_ALLOWED_HOSTS.contains(&host.as_str())
-            {
-                attempt.error("更新包跳转到了不可信地址")
-            } else {
-                attempt.follow()
-            }
-        }));
-    if let Some(proxy) = proxy_url.filter(|p| !p.trim().is_empty()) {
-        builder =
-            builder.proxy(reqwest::Proxy::all(proxy).map_err(|e| format!("代理设置无效: {e}"))?);
-    }
-    let client = builder.build().map_err(|e| e.to_string())?;
+    let client = session(&url, SessionPolicy::Updater, proxy_url.as_deref())?;
     let mut response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Err(format!("下载失败：HTTP {}", response.status()));
