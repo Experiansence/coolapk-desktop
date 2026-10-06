@@ -1,6 +1,6 @@
 <template>
   <div class="feed-detail-page custom-scrollbar" :class="{ 'is-official-mobile': officialMobileDetail }">
-    <button v-if="officialMobileDetail && (!feedDetail || isAnswerDetail)" class="detail-fallback-back" @click="navigateBack(router)"><i class="fas fa-arrow-left"></i> 返回</button>
+    <button v-if="officialMobileDetail && (!feedDetail || isAnswerDetail)" type="button" aria-label="返回" class="detail-fallback-back" @click="navigateBack(router)"><i class="fas fa-arrow-left"></i> 返回</button>
     <div class="feed-detail-shell">
       <LoadingState v-if="loading && !feedDetail" text="正在加载原动态..." />
       <ErrorState
@@ -132,6 +132,17 @@ watch(feedId, (nextFeedId) => {
 
 <style scoped>
 .detail-fallback-back { min-height: 44px; padding: 8px 16px; border: 0; background: var(--surface); color: var(--text-primary); font: inherit; }
+@media (max-width: 720px) {
+  .detail-fallback-back {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    width: 100%;
+    text-align: left;
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+  }
+}
 .feed-detail-page.is-official-mobile { background: var(--surface); }
 .is-official-mobile .feed-detail-shell { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .feed-detail-page {

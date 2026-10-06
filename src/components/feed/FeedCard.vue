@@ -1477,6 +1477,14 @@ defineExpose({
 .official-detail-author { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; margin: 0 -16px 12px; padding: 6px 8px; min-height: 60px; background: var(--surface); border-bottom: 1px solid var(--border-light); }
 .official-detail-author :deep(.feed-header) { flex: 1; min-width: 0; margin: 0; }
 .official-back, .official-more { flex: 0 0 32px; border: 0; background: transparent; color: var(--text-primary); font-size: 20px; min-height: 40px; }
+@media (max-width: 720px) {
+  .official-detail-author {
+    padding-top: calc(6px + env(safe-area-inset-top, 0px));
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+  }
+  .official-back { flex-basis: 44px; min-height: 44px; }
+}
 .official-follow-author { border: 1px solid var(--text-tertiary); color: var(--text-secondary); background: transparent; border-radius: 20px; padding: 4px 10px; font: inherit; font-size: 12px; white-space: nowrap; }
 .official-detail-author :deep(.user-level), .official-detail-author :deep(.verify-badge), .official-detail-author :deep(.ip-badge), .official-detail-author :deep(.read-count), .official-detail-author :deep(.edited-badge), .official-detail-author :deep(.recommend-source-badge), .official-detail-author :deep(.header-feed-plugin) { display: none; }
 .official-detail-author :deep(.username) { font-weight: 400; font-size: 16px; }

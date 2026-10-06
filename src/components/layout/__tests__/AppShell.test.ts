@@ -1,9 +1,9 @@
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { defineComponent, nextTick, onMounted } from 'vue';
 
-const routeState = vi.hoisted(() => ({ value: null as any }));
+const routeState = vi.hoisted(() => ({ value: null as any, back: vi.fn(), replace: vi.fn(), history: { back: '/' as string | null } }));
 
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>();
@@ -12,7 +12,7 @@ vi.mock('vue-router', async (importOriginal) => {
   return {
     ...actual,
     useRoute: () => routeState.value,
-    useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
+    useRouter: () => ({ push: vi.fn(), back: routeState.back, replace: routeState.replace, options: { history: { state: routeState.history } } }),
   };
 });
 
@@ -23,6 +23,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import AppShell from '../AppShell.vue';
 import { useSettingsStore } from '../../../stores/settings';
+import { useAppStore } from '../../../stores/app';
 
 const TopBarStub = { template: '<div class="top-bar-stub" />' };
 const MainSidebarStub = { template: '<div class="main-sidebar-stub" />' };
@@ -32,10 +33,55 @@ const MobileTopBarStub = { template: '<div class="mobile-top-bar-stub" />' };
 const MobileBottomNavStub = { template: '<div class="mobile-bottom-nav-stub" />' };
 
 describe('AppShell', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     Object.assign(routeState.value, { path: '/', fullPath: '/' });
+    routeState.history.back = '/';
+  });
+
+  it.each([['iPhone', true], ['Macintosh', true], ['Android', false], ['Windows', false]] as const)('%s 内容页返回手势按平台启用，浮层打开时不穿透', async (device, supported) => {
+    vi.stubGlobal('navigator', { userAgent: device, platform: device, maxTouchPoints: 5 });
+    Object.assign(routeState.value, { path: '/feed/42', fullPath: '/feed/42' });
+    const wrapper = mount(AppShell, { global: { stubs: { TopBar: TopBarStub, MainSidebar: MainSidebarStub,
+      PageTabBar: PageTabBarStub, NetworkStatusBanner: NetworkStatusBannerStub,
+      MobileTopBar: MobileTopBarStub, MobileBottomNav: MobileBottomNavStub } } });
+    await nextTick();
+    const surface = wrapper.get('main').element;
+    function swipe() {
+      for (const [type, x] of [['touchstart', 10], ['touchmove', 110], ['touchend', 110]] as const) {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        const point = { clientX: x, clientY: 100, identifier: 0 };
+        Object.defineProperties(event, { touches: { value: type === 'touchend' ? [] : [point] }, changedTouches: { value: [point] } });
+        surface.dispatchEvent(event);
+      }
+    }
+    swipe();
+    if (!supported) {
+      expect(routeState.back).not.toHaveBeenCalled();
+      expect(routeState.replace).not.toHaveBeenCalled();
+      wrapper.unmount();
+      return;
+    }
+    expect(routeState.back).toHaveBeenCalledOnce();
+    useAppStore().openSearch();
+    swipe();
+    expect(routeState.back).toHaveBeenCalledOnce();
+    useAppStore().closeSearch();
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog-wrapper';
+    document.body.appendChild(dialog);
+    swipe();
+    expect(routeState.back).toHaveBeenCalledOnce();
+    dialog.remove();
+    routeState.history.back = null;
+    swipe();
+    expect(routeState.replace).toHaveBeenCalledWith('/');
+    Object.assign(routeState.value, { path: '/', fullPath: '/' });
+    swipe();
+    expect(routeState.back).toHaveBeenCalledOnce();
+    wrapper.unmount();
   });
 
   it.each(['/digital', '/discover', '/me', '/messages', '/feed/123', '/settings/appearance', '/favorites', '/user/123', '/search'])('%s 切换布局保留路由内容实例、输入和滚动状态', async path => {

@@ -4,6 +4,7 @@
     :class="{
       'has-mobile-window-controls': showWindowControls,
       'is-android': isAndroidApp,
+      'is-touch-mobile': isTouchMobilePlatform(),
       'prevent-mobile-layout': isMobileLayoutDisabled,
       'has-mobile-bottom-nav': showMobileBottomNav,
     }"
@@ -24,7 +25,7 @@
       />
       <div class="app-content-column">
         <PageTabBar v-if="settingsStore.settings.showPageTabBar" />
-        <main class="app-main-content">
+        <main ref="mainContent" class="app-main-content">
           <slot></slot>
         </main>
       </div>
@@ -50,11 +51,23 @@ import { showToast } from '../../utils/toast';
 import { isTouchMobilePlatform } from '../../utils/platform';
 import { useDesktopWindow } from '../../composables/useDesktopWindow';
 import { useSettingsStore } from '../../stores/settings';
+import { useAppStore } from '../../stores/app';
+import { useIosBackGesture } from '../../composables/useIosBackGesture';
+import { navigateBack } from '../../utils/navigation';
 
 const route = useRoute();
 const router = useRouter();
 const settingsStore = useSettingsStore();
+const appStore = useAppStore();
 const mobileNavigationOpen = ref(false);
+const mainContent = ref<HTMLElement | null>(null);
+const isIos = isTouchMobilePlatform() && !/android/i.test(navigator.userAgent);
+useIosBackGesture(mainContent, () => isIos
+  && !['/', '/digital', '/discover', '/me'].includes(route.path)
+  && !mobileNavigationOpen.value
+  && !appStore.isSearchOpen && !appStore.isPublishOpen && !appStore.activeImageViewer
+  && !document.querySelector('.dialog-wrapper, .more-menu, .login-overlay, .app-context-menu'),
+  () => navigateBack(router));
 const isAndroidApp = isTauri() && /android/i.test(navigator.userAgent);
 const { showWindowControls, usesMacOverlay } = useDesktopWindow();
 // disableAutoMobileMode 是桌面端语义（窄窗口仍保留桌面顶栏与侧边栏）。
@@ -126,14 +139,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
 }
 
 @media (min-width: 721px) {
-  /* Android 平板使用桌面顶栏时，给系统状态栏留出顶部安全区。 */
-  .app-shell.is-android::before {
+  /* 触摸平板使用桌面顶栏时，给系统状态栏留出顶部安全区。 */
+  .app-shell.is-touch-mobile::before {
     content: '';
     flex: 0 0 env(safe-area-inset-top, 0px);
     background: var(--titlebar-background);
   }
 
-  .app-shell.is-android :deep(.network-status-banner) {
+  .app-shell.is-touch-mobile :deep(.network-status-banner) {
     top: calc(var(--app-titlebar-height) + env(safe-area-inset-top, 0px));
   }
 }
