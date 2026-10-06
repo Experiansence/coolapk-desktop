@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   replyFeed: vi.fn(),
   uploadImage: vi.fn(),
 }));
+vi.mock('../../../utils/devicePresets', async (original) => ({
+  ...await original<typeof import('../../../utils/devicePresets')>(),
+  loadDevicePresets: async () => [{ id: '1', brand: 'Redmi', label: 'Redmi Note 13 Pro+', model: '23090RA98C', device: 'zircon' }],
+}));
 
 vi.mock('../../../api/coolapk', () => ({
   CoolapkTauriAPI: {
@@ -85,6 +89,20 @@ describe('评论完整信息展示', () => {
     useSettingsStore().settings.commentDefaultSortMode = 'likes';
     await flushPromises();
     expect(wrapper.findAll('.comment-text').map(item => item.text())).toEqual(['官方第一条', '官方第二条', '官方第三条']);
+    wrapper.unmount();
+  });
+
+  it('评论与楼中楼转换型号，悬停仍显示原始型号、系统和 Build', async () => {
+    const wrapper = mountSection({
+      device_title: 'Redmi 23090RA98C', deviceRom: 'Android 16 · HyperOS 3.0.305.0', deviceBuild: 'BP2A.250605.031.A3',
+      replyRows: [{ id: 'sub-model', username: '楼中楼用户', message: '回复', deviceTitle: 'Redmi 23090RA98C', deviceRom: 'Android 15', deviceBuild: 'sub-build' }],
+    });
+    await flushPromises();
+    const devices = wrapper.findAll('.comment-device');
+    expect(devices).toHaveLength(2);
+    expect(devices.every(device => device.text() === 'Redmi Note 13 Pro+')).toBe(true);
+    expect(devices[0].attributes('title')).toBe('Redmi 23090RA98C · Android 16 · HyperOS 3.0.305.0 · BP2A.250605.031.A3');
+    expect(devices[1].attributes('title')).toBe('Redmi 23090RA98C · Android 15 · sub-build');
     wrapper.unmount();
   });
 

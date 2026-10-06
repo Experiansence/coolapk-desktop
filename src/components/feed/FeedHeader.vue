@@ -41,7 +41,7 @@
         <span v-if="selfOnly" class="self-only-badge" title="这条动态仅自己可见"><i class="fas fa-lock" aria-hidden="true"></i><span>仅自己可见</span></span>
         <span v-if="showDeviceInfo && device" class="device-badge" :title="device">
           <i class="fas fa-mobile-alt device-icon"></i>
-          <span>{{ device }}</span>
+          <span>{{ displayDeviceName(device) }}</span>
         </span>
         <span v-if="readCount > 0" class="read-count" :title="`${readCount.toLocaleString('zh-CN')} 次浏览`">{{ formattedReadCount }}浏览</span>
         <span v-if="ipLocationText" class="ip-badge" :title="`IP属地: ${ipLocationText}`">
@@ -87,6 +87,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useDeviceModelNames } from '../../utils/deviceModelNames';
 import { useRouter } from 'vue-router';
 import { useSettingsStore } from '../../stores/settings';
 import { useAuthStore } from '../../stores/auth';
@@ -124,6 +125,7 @@ const props = withDefaults(defineProps<{
 });
 
 const router = useRouter();
+const displayDeviceName = useDeviceModelNames();
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
 const readCount = computed(() => {

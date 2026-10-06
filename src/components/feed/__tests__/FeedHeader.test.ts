@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import FeedHeader from '../FeedHeader.vue';
 import { reactiveUserProfileMap } from '../../../utils/userProfilePreloader';
 import { useAuthStore } from '../../../stores/auth';
 
 const routerPush = vi.hoisted(() => vi.fn());
+vi.mock('../../../utils/devicePresets', async (original) => ({
+  ...await original<typeof import('../../../utils/devicePresets')>(),
+  loadDevicePresets: async () => [{ id: '1', brand: 'Redmi', label: 'Redmi Note 13 Pro+', model: '23090RA98C', device: 'zircon' }],
+}));
 
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>();
@@ -13,6 +17,19 @@ vi.mock('vue-router', async (importOriginal) => {
 });
 
 describe('动态头部信息布局', () => {
+  it('显示销售名称，鼠标悬停保留原始设备字符串', async () => {
+    setActivePinia(createPinia());
+    const wrapper = mount(FeedHeader, {
+      props: { uid: '123', device: 'Redmi 23090RA98C' },
+      global: { stubs: { AppAvatar: true, AppIconButton: true, UserHoverCard: { template: '<div><slot /></div>' } } },
+    });
+    await flushPromises();
+    expect(wrapper.get('.device-badge').text()).toBe('Redmi Note 13 Pro+');
+    expect(wrapper.get('.device-badge').attributes('title')).toBe('Redmi 23090RA98C');
+    await wrapper.setProps({ device: '未知设备型号' });
+    expect(wrapper.get('.device-badge').text()).toBe('未知设备型号');
+    wrapper.unmount();
+  });
   it.each([true, false])('仅自己可见标识不依赖机型显示开关（私密=%s）', (selfOnly) => {
     setActivePinia(createPinia());
     const wrapper = mount(FeedHeader, {

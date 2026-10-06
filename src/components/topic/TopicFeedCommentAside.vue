@@ -39,9 +39,9 @@
           </div>
           <div class="author-sub-meta">
             <span class="feed-time">{{ formattedFeedTime }}</span>
-            <span v-if="deviceTitle" class="feed-device">
+            <span v-if="deviceTitle" class="feed-device" :title="deviceTitle">
               <i class="fas fa-mobile-alt device-icon"></i>
-              <span>{{ deviceTitle }}</span>
+              <span>{{ displayDeviceName(deviceTitle) }}</span>
             </span>
           </div>
         </div>
@@ -94,6 +94,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import { useDeviceModelNames } from '../../utils/deviceModelNames';
+
+const displayDeviceName = useDeviceModelNames();
 import { useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import FeedCommentSection from '../feed/FeedCommentSection.vue';

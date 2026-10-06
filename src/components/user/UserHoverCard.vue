@@ -89,7 +89,7 @@
 
             <!-- 属性标签（机型、IP属地） -->
             <div v-if="tagList.length > 0" class="user-tags-row">
-              <span v-for="(tag, idx) in tagList" :key="idx" class="user-chip">
+              <span v-for="(tag, idx) in tagList" :key="idx" class="user-chip" :title="tag.title">
                 <i v-if="tag.icon" :class="tag.icon"></i>
                 {{ tag.text }}
               </span>
@@ -127,6 +127,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onDeactivated, watch, nextTick } from 'vue';
+import { useDeviceModelNames } from '../../utils/deviceModelNames';
 import { useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useAuthStore } from '../../stores/auth';
@@ -150,6 +151,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const router = useRouter();
+const displayDeviceName = useDeviceModelNames();
 const authStore = useAuthStore();
 
 const triggerRef = ref<HTMLElement | null>(null);
@@ -223,14 +225,14 @@ const feedCount = computed(() => {
 });
 
 const tagList = computed(() => {
-  const tags: { text: string; icon?: string }[] = [];
+  const tags: { text: string; icon?: string; title?: string }[] = [];
   const ip = profile.value?.ip_location || profile.value?.city || profile.value?.ipLocation;
   if (ip) {
     tags.push({ text: `IP: ${ip}`, icon: 'fas fa-location-dot' });
   }
   const dev = profile.value?.device_title || profile.value?.device || props.device;
   if (dev) {
-    tags.push({ text: dev, icon: 'fas fa-mobile-alt' });
+    tags.push({ text: displayDeviceName(dev), title: dev, icon: 'fas fa-mobile-alt' });
   }
   return tags;
 });

@@ -283,7 +283,7 @@
             </button>
             <span v-if="getCommentDeviceTitle(c)" class="comment-device" :title="getCommentDeviceTooltip(c)">
               <i class="fa-solid fa-mobile-screen-button"></i>
-              {{ getCommentDeviceTitle(c) }}
+              {{ displayDeviceName(getCommentDeviceTitle(c)) }}
             </span>
             <span v-if="getCommentFloor(c)" class="comment-secondary-meta">#{{ getCommentFloor(c) }}楼</span>
             <span v-if="getCommentLocation(c)" class="comment-secondary-meta">
@@ -407,7 +407,7 @@
                   </button>
                   <span v-if="getCommentDeviceTitle(sub)" class="comment-device" :title="getCommentDeviceTooltip(sub)">
                     <i class="fa-solid fa-mobile-screen-button"></i>
-                    {{ getCommentDeviceTitle(sub) }}
+                    {{ displayDeviceName(getCommentDeviceTitle(sub)) }}
                   </span>
                   <span v-if="getCommentLocation(sub)" class="comment-secondary-meta">
                     <i class="fa-solid fa-location-dot"></i>
@@ -533,6 +533,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue';
+import { useDeviceModelNames } from '../../utils/deviceModelNames';
+
+const displayDeviceName = useDeviceModelNames();
 import { usePlatformShortcuts } from '../../utils/shortcuts';
 import { useShortcutHints } from '../../composables/useShortcutHints';
 import AppAvatar from '../common/AppAvatar.vue';
