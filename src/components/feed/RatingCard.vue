@@ -1,7 +1,7 @@
 <template>
   <article ref="cardRef" class="rating-card" @click="handleCardClick">
     <!-- 头部用户信息 -->
-    <FeedHeader
+    <FeedHeader :is-edited="isFeedEdited(feed)" :edit-history-available="false"
       :uid="feed.uid || feed.userInfo?.uid"
       :avatar="feed.userAvatar || feed.userInfo?.userAvatar"
       :plugin-url="(feed.userInfo as any)?.avatar_plugin_url || (feed as any).avatar_plugin_url || (feed as any).userAvatarPluginUrl"
@@ -167,6 +167,7 @@
 </template>
 
 <script setup lang="ts">
+import { isFeedEdited } from '../../utils/feedEditStatus';
 import { ref, computed, watch, nextTick, onUnmounted, onDeactivated } from 'vue';
 import FeedHeader from './FeedHeader.vue';
 import FeedContent from './FeedContent.vue';

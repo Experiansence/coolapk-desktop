@@ -344,6 +344,24 @@ describe('动态卡片编辑记录', () => {
     expect(mocks.getFeedChangeHistory).not.toHaveBeenCalled();
   });
 
+  it.each(['广西', ''])('移动详情正文下方展示编辑状态（发布地=%s）', async (location) => {
+    mocks.getFeedChangeHistory.mockResolvedValue({ data: [] });
+    const wrapper = mount(FeedCard, {
+      props: { officialMobileDetail: true, feed: { id: 'edited-mobile', uid: '123', message: '正文', ip_location: location, change_count: 1 } },
+      global: { stubs: { FeedHeader: true, FeedContent: true, FeedImageGrid: true, FeedActionBar: true, FeedCommentSection: true, ForwardDialog: true, AppDialog: true } },
+    });
+    expect(wrapper.findComponent({ name: 'FeedHeader' }).props('showEditStatus')).toBe(false);
+    expect(wrapper.get('.official-published-location').text()).toBe(location ? '发布于广西 · 已编辑' : '已编辑');
+    await wrapper.get('.official-edited-status').trigger('click');
+    await flushPromises();
+    expect(mocks.getFeedChangeHistory).toHaveBeenCalledWith('edited-mobile');
+    await wrapper.setProps({ feed: { id: 'edited-mobile', uid: '123', message: '正文', ip_location: location } });
+    expect(wrapper.find('.official-edited-status').exists()).toBe(false);
+    if (location) expect(wrapper.get('.official-published-location').text()).toBe('发布于广西');
+    else expect(wrapper.find('.official-published-location').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('不把动态正文配图当作作者头像', () => {
     const wrapper = mount(FeedCard, {
       props: {

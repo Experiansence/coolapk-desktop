@@ -49,6 +49,7 @@
       :entity-id="feed.entityId || feed.id"
       :question-mode="isQuestionCard || isAnswerCard"
       :is-edited="isEdited"
+      :show-edit-status="!officialMobileDetail"
       @more="toggleMoreMenu"
       @edit-history="openHistoryDialog"
     >
@@ -197,7 +198,9 @@
       <span><i class="fas fa-user-group" aria-hidden="true"></i>{{ questionFollowCount }}人关注</span>
     </div>
 
-    <p v-if="officialMobileDetail && publishedLocation" class="official-published-location">发布于{{ publishedLocation }}</p>
+    <p v-if="officialMobileDetail && (publishedLocation || isEdited)" class="official-published-location">
+      <span v-if="publishedLocation">发布于{{ publishedLocation }}</span><span v-if="publishedLocation && isEdited"> · </span><button v-if="isEdited" type="button" class="official-edited-status" @click.stop="openHistoryDialog">已编辑</button>
+    </p>
     <FeedActionBar
       v-show="!officialMobileDetail || (componentActive && pageVisible && !hasBlockingOverlay)"
       :official-detail="officialMobileDetail"
@@ -328,6 +331,7 @@
 </template>
 
 <script setup lang="ts">
+import { isFeedEdited } from '../../utils/feedEditStatus';
 import { computed, ref, watch, onMounted, nextTick, onUnmounted, onActivated, onDeactivated, inject } from 'vue';
 import { vDeferredPaint } from '../../utils/deferredPaint';
 import { useViewportContent } from '../../composables/useViewportContent';
@@ -543,13 +547,7 @@ const canEditFeed = computed(() => {
   return value === undefined || Number(value) === 1;
 });
 
-const isEdited = computed(() => {
-  const flag = props.feed.isModified ?? props.feed.is_modified;
-  if (flag === true || flag === 1 || flag === '1') return true;
-  const changeCount = Number(props.feed.changeCount ?? props.feed.change_count ?? 0);
-  const lastChangeTime = Number(props.feed.lastChangeTime ?? props.feed.last_change_time ?? 0);
-  return changeCount > 0 || lastChangeTime > 0;
-});
+const isEdited = computed(() => isFeedEdited(props.feed));
 
 const baseTargetRow = computed<any>(() =>
   (props.feed as any).forwardSourceFeed ||
@@ -1558,6 +1556,7 @@ defineExpose({
 .official-detail-author :deep(.meta-row) { flex-wrap: nowrap; font-size: 11px; overflow: hidden; }
 .is-official-mobile-detail :deep(.feed-content) { font-size: 16px; line-height: 1.9; }
 .official-published-location { color: var(--text-tertiary); font-size: 12px; margin: 14px 0 24px; }
+.official-edited-status { border:0; padding:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
 .is-official-mobile-detail .feed-target-wrapper { display: block; margin-top: 28px; }
 .is-official-mobile-detail .inline-comment-wrapper { margin: 24px -16px 0; }
 .is-official-mobile-detail .more-menu { position: fixed; top: calc(70px + env(safe-area-inset-top)); right: 12px; z-index: 70; }

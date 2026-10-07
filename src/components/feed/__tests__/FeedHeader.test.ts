@@ -17,6 +17,23 @@ vi.mock('vue-router', async (importOriginal) => {
 });
 
 describe('动态头部信息布局', () => {
+  it('编辑标识支持隐藏和静态展示，保留正常编辑记录点击', async () => {
+    setActivePinia(createPinia());
+    const wrapper = mount(FeedHeader, {
+      props: { isEdited: true },
+      global: { stubs: { AppAvatar: true, AppIconButton: true, UserHoverCard: { template: '<div><slot /></div>' } } },
+    });
+    await wrapper.get('.edited-badge').trigger('click');
+    expect(wrapper.emitted('edit-history')).toHaveLength(1);
+    await wrapper.setProps({ showEditStatus: false });
+    expect(wrapper.find('.edited-badge').exists()).toBe(false);
+    expect(wrapper.find('.meta-dot').exists()).toBe(false);
+    await wrapper.setProps({ showEditStatus: true, editHistoryAvailable: false });
+    expect(wrapper.get('.edited-badge').element.tagName).toBe('SPAN');
+    await wrapper.get('.edited-badge').trigger('click');
+    expect(wrapper.emitted('edit-history')).toHaveLength(1);
+    wrapper.unmount();
+  });
   it('显示销售名称，鼠标悬停保留原始设备字符串', async () => {
     setActivePinia(createPinia());
     const wrapper = mount(FeedHeader, {

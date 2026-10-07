@@ -35,7 +35,7 @@
           <h2 class="detail-title">{{ infoTitle || '未命名好物' }}</h2>
           <div v-if="infoMessage" class="detail-message" v-html="formattedMessage" @click="handleAnchorClick"></div>
 
-          <FeedHeader
+          <FeedHeader :is-edited="isFeedEdited(feed)" :edit-history-available="false"
             :uid="feedUid"
             :avatar="feedAvatar"
             :username="feedUsername"
@@ -164,6 +164,7 @@
 </template>
 
 <script setup lang="ts">
+import { isFeedEdited } from '../../utils/feedEditStatus';
 import { ref, computed, watch } from 'vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import AppButton from '../common/AppButton.vue';

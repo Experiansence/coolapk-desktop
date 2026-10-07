@@ -6,7 +6,7 @@
     :data-question-id="questionIdValue"
     @click="handleCardClick"
   >
-    <FeedHeader
+    <FeedHeader :is-edited="!detailMode && isFeedEdited(answer)" :edit-history-available="false"
       :uid="authorUid"
       :avatar="answer.userAvatar || answer.userInfo?.userAvatar"
       :plugin-url="(answer.userInfo as any)?.avatar_plugin_url || (answer as any).avatar_plugin_url || (answer as any).userAvatarPluginUrl"
@@ -81,8 +81,11 @@
       <div class="answer-quoted-message" v-html="formattedQuotedMessage"></div>
     </div>
 
-    <div v-if="publishLocation || recommendText" class="answer-publish-meta">
-      <span v-if="publishLocation">发布于 {{ publishLocation }}</span>
+    <div v-if="publishLocation || recommendText || (detailMode && isFeedEdited(answer))" class="answer-publish-meta">
+      <span>
+        <span v-if="publishLocation">发布于 {{ publishLocation }}</span>
+        <span v-if="detailMode && isFeedEdited(answer)"><span v-if="publishLocation"> · </span>已编辑</span>
+      </span>
       <span v-if="recommendText" class="answer-recommend-badge">
         <i class="fas fa-arrow-up" aria-hidden="true"></i>
         {{ recommendText }}
@@ -178,6 +181,7 @@
 </template>
 
 <script setup lang="ts">
+import { isFeedEdited } from '../../utils/feedEditStatus';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import type { FeedItem } from '../../types/feed';

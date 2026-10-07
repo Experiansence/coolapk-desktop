@@ -8,7 +8,6 @@
         </button>
         <span class="page-subtitle">{{ listTitle }}</span>
       </div>
-      <span class="route-hint"><i class="fas fa-tags"></i> APK 闲置型号列表</span>
     </div>
 
     <div v-if="loading && items.length === 0" class="state-wrapper">
@@ -21,7 +20,7 @@
       <EmptyState title="暂无闲置内容" description="这个型号暂时没有可展示的闲置动态" />
     </div>
     <div v-else class="feed-list discovery-page-list">
-      <DiscoveryEntityCard v-for="(item, index) in items" :key="getEntityKey(item, index)" :entity="item" @open="openEntity" />
+      <DiscoverySecondHandGrid :items="items" @open="openEntity" />
       <div class="pagination-footer">
         <LoadingState v-if="loadingMore" text="正在加载更多闲置内容..." />
         <button v-else-if="error" type="button" class="retry-inline" @click="loadPage(true)">加载失败，点击重试</button>
@@ -35,7 +34,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
-import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
+import DiscoverySecondHandGrid from '../components/discovery/DiscoverySecondHandGrid.vue';
 import DiscoverySkeleton from '../components/discovery/DiscoverySkeleton.vue';
 import LoadingState from '../components/common/LoadingState.vue';
 import ErrorState from '../components/common/ErrorState.vue';
@@ -194,7 +193,7 @@ watch(() => route.fullPath, handleRouteChange, { immediate: true });
 </script>
 
 <style scoped>
-.page-container { width: 100%; max-width: var(--feed-max-width, 860px); height: 100%; overflow-y: auto; padding: 14px 16px; margin: 0 auto; box-sizing: border-box; }
+.page-container { width: 100%; max-width:1120px; height: 100%; overflow-y: auto; padding: 14px 16px; margin: 0 auto; box-sizing: border-box; background:var(--background-secondary); }
 .page-header { margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .header-main { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .back-button { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 18px; font-weight: 800; cursor: pointer; padding: 0; }
@@ -207,4 +206,5 @@ watch(() => route.fullPath, handleRouteChange, { immediate: true });
 .pagination-footer { padding: 16px 0; text-align: center; }
 .no-more { color: var(--text-tertiary); font-size: 12px; }
 .retry-inline { border: 0; background: transparent; color: var(--brand-primary, #10b981); font-size: 12px; cursor: pointer; }
+@media(max-width:720px) { .page-container { padding:12px 8px max(24px,var(--mobile-bottom-overlay-space,0px)); } }
 </style>

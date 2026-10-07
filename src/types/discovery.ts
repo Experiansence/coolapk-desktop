@@ -62,6 +62,7 @@ export interface DiscoveryTab {
 }
 
 export interface DiscoveryPageResult {
+  flexUrl?: string;
   items: DiscoveryEntity[];
   page: number;
   hasMore: boolean;

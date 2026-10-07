@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest';
 import DiscoveryEntityCard from '../DiscoveryEntityCard.vue';
 
 describe('官方发现卡片模板', () => {
+  it('二手商品使用专用卡片，分类保持横向图片入口和原始导航', async () => {
+    const feed = shallowMount(DiscoveryEntityCard, { props: { entity: { id:12, entityType:'feed', entityTemplate:'feedErshou', feedType:'ershou', ershou_info:{product_price:660} } } });
+    expect(feed.findComponent({ name:'DiscoverySecondHandCard' }).exists()).toBe(true);
+    expect(feed.findComponent({ name:'FeedCard' }).exists()).toBe(false);
+    const child = { title:'手机', logo:'phone.png', url:'#/feed/ershouList?ershouType=100' };
+    const category = shallowMount(DiscoveryEntityCard, { props: { entity: { entityTemplate:'imageSquareScrollCard', entities:[child] } } });
+    await category.find('.discovery-square-links button').trigger('click');
+    expect(category.emitted('open')).toEqual([[child]]);
+  });
   it('发现页分类筛选在页内刷新，其他列表仍使用原有入口导航', async () => {
     const child = { title: '兴趣爱好', url: '#/feed/hotList' };
     const w = shallowMount(DiscoveryEntityCard, { props: { inlineSelectors: true, entity: { entityTemplate: 'selectorLinkCard', entities: [child] } } });

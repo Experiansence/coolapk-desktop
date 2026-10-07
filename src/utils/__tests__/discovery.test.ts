@@ -13,6 +13,23 @@ import {
 } from '../discovery';
 
 describe('discovery dynamic configuration', () => {
+  it('does not display native sponsor slots as blank cards or include them in feed cursors', () => {
+    const result = parseDiscoveryPage({data:[{entityTemplate:'sponsorCard',entityType:'card',entityId:'sponsor',entities:[]},{id:12,entityTemplate:'feedErshou',entityType:'feed',feedType:'ershou'}]},1);
+    expect(result.items.map(item=>item.id)).toEqual([12]);
+    expect(result.firstItem).toBe('12');
+    expect(result.lastItem).toBe('12');
+  });
+  it('keeps the official flex list URL while removing the config card from display', () => {
+    const result = parseDiscoveryPage({ data: [
+      { entityTemplate: 'configCard', extraData: JSON.stringify({ flexList: '1', url: '#/feed/ershouList?dataListType=staggered' }) },
+      { id: 2, entityTemplate: 'imageSquareScrollCard' },
+    ] }, 1);
+    expect(result.flexUrl).toBe('#/feed/ershouList?dataListType=staggered');
+    expect(result.items).toHaveLength(1);
+    expect(result.hasMore).toBe(false);
+    expect(parseDiscoveryPage({ data: [{ entityTemplate: 'configCard', extraData: { flexList: '0', url: '/feed/list' } }] }, 1).flexUrl).toBe('');
+    expect(resolveDiscoveryRoute({ id: 12, entityType: 'feed', entityTemplate: 'feedErshou', feedType: 'ershou' })?.target).toBe('/feed/12');
+  });
   it('parses visible ConfigPage entities from the discovery config card', () => {
     const tabs = parseDiscoveryTabs({
       data: [{

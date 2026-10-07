@@ -87,6 +87,44 @@ describe('发现分类只刷新下方动态', () => {
   });
 });
 
+describe('二手频道自动加载 flex 信息流', () => {
+  beforeEach(() => {
+    api.getDiscoveryConfig.mockReset().mockResolvedValue({ data: [{ id: 20131, title: '发现', entities: [{ title: '二手', page_name: 'V11_DISCOVERY_SECOND_HAND', url: 'V11_DISCOVERY_SECOND_HAND' }] }] });
+    api.getDiscoveryPageData.mockReset().mockResolvedValueOnce({ data: [
+      { entityTemplate: 'configCard', extraData: JSON.stringify({ flexList: '1', url: '#/feed/ershouList?dataListType=staggered' }) },
+      { id: 1, title: '分类入口', entityTemplate: 'imageSquareScrollCard' },
+    ], hasMore: false });
+  });
+  it('先加载头部，再自动请求商品，下一页使用商品游标且不重复头部', async () => {
+    api.getDiscoveryPageData.mockResolvedValueOnce({ data: [{ id: 10, title: '小米平板5', entityType: 'feed', feedType: 'ershou' }], hasMore: true, lastItem: '10', pageContext: 'feed-context' });
+    const w = await render();
+    expect(w.text()).toContain('分类入口'); expect(w.text()).toContain('小米平板5');
+    expect(api.getDiscoveryPageData.mock.calls[1][0]).toMatchObject({ url: '#/feed/ershouList?dataListType=staggered', page: 1, firstItem: '', lastItem: '' });
+    api.getDiscoveryPageData.mockResolvedValueOnce({ data: [{ id: 11, title: 'iPhone', entityType: 'feed', feedType: 'ershou' }], hasMore: false });
+    await w.find('.discover-scroll-container').trigger('scroll'); await flushPromises();
+    expect(api.getDiscoveryPageData.mock.calls[2][0]).toMatchObject({ url: '#/feed/ershouList?dataListType=staggered', page: 2, lastItem: '10', pageContext: 'feed-context' });
+    expect(w.findAll('[data-id="1"]')).toHaveLength(1); expect(w.text()).toContain('iPhone'); w.unmount();
+  });
+  it('点击二手分类打开独立分类商品页，而不是普通列表页面', async () => {
+    api.getDiscoveryPageData.mockResolvedValueOnce({ data:[], hasMore:false });
+    api.push.mockReset();
+    const w = await render();
+    w.findComponent(DiscoveryEntityCard).vm.$emit('open',{entityType:'mainErshouType',id:100,url:'#/feed/ershouList?ershouType=100&dataListType=staggered'});
+    await flushPromises();
+    expect(api.push).toHaveBeenCalledWith('/secondhand/list?ershouType=100&dataListType=staggered');
+    w.unmount();
+  });
+  it('商品请求失败仍保留入口，重试直接加载商品流', async () => {
+    api.getDiscoveryPageData.mockRejectedValueOnce(new Error('网络中断'));
+    const w = await render();
+    expect(w.text()).toContain('分类入口'); expect(w.find('.error').exists()).toBe(true);
+    api.getDiscoveryPageData.mockResolvedValueOnce({ data: [{ id: 10, title: '商品' }], hasMore: false });
+    await w.find('.error button').trigger('click'); await flushPromises();
+    expect(api.getDiscoveryPageData.mock.calls[2][0]).toMatchObject({ url: '#/feed/ershouList?dataListType=staggered', page: 1 });
+    expect(w.text()).toContain('商品'); expect(w.findAll('[data-id="1"]')).toHaveLength(1); w.unmount();
+  });
+});
+
 
 it('好物榜入口打开独立榜单详情路由', async () => {
   api.getDiscoveryConfig.mockReset().mockResolvedValue({ data: [{ id: 20131, title: '发现', entities: [{ title: '好物榜', page_name: 'V11_FIND_GOOD_GOODS_HOME', url: 'V11_FIND_GOOD_GOODS_HOME' }] }] });

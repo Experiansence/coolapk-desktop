@@ -16,6 +16,18 @@ vi.mock('../../../api/coolapk', () => ({
 import QuestionAnswerCard from '../QuestionAnswerCard.vue';
 
 describe('问答回答卡', () => {
+  it('回答详情在正文下方显示已编辑，列表在头部显示', async () => {
+    const wrapper = mount(QuestionAnswerCard, {
+      props: { answer: { id: 'edited-answer', message: '回答正文', is_modified: 1 }, detailMode: true },
+      global: { plugins: [createPinia()], stubs: { FeedHeader: true, FeedContent: true, FeedImageGrid: true, FeedActionBar: true, FeedCommentSection: true, ForwardDialog: true } },
+    });
+    expect(wrapper.get('.answer-publish-meta').text()).toBe('已编辑');
+    expect(wrapper.findComponent({ name: 'FeedHeader' }).props('isEdited')).toBe(false);
+    await wrapper.setProps({ detailMode: false });
+    expect(wrapper.find('.answer-publish-meta').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'FeedHeader' }).props('isEdited')).toBe(true);
+    wrapper.unmount();
+  });
   it('问题详情中的回答不重复显示问题上下文和回答标题', () => {
     const wrapper = mount(QuestionAnswerCard, {
       props: {

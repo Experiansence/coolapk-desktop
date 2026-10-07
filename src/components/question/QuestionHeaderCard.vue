@@ -1,6 +1,6 @@
 <template>
   <article class="question-header-card">
-    <FeedHeader
+    <FeedHeader :is-edited="isFeedEdited(question)" :edit-history-available="false"
       :uid="authorUid"
       :avatar="question.userAvatar || question.userInfo?.userAvatar"
       :plugin-url="(question.userInfo as any)?.avatar_plugin_url || (question as any).avatar_plugin_url || (question as any).userAvatarPluginUrl"
@@ -81,6 +81,7 @@
 </template>
 
 <script setup lang="ts">
+import { isFeedEdited } from '../../utils/feedEditStatus';
 import { computed } from 'vue';
 import type { FeedItem } from '../../types/feed';
 import FeedContent from '../feed/FeedContent.vue';

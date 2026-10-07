@@ -48,12 +48,12 @@
           <i class="fas fa-location-dot ip-icon"></i>
           <span>{{ ipLocationText }}</span>
         </span>
-        <template v-if="isEdited">
+        <template v-if="isEdited && showEditStatus">
           <span class="meta-dot">•</span>
-          <button class="edited-badge" type="button" title="查看编辑记录" @click.stop="emit('edit-history')">
+          <component :is="editHistoryAvailable ? 'button' : 'span'" class="edited-badge" :type="editHistoryAvailable ? 'button' : undefined" :title="editHistoryAvailable ? '查看编辑记录' : '已编辑'" @click.stop="editHistoryAvailable && emit('edit-history')">
             <i class="fas fa-pen-to-square"></i>
             <span>已编辑</span>
-          </button>
+          </component>
         </template>
         <span v-if="rankIndex" class="rank-badge">
           <i class="fas fa-trophy rank-icon"></i>
@@ -119,9 +119,13 @@ const props = withDefaults(defineProps<{
   entityId?: string | number;
   questionMode?: boolean;
   isEdited?: boolean;
+  showEditStatus?: boolean;
+  editHistoryAvailable?: boolean;
   selfOnly?: boolean;
 }>(), {
   showDeviceInfo: true,
+  showEditStatus: true,
+  editHistoryAvailable: true,
 });
 
 const router = useRouter();

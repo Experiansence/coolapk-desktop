@@ -155,6 +155,8 @@ export function parseDiscoveryPage(response: unknown, page: number): DiscoveryPa
     const template = String(item.entityTemplate || '').toLowerCase();
     const type = String(item.entityType || '').toLowerCase();
     if (template === 'configcard' || type === 'configcard') return false;
+    // Native ad slots have no web content; do not render them as empty link cards.
+    if (template === 'sponsorcard') return false;
     if (isDisclaimerCard(item)) return false;
     return true;
   });
@@ -172,7 +174,9 @@ export function parseDiscoveryPage(response: unknown, page: number): DiscoveryPa
   const hasMore = typeof explicitMore === 'boolean'
     ? explicitMore
     : contentCount >= 20;
-  return { items, page, hasMore, firstItem, lastItem, pageContext, raw: response };
+  // APK DataListFragment uses configCard.flexList to mount a separate feed list.
+  const flexUrl = String(config.flexList) === '1' ? firstString(config.url) : '';
+  return { items, page, hasMore, firstItem, lastItem, pageContext, flexUrl, raw: response };
 }
 
 export function getEntityKey(entity: DiscoveryEntity, index: number): string {
@@ -297,6 +301,9 @@ export function getEntityText(entity: DiscoveryEntity): string {
 }
 
 export function resolveDiscoveryRoute(entity: DiscoveryEntity): DiscoveryRoute | null {
+  if (isFeedEntity(entity) && String(entity.feedType || entity.feed_type).toLowerCase() === 'ershou' && (entity.id || entity.entityId)) {
+    return { kind: 'native', target: `/feed/${encodeURIComponent(String(entity.id || entity.entityId))}`, title: asString(entity.title) };
+  }
   if ((String(entity.feedType || entity.feed_type).toLowerCase() === 'goodslist' || String(entity.entityType || '').toLowerCase() === 'goodslist' || (!entity.feedType && !entity.feed_type && entity.goodsListInfo)) && (entity.id || entity.entityId)) {
     return { kind: 'native', target: `/goods/ranking/${encodeURIComponent(String(entity.id || entity.entityId))}`, title: asString(entity.title) };
   }

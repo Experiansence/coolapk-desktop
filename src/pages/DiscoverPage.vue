@@ -36,9 +36,9 @@
         </div>
 
         <!-- 发现内容数据流 -->
-        <section v-else :class="['discover-content', { 'has-goods-grid': isGoodsTab(tab), 'has-dyh-grid': isDyhTab(tab), 'is-cool-picture': isCoolPictureTab(tab), 'is-goods-ranking': tab.title.trim() === '好物榜' || tab.pageName === 'V11_FIND_GOOD_GOODS_HOME' }]">
+        <section v-else :class="['discover-content', { 'has-goods-grid': isGoodsTab(tab), 'has-dyh-grid': isDyhTab(tab), 'is-secondhand': tab.title.trim() === '二手', 'is-cool-picture': isCoolPictureTab(tab), 'is-goods-ranking': tab.title.trim() === '好物榜' || tab.pageName === 'V11_FIND_GOOD_GOODS_HOME' }]">
           <DiscoveryEntityCard
-            v-for="(entity, index) in state.items"
+            v-for="(entity, index) in (tab.title.trim() === '二手' ? state.items.filter(item => !isSecondHandFeed(item)) : state.items)"
             :key="getEntityKey(entity, index)"
             :entity="entity"
             :plain-topic-labels="isCoolPictureTab(tab)"
@@ -47,6 +47,7 @@
             @open="openEntity"
             @filter="selectFilter"
           />
+          <DiscoverySecondHandGrid v-if="tab.title.trim() === '二手'" :items="state.items.filter(isSecondHandFeed)" @open="openEntity" />
           <ErrorState v-if="state.error" class="discovery-filter-error" title="分类内容加载失败" :message="state.error" @retry="refresh" />
           <div v-if="state.loading" class="loading-more"><LoadingState text="正在加载更多..." /></div>
           <div v-else-if="!state.hasMore && !state.error" class="no-more">没有更多内容了</div>
@@ -66,6 +67,7 @@ import { CoolapkTauriAPI } from '../api/coolapk';
 import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
 import DiscoverySkeleton from '../components/discovery/DiscoverySkeleton.vue';
 import DiscoveryPager from '../components/discovery/DiscoveryPager.vue';
+import DiscoverySecondHandGrid from '../components/discovery/DiscoverySecondHandGrid.vue';
 import { discoveryRipple } from '../utils/discoveryMotion';
 import FeedTabs from '../components/feed/FeedTabs.vue';
 import EmptyState from '../components/common/EmptyState.vue';
@@ -128,6 +130,7 @@ try {
 
 const selectedTab = computed(() => tabs.value.find((tab) => tab.key === selectedKey.value));
 function isCoolPictureTab(tab: DiscoveryTab) { return tab.pageName === 'V11_FIND_COOLPIC' || tab.url === 'V11_FIND_COOLPIC' || tab.title.trim() === '酷图'; }
+function isSecondHandFeed(entity:DiscoveryEntity) { return String(entity.feedType || entity.feed_type).toLowerCase() === 'ershou' || String(entity.entityTemplate).toLowerCase() === 'feedershou'; }
 const isCoolPicturePage = computed(() => selectedTab.value ? isCoolPictureTab(selectedTab.value) : false);
 function isGoodsTab(tab: DiscoveryTab) {
   if (tab.title.trim() === '好物榜' || tab.pageName === 'V11_FIND_GOOD_GOODS_HOME') return false;
@@ -210,7 +213,7 @@ async function loadSelected(reset = false, loadMore = false, tab = selectedTab.v
 
   if (reset) {
     // 分类接口可能只返回动态；专区、横幅和分类栏属于当前频道的固定前缀。
-    state.items = state.selectorUrl ? [...state.selectorHeader] : [];
+    state.items = state.selectorUrl || state.flexUrl ? [...state.selectorHeader] : [];
     state.page = 1;
     state.hasMore = true;
     state.firstItem = '';
@@ -226,7 +229,7 @@ async function loadSelected(reset = false, loadMore = false, tab = selectedTab.v
     const response = tab.nativeKind === 'dyh'
       ? await CoolapkTauriAPI.getDyhList(state.page)
       : await CoolapkTauriAPI.getDiscoveryPageData({
-        url: normalizeDiscoveryPageUrl(state.selectorUrl || tab.url || tab.pageName || tab.key),
+        url: normalizeDiscoveryPageUrl(state.selectorUrl || state.flexUrl || tab.url || tab.pageName || tab.key),
         title: tab.title,
         subTitle: tab.subTitle,
         page: state.page,
@@ -245,6 +248,17 @@ async function loadSelected(reset = false, loadMore = false, tab = selectedTab.v
     state.pageContext = parsed.pageContext;
     state.hasMore = parsed.hasMore && nextItems.length > 0;
     state.page += 1;
+    if (parsed.flexUrl && !state.flexUrl && !state.selectorUrl) {
+      state.flexUrl = parsed.flexUrl;
+      state.selectorHeader = [...state.items];
+      state.page = 1;
+      state.firstItem = '';
+      state.lastItem = '';
+      state.pageContext = '';
+      state.hasMore = true;
+      state.loading = false;
+      await loadSelected(false, true, tab);
+    }
   } catch (error: any) {
     if (requestId !== state.requestId) return;
     const detail = error?.message || String(error || '未知错误');
@@ -339,6 +353,7 @@ function navigateNative(target: string, title: string) {
   const topic = clean.match(/^\/topic\/([^/?#]+)(?:\?([^#]*))?/);
   const dyh = clean.match(/^\/dyh\/(\d+)/);
   const goodsList = clean.match(/^\/goods\/(ranking|lists)\/([^/?#]+)/);
+  const secondHandList = clean.match(/^\/feed\/ershouList(?:\?(.*))?$/i);
   if (user) void router.push(`/user/${user[1]}`);
   else if (feed) void router.push(`/feed/${feed[1]}`);
   else if (app) void router.push(`/app/${encodeURIComponent(decodeDiscoveryRouteSegment(app[1]))}`);
@@ -346,6 +361,7 @@ function navigateNative(target: string, title: string) {
   else if (topic) void router.push(`/topic/${encodeURIComponent(decodeDiscoveryRouteSegment(topic[1]))}${topic[2] ? `?${topic[2]}` : ''}`);
   else if (dyh) void router.push(`/dyh/${dyh[1]}`);
   else if (goodsList) void router.push(`/goods/${goodsList[1]}/${goodsList[2]}`);
+  else if (secondHandList) void router.push(`/secondhand/list${secondHandList[1] ? `?${secondHandList[1]}` : ''}`);
   else navigateDataList(target, title);
 }
 
@@ -404,6 +420,14 @@ onMounted(() => { void loadConfig(); });
 .discover-content.has-dyh-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .loading-more, .no-more { grid-column: 1 / -1; padding: 16px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
 .discovery-filter-error { grid-column: 1 / -1; }
+.discover-content.is-secondhand { grid-template-columns: 1fr; gap:10px; }
+.is-secondhand :deep(.discovery-icon-grid-items) { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px 0; padding:14px 8px; }
+.is-secondhand :deep(.discovery-icon-grid-item) { min-width:0; padding:4px 0; }
+@media(max-width:720px) {
+  .is-secondhand :deep(.discovery-icon-grid-image) { width:32px; height:32px; }
+  .is-secondhand :deep(.discovery-icon-grid-image img) { width:32px; height:32px; }
+  .is-secondhand :deep(.discovery-category-label) { font-size:12px; font-weight:400; }
+}
 @media (max-width: 1250px) {
   .discover-content.has-goods-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

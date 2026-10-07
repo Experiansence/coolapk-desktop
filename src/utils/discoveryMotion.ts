@@ -2,7 +2,7 @@
 export function discoveryRipple(event: PointerEvent | KeyboardEvent) {
   if (window.innerWidth > 720 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   if (event instanceof KeyboardEvent && (!['Enter', ' '].includes(event.key) || event.repeat)) return;
-  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('.discovery-mini-grid-item, .discovery-pill-btn, .tab-item, .discovery-group-header button, .carousel-viewport, .ranking-featured, .ranking-products, .discovery-ranking-card header button');
+  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('.discovery-mini-grid-item, .discovery-pill-btn, .tab-item, .discovery-group-header button, .carousel-viewport, .ranking-featured, .ranking-products, .discovery-ranking-card header button, .discovery-secondhand-feed, .discovery-square-links button');
   if (!target || target.closest('.prevent-mobile-layout')) return;
   const rect = target.getBoundingClientRect();
   const pointer = 'clientX' in event;

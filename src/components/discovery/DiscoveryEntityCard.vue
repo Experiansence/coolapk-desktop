@@ -3,11 +3,20 @@
   <div v-else-if="isRankingBanner" class="discovery-ranking-banners" data-discovery-horizontal-scroll>
     <DiscoveryGoodsRankingCard v-for="(child, index) in entity.entities" :key="getEntityKey(child, index)" :entity="child" featured @open="$emit('open', $event)" />
   </div>
+  <DiscoverySecondHandCard v-else-if="isSecondHandFeed" :entity="entity" @open="$emit('open', $event)" />
   <div v-else-if="isFeed" :class="['discovery-feed-card-wrapper', { 'is-compact': compact }]">
     <FeedCard :feed="entity as any" :max-lines="compact ? 6 : undefined" @deleted="emitDeleted" />
   </div>
 
   <LiveCard v-else-if="isLive" :entity="entity" :compact="compact" />
+
+  <section v-else-if="templateName.includes('imagesquarescrollcard')" class="discovery-square-links" data-discovery-horizontal-scroll>
+    <button v-for="(child, index) in entity.entities" :key="getEntityKey(child, index)" type="button" @click="$emit('open', child)">
+      <AppImage :src="getEntityImage(child)" fit="cover" />
+      <strong>{{ child.title }}</strong>
+    </button>
+  </section>
+  <div v-else-if="templateName.includes('messagecard')" class="discovery-message" v-html="renderCoolapkRichText(title || text)" @click="handleAnchorClick"></div>
 
   <article v-else-if="entityKind === 'secondhand' && !hasChildren" :class="['discovery-special-card secondhand-card', { 'is-compact': compact }]" @click="emitOpen">
     <AppImage v-if="image" :src="image" fit="contain" image-class="special-card-image" />
@@ -267,6 +276,9 @@ import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useAuthStore } from '../../stores/auth';
 import FeedCard from '../feed/FeedCard.vue';
 import DiscoveryGoodsRankingCard from './DiscoveryGoodsRankingCard.vue';
+import DiscoverySecondHandCard from './DiscoverySecondHandCard.vue';
+import { renderCoolapkRichText } from '../../utils/richText';
+import { handleAnchorClick } from '../../utils/anchorClick';
 import { isGoodsRankingEntity } from '../../utils/goodsRanking';
 import AppImage from '../common/AppImage.vue';
 import DigitalProductCard from '../digital/DigitalProductCard.vue';
@@ -310,6 +322,7 @@ const isPictureTopicLink = computed(() => plainTopicLabels.value && !hasChildren
 const pictureTopic = computed(() => ({ ...props.entity, logo: image.value || props.entity.logo }));
 const isDigitalProductGroup = computed(() => hasChildren.value && props.entity.entities!.every((child) => isDigitalProduct(child)));
 const isFeed = computed(() => isFeedEntity(props.entity) && !hasChildren.value);
+const isSecondHandFeed = computed(() => isFeed.value && (String(props.entity.feedType || props.entity.feed_type).toLowerCase() === 'ershou' || !!(props.entity.ershou_info || props.entity.secondHandInfo)));
 const isRanking = computed(() => !hasChildren.value && isGoodsRankingEntity(props.entity));
 const isRankingBanner = computed(() => {
   if (!hasChildren.value) return false;
@@ -1071,6 +1084,13 @@ async function toggleDyhFollow() {
 }
 
 .discovery-ranking-banners { display:flex; min-width:0; width:100%; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; }
+.discovery-square-links { display:flex; gap:8px; overflow-x:auto; min-width:0; scrollbar-width:none; }
+.discovery-square-links button { position:relative; overflow:hidden; flex:0 0 94px; height:94px; border:0; padding:0; border-radius:12px; color:white; font:inherit; cursor:pointer; }
+.discovery-square-links button::after { content:''; position:absolute; inset:0; background:rgba(0,0,0,.3); }
+.discovery-square-links strong { position:absolute; z-index:1; left:4px; right:4px; top:50%; transform:translateY(-50%); font-size:15px; text-shadow:0 1px 3px #333; }
+.discovery-message { padding:12px 16px; border-radius:14px; background:color-mix(in srgb,var(--brand-primary) 10%,var(--surface)); color:var(--text-secondary); font-size:14px; line-height:1.6; }
+.discovery-message :deep(a) { color:var(--brand-primary); text-decoration:none; }
+@media(max-width:720px) { .discovery-square-links button { flex-basis:76px; height:76px; }.discovery-square-links strong { font-size:14px; } }
 .discovery-ranking-banners > * { flex:0 0 100%; min-width:0; scroll-snap-align:start; }
 @media(prefers-reduced-motion:reduce) { .discovery-ranking-banners { scroll-behavior:auto; } }
 </style>
