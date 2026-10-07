@@ -8,6 +8,15 @@ vi.mock('../../../stores/auth', () => ({ useAuthStore: () => ({ user: { userAvat
 vi.mock('../../../stores/notifications', () => ({ useNotificationStore: () => ({ unreadCount: 1, notificationCount: 2 }) }));
 import MobileTopBar from '../MobileTopBar.vue';
 describe('移动数码顶部', () => {
+  it('发现页使用头像、搜索、应用和私信入口', () => {
+    state.route.path = '/discover';
+    const wrapper = mount(MobileTopBar, { props: { navigationOpen: false, macOverlay: false }, global: { plugins: [createPinia()], stubs: { AppAvatar: true } } });
+    expect(wrapper.findAll('button')).toHaveLength(4);
+    expect(wrapper.find('[aria-label="返回"]').exists()).toBe(false);
+    expect(wrapper.find('.digital-search-entry').text()).toContain('搜索你感兴趣的内容');
+    expect(wrapper.find('[aria-label="私信"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
   it('只显示官方的四个入口，数据图标的遮罩保留引号', () => {
     state.route.path = '/digital';
     const wrapper = mount(MobileTopBar, { props: { navigationOpen: false, macOverlay: false }, global: { plugins: [createPinia()], stubs: { AppAvatar: true } } });

@@ -1,5 +1,5 @@
 <template>
-  <div class="page-container custom-scrollbar" @scroll="handleScroll">
+  <div class="page-container custom-scrollbar" :class="{ 'is-ranking': kind === 'ranking' }" @scroll="handleScroll">
     <div v-if="loading && !feed" class="state-wrapper">
       <LoadingState text="正在加载好物详情..." />
     </div>
@@ -84,9 +84,10 @@
 
         <div v-else class="items-list">
           <GoodsListItemCard
-            v-for="item in items"
+            v-for="(item, index) in items"
             :key="itemKey(item)"
             :item="item"
+            :rank="kind === 'ranking' ? index + 1 : undefined"
             :goods-list-id="goodsListId"
             :can-manage="isOwner"
             :can-vote="kind === 'ranking'"
@@ -97,12 +98,13 @@
         </div>
       </div>
 
-      <div class="replies-section">
-        <div class="section-header">
+      <div ref="repliesElement" class="replies-section">
+        <div v-if="kind !== 'ranking'" class="section-header">
           <h3 class="section-title">回复</h3>
         </div>
         <FeedCommentSection
-          v-if="replyReady"
+          ref="commentSection"
+          :official-detail="kind === 'ranking'"
           :feed-id="feedId"
           :feed-uid="feedUid"
           :feed-username="feedUsername"
@@ -116,17 +118,19 @@
           :load-more-error="commentsLoadMoreError"
           :normalize-img="(u) => u"
           :format-rich-text="formatRichText"
-          @retry-comments="loadComments"
+          @retry-comments="loadComments(true)"
           @load-more-comments="loadMoreComments"
           @retry-more-comments="loadMoreComments"
           @comment-sort-change="handleCommentSortChange"
+          @send-comment="commentPosted"
         />
-        <div v-else class="state-wrapper is-small">
-          <AppButton size="sm" variant="ghost" @click="loadComments">加载回复</AppButton>
-        </div>
       </div>
     </template>
 
+    <div v-if="feed && kind === 'ranking'" class="ranking-bottom-actions">
+      <FeedActionBar :feed-id="feedId" official-detail :likenum="Number(feed.likenum || 0)" :replynum="replyNum" :favnum="Number(feed.favnum || 0)" :sharenum="Number(feed.forwardnum || 0)" :user-action="feed.userAction" :favorited="favorite" @write-comment="commentSection?.openComposer()" @open-comment="openComments" @toggle-fav="toggleFavorite" @forward="forwardOpen = true" />
+    </div>
+    <ForwardDialog v-if="feed && forwardOpen" v-model:show="forwardOpen" :feed="feed" @success="loadFeed" />
     <GoodsSearchPickerDialog
       :is-open="pickerOpen"
       @close="pickerOpen = false"
@@ -169,6 +173,8 @@ import LoadingState from '../common/LoadingState.vue';
 import ErrorState from '../common/ErrorState.vue';
 import EmptyState from '../common/EmptyState.vue';
 import FeedHeader from '../feed/FeedHeader.vue';
+import FeedActionBar from '../feed/FeedActionBar.vue';
+import ForwardDialog from '../overlays/ForwardDialog.vue';
 import FeedCommentSection from '../feed/FeedCommentSection.vue';
 import GoodsListItemCard from './GoodsListItemCard.vue';
 import GoodsSearchPickerDialog from './GoodsSearchPickerDialog.vue';
@@ -220,7 +226,6 @@ const commentsAuthorOnly = ref(false);
 let commentsFirstItem = '';
 let commentsLastItem = '';
 let commentsRequestVersion = 0;
-const replyReady = ref(false);
 
 const pickerOpen = ref(false);
 const itemEditOpen = ref(false);
@@ -260,7 +265,30 @@ const itemNum = computed(() => Number(info.value?.item_num || 0));
 const voteNum = computed(() => Number(info.value?.vote_num || 0));
 const votePersonNum = computed(() => Number(info.value?.vote_person_num || 0));
 const followNum = computed(() => Number(info.value?.follow_num || 0));
-const replyNum = computed(() => Number(info.value?.reply_num || 0));
+const replyNum = computed(() => Number(feed.value?.replynum ?? info.value?.reply_num ?? 0));
+const commentSection = ref<InstanceType<typeof FeedCommentSection> | null>(null);
+const forwardOpen = ref(false);
+const favorite = ref(false);
+const favoriteBusy = ref(false);
+const repliesElement = ref<HTMLElement | null>(null);
+async function openComments() {
+  await loadComments();
+  repliesElement.value?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+async function commentPosted() {
+  await loadFeed();
+  await loadComments(true);
+}
+async function toggleFavorite() {
+  if (!authStore.isLoggedIn) { authStore.openLoginModal(); return; }
+  if (favoriteBusy.value) return;
+  favoriteBusy.value = true;
+  try {
+    await CoolapkTauriAPI.setFeedCloudFavorite(props.feedId, !favorite.value, 'goodsList');
+    favorite.value = !favorite.value;
+  } catch (err) { showToast(getErrorMessage(err, '收藏失败'), 'error'); }
+  finally { favoriteBusy.value = false; }
+}
 
 function updateCommentCursor(pageReplies: any[], resetFirst = false) {
   const cursor = getReplyPageCursor(pageReplies);
@@ -288,8 +316,8 @@ function itemKey(item: any): string {
 }
 
 function sortedItems(list: any[]): any[] {
-  if (props.kind !== 'ranking') return list;
-  return [...list].sort((a: any, b: any) => Number(b?.vote_num || 0) - Number(a?.vote_num || 0));
+  // Keep the server ranking, including recommendation Feed entries.
+  return list;
 }
 
 async function loadFeed() {
@@ -299,6 +327,7 @@ async function loadFeed() {
     const res = await CoolapkTauriAPI.getFeedDetail(props.feedId);
     const detail = res?.data || res || null;
     feed.value = detail;
+    favorite.value = Number(detail?.userAction?.collect ?? detail?.userAction?.favorite ?? 0) === 1;
     // 好物清单/好物榜的商品条目随 Feed 详情返回（Feed.goodsListItem）。
     // 注意：不要使用 goodsList/list 兜底，该接口忽略 goodsId，返回的是全局好物清单列表，
     // 会导致榜单内容显示成其他榜单（与当前清单无关）。
@@ -366,7 +395,6 @@ async function loadComments(force = false) {
   commentsError.value = '';
   commentsLoadMoreError.value = '';
   commentsLoading.value = true;
-  replyReady.value = true;
   try {
     const pageReplies = getReplyData(await CoolapkTauriAPI.getFeedReplies(props.feedId, 1, {
       ...getCommentReplyRequestOptions(commentsSortMode.value, commentsAuthorOnly.value),
@@ -401,11 +429,12 @@ function handleCommentSortChange(selection: CommentSortSelection) {
 watch(() => settingsStore.settings.commentDefaultSortMode, (sortMode) => {
   commentsSortMode.value = sortMode;
   commentsAuthorOnly.value = false;
-  if (replyReady.value) void loadComments(true);
+  void loadComments(true);
 });
 
 function loadAll(isRefresh = false) {
   void loadFeed();
+  void loadComments(isRefresh);
 }
 
 function handleScroll() {
@@ -675,4 +704,31 @@ void loadAll(true);
 .text-area:focus {
   border-color: var(--brand-primary);
 }
+
+.is-ranking .detail-card { position:relative; border:0; background:#101010; }
+.is-ranking .detail-cover { position:absolute; inset:0; height:100%; opacity:.22; }
+.is-ranking .detail-cover::after { content:''; position:absolute; inset:0; background:linear-gradient(transparent,#101010); }
+.is-ranking .detail-info { position:relative; padding:64px 24px 24px; }
+.is-ranking .detail-title { text-align:center; font-size:26px; font-weight:500; color:white; }
+.is-ranking .detail-message { text-align:center; color:#ccc; line-height:1.8; padding:8px 0 20px; }
+.is-ranking .detail-badges { display:none; }
+.is-ranking .detail-stats { color:#ccc; }
+.is-ranking .detail-info :deep(.feed-header) { --text-primary:#ccc; --text-secondary:#ccc; --text-tertiary:#aaa; }
+.is-ranking .items-section { border-radius:18px; }
+.is-ranking > .detail-card, .is-ranking > .items-section, .is-ranking > .replies-section { flex-shrink:0; }
+@media(max-width:720px) {
+  .page-container.is-ranking { padding:0 0 24px; gap:0; max-width:none; }
+  .is-ranking .detail-card { border-radius:0; }
+  .is-ranking .detail-info { padding:90px 20px 24px; }
+  .is-ranking .detail-title { font-size:24px; }
+  .is-ranking .items-section { margin-top:-1px; z-index:1; }
+}
+
+.ranking-bottom-actions { position:sticky; bottom:12px; z-index:3; margin-top:auto; flex-shrink:0; }
+.ranking-bottom-actions :deep(.feed-action-bar) { border:0; padding:0; background:transparent; }
+.ranking-bottom-actions :deep(.feed-action-bar.official-detail-actions) { position:relative; inset:auto; width:100%; max-width:640px; margin-inline:auto; }
+@media(max-width:720px) { .ranking-bottom-actions { margin-inline:16px; } }
+
+.is-ranking .replies-section { padding:12px 0 80px; border:0; }
+.is-ranking .replies-section :deep(.comment-toolbar) { top:0; }
 </style>

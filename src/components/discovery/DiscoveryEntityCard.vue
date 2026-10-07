@@ -1,5 +1,9 @@
 <template>
-  <div v-if="isFeed" :class="['discovery-feed-card-wrapper', { 'is-compact': compact }]">
+  <DiscoveryGoodsRankingCard v-if="isRanking" :entity="entity" @open="$emit('open', $event)" />
+  <div v-else-if="isRankingBanner" class="discovery-ranking-banners" data-discovery-horizontal-scroll>
+    <DiscoveryGoodsRankingCard v-for="(child, index) in entity.entities" :key="getEntityKey(child, index)" :entity="child" featured @open="$emit('open', $event)" />
+  </div>
+  <div v-else-if="isFeed" :class="['discovery-feed-card-wrapper', { 'is-compact': compact }]">
     <FeedCard :feed="entity as any" :max-lines="compact ? 6 : undefined" @deleted="emitDeleted" />
   </div>
 
@@ -17,7 +21,7 @@
   </article>
 
   <article v-else-if="isCarousel" :class="['discovery-carousel-card', { 'is-compact': compact }]">
-    <div class="carousel-viewport">
+    <div class="carousel-viewport" @click="$emit('open', carouselItems[carouselIndex] || entity)">
       <AppImage v-if="carouselImage" :src="carouselImage" fit="cover" image-class="discovery-carousel-image" />
       <button v-if="carouselItems.length > 1" type="button" class="carousel-control previous" @click.stop="moveCarousel(-1)">
         <i class="fas fa-chevron-left"></i>
@@ -35,6 +39,21 @@
     </div>
   </article>
 
+  <!-- APK IconMiniGridCardViewHolder：按原始顺序两列排列，只有小图标和名称。 -->
+  <section v-else-if="isMiniGrid" class="discovery-entity-group discovery-mini-grid">
+    <header v-if="title || route" class="discovery-group-header">
+      <h3 v-if="title">{{ title }}</h3>
+      <button v-if="route" type="button" @click="emitOpen">更多 <i class="fas fa-chevron-right"></i></button>
+    </header>
+    <div class="discovery-mini-grid-items">
+      <button v-for="(child, index) in entity.entities" :key="getEntityKey(child, index)" type="button" class="discovery-mini-grid-item" @click="$emit('open', child)">
+        <AppImage v-if="getEntityImage(child)" :src="getEntityImage(child)" fit="cover" image-class="discovery-mini-icon" />
+        <span v-else class="discovery-mini-icon discovery-mini-fallback"><i :class="getEntityFallbackIcon(child)"></i></span>
+        <span class="discovery-mini-name">{{ child.title || child.name || child.tag || '内容' }}</span>
+      </button>
+    </div>
+  </section>
+
   <section v-else-if="isGoodsCollection" class="discovery-entity-group goods-collection">
     <header v-if="title || subtitle" class="discovery-group-header">
       <div>
@@ -49,7 +68,10 @@
         :key="getEntityKey(child, index)"
         :entity="child"
         :plain-topic-labels="plainTopicLabels"
+        :inline-selectors="inlineSelectors"
+        :ranking-context="rankingContext"
         @open="$emit('open', $event)"
+        @filter="$emit('filter', $event)"
       />
     </div>
   </section>
@@ -62,7 +84,7 @@
       </div>
       <button v-if="route" type="button" @click="emitOpen">更多 <i class="fas fa-chevron-right"></i></button>
     </header>
-    <div class="discovery-selector-pills">
+    <div class="discovery-selector-pills" data-discovery-horizontal-scroll>
       <button
         v-for="(child, index) in entity.entities"
         :key="getEntityKey(child, index)"
@@ -160,7 +182,10 @@
         :compact="isCompactGrid || isGrid"
         :product-layout="productLayout"
         :plain-topic-labels="plainTopicLabels"
+        :inline-selectors="inlineSelectors"
+        :ranking-context="rankingContext"
         @open="$emit('open', $event)"
+        @filter="$emit('filter', $event)"
       />
     </div>
   </section>
@@ -241,6 +266,8 @@ import { computed, ref } from 'vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useAuthStore } from '../../stores/auth';
 import FeedCard from '../feed/FeedCard.vue';
+import DiscoveryGoodsRankingCard from './DiscoveryGoodsRankingCard.vue';
+import { isGoodsRankingEntity } from '../../utils/goodsRanking';
 import AppImage from '../common/AppImage.vue';
 import DigitalProductCard from '../digital/DigitalProductCard.vue';
 import TopicCard from '../topic/TopicCard.vue';
@@ -261,10 +288,11 @@ import { isLiveEntity } from '../../utils/live';
 
 defineOptions({ name: 'DiscoveryEntityCard' });
 
-const props = defineProps<{ entity: DiscoveryEntity; compact?: boolean; productLayout?: 'grid' | 'vertical'; plainTopicLabels?: boolean }>();
+const props = defineProps<{ entity: DiscoveryEntity; compact?: boolean; productLayout?: 'grid' | 'vertical'; plainTopicLabels?: boolean; inlineSelectors?: boolean; rankingContext?: boolean }>();
+const rankingContext = computed(() => props.rankingContext === true);
 const compact = computed(() => props.compact === true);
 const plainTopicLabels = computed(() => props.plainTopicLabels === true);
-const emit = defineEmits<{ (event: 'open', entity: DiscoveryEntity): void; (event: 'deleted', id: string | number): void }>();
+const emit = defineEmits<{ (event: 'open', entity: DiscoveryEntity): void; (event: 'filter', entity: DiscoveryEntity): void; (event: 'deleted', id: string | number): void }>();
 const authStore = useAuthStore();
 
 const title = computed(() => String(props.entity.title ?? props.entity.productGroupTitle ?? props.entity.product_group_title ?? props.entity.seriesTitle ?? props.entity.series_title ?? props.entity.productGoodsTitle ?? props.entity.product_goods_title ?? props.entity.goodsTitle ?? props.entity.goods_title ?? props.entity.name ?? props.entity.label ?? props.entity.buttonText ?? props.entity.button_text ?? props.entity.text ?? ''));
@@ -282,11 +310,26 @@ const isPictureTopicLink = computed(() => plainTopicLabels.value && !hasChildren
 const pictureTopic = computed(() => ({ ...props.entity, logo: image.value || props.entity.logo }));
 const isDigitalProductGroup = computed(() => hasChildren.value && props.entity.entities!.every((child) => isDigitalProduct(child)));
 const isFeed = computed(() => isFeedEntity(props.entity) && !hasChildren.value);
+const isRanking = computed(() => !hasChildren.value && isGoodsRankingEntity(props.entity));
+const isRankingBanner = computed(() => {
+  if (!hasChildren.value) return false;
+  const template = String(props.entity.entityTemplate || '').toLowerCase();
+  const children = props.entity.entities!;
+  if (template === 'iconlistcard' && children.some(isGoodsRankingEntity)) return true;
+  const isScroll = /image(?:text)?scroll|carousel|goodsrankingcard/.test(template);
+  // Banner links do not necessarily carry feedType or goodsListInfo.
+  if (isScroll && rankingContext.value && children.some(child => !!getEntityImage(child))) return true;
+  if (isScroll && children.some(isGoodsRankingEntity)) return true;
+  return rankingContext.value && children.length === 1
+    && !/icon|selector|product|goodscollection/.test(template)
+    && !!(children[0].pic || children[0].cover || children[0].picUrl);
+});
 const isLive = computed(() => isLiveEntity(props.entity));
 const isImage = computed(() => isImageCard(props.entity));
 const isGrid = computed(() => isGridCard(props.entity) || (Array.isArray(props.entity.entities) && props.entity.entities.length >= 2));
 const templateName = computed(() => `${String(props.entity.entityTemplate || '').toLowerCase()} ${String(props.entity.entityType || '').toLowerCase()}`.trim());
 const isSelectorLinks = computed(() => hasChildren.value && templateName.value.includes('selectorlink'));
+const isMiniGrid = computed(() => hasChildren.value && templateName.value.includes('iconminigridcard'));
 const isIconGrid = computed(() => hasChildren.value && (templateName.value.includes('iconlinkgrid') || templateName.value.includes('icongrid') || templateName.value.includes('icontablinkgrid') || templateName.value.includes('tablinkgrid')));
 const isIconGridExpanded = ref(false);
 const iconGridThreshold = 20;
@@ -363,13 +406,15 @@ function handleSortClick(child: DiscoveryEntity, index: number) {
 const activePillIndex = ref(0);
 
 function isPillActive(child: DiscoveryEntity, index: number): boolean {
+  if (props.entity.entities?.some(item => item.selected === 1 || item.selected === true || item.selected === '1')) return isChildSelected(child);
   if (child.selected === 1 || child.selected === true || child.selected === '1') return true;
   return activePillIndex.value === index;
 }
 
 function handlePillClick(child: DiscoveryEntity, index: number) {
   activePillIndex.value = index;
-  emit('open', child);
+  if (props.inlineSelectors) emit('filter', child);
+  else emit('open', child);
 }
 
 function handleHorizontalScroll(event: WheelEvent) {
@@ -496,6 +541,15 @@ async function toggleDyhFollow() {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 .discovery-entity-group.is-compact-grid .discovery-group-items { gap: 10px; }
+.discovery-mini-grid-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; padding: 4px 16px 16px; }
+.discovery-mini-grid-item { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 56px; padding: 10px 12px; border: 1px solid var(--border-light, rgba(0,0,0,.08)); border-radius: 10px; background: var(--surface); color: var(--text-primary); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.discovery-mini-icon { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 6px; overflow: hidden; }
+.discovery-mini-fallback { display: grid; place-items: center; background: var(--background-secondary); color: var(--brand-primary); }
+.discovery-mini-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discovery-mini-grid-item:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: -2px; }
+@media (hover: hover) {
+  .discovery-mini-grid-item:hover { background: var(--surface-hover); border-color: var(--brand-primary); }
+}
 .goods-collection-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; padding: 4px 14px 14px; }
 
 /* 资讯群组等高卡片与超长展开控制 */
@@ -1015,4 +1069,8 @@ async function toggleDyhFollow() {
   .discovery-entity-group.is-sort-group .discovery-group-items { grid-template-columns: 1fr; }
   .discovery-entity-group.is-review-group .discovery-group-items { grid-template-columns: 1fr; }
 }
+
+.discovery-ranking-banners { display:flex; min-width:0; width:100%; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none; }
+.discovery-ranking-banners > * { flex:0 0 100%; min-width:0; scroll-snap-align:start; }
+@media(prefers-reduced-motion:reduce) { .discovery-ranking-banners { scroll-behavior:auto; } }
 </style>

@@ -274,6 +274,7 @@
 </template>
 
 <script setup lang="ts">
+import { observeResizeOnFrame } from '../utils/observeResizeOnFrame';
 import { ref, computed, onMounted, onUnmounted, onActivated, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
@@ -333,7 +334,7 @@ const subtopicItemRefs = new Map<string, HTMLElement>();
 // 窗口与版面自适应监听
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280);
 const pageContentWidth = ref(viewportWidth.value);
-let pageResizeObserver: ResizeObserver | null = null;
+let stopObservingPageResize: (() => void) | undefined;
 
 const MIN_CENTER_WIDTH = 480;
 
@@ -932,10 +933,7 @@ function handleClickOutside(e: MouseEvent) {
 onMounted(() => {
   loadPersistedSettings();
   updatePageContentWidth();
-  if (typeof ResizeObserver !== 'undefined' && pageRootRef.value) {
-    pageResizeObserver = new ResizeObserver(() => updatePageContentWidth());
-    pageResizeObserver.observe(pageRootRef.value);
-  }
+  if (pageRootRef.value) stopObservingPageResize = observeResizeOnFrame(pageRootRef.value, updatePageContentWidth);
   fetchTopicData(topicEntryUrl, false);
   window.addEventListener('resize', handleResize);
   window.addEventListener('keydown', handleGlobalKeydown);
@@ -948,8 +946,8 @@ onUnmounted(() => {
   isUnmounted = true;
   for (const timer of subtopicScrollTimers) clearTimeout(timer);
   subtopicScrollTimers.clear();
-  pageResizeObserver?.disconnect();
-  pageResizeObserver = null;
+  stopObservingPageResize?.();
+  stopObservingPageResize = undefined;
   window.removeEventListener('resize', handleResize);
   window.removeEventListener('keydown', handleGlobalKeydown);
   document.removeEventListener('click', handleClickOutside);

@@ -1,6 +1,6 @@
 <template>
   <div class="discovery-skeleton">
-    <!-- 1. 热门专区骨架 (4列自适应网格) -->
+    <!-- 与 iconMiniGridCard 的小图标入口保持相同高度。 -->
     <div class="skeleton-section">
       <div class="skeleton-title-bar">
         <div class="skeleton-line title-line"></div>
@@ -75,8 +75,8 @@ defineOptions({ name: 'DiscoverySkeleton' });
 
 .skeleton-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
   padding: 4px 14px 14px;
 }
 
@@ -84,17 +84,17 @@ defineOptions({ name: 'DiscoverySkeleton' });
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
   border-radius: var(--radius-card, 12px);
   background: var(--surface);
 }
 
 .topic-avatar {
-  width: 50px;
-  height: 50px;
-  flex: 0 0 50px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 6px;
 }
 
 .skeleton-meta {
@@ -197,10 +197,17 @@ defineOptions({ name: 'DiscoverySkeleton' });
   }
 }
 
-@media (max-width: 1180px) {
-  .skeleton-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 720px) {
+  .skeleton-section { border: 0; }
+  .skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; padding: 6px 4px; }
+  .skeleton-topic-card { border: 0; border-radius: 0; padding: 8px; gap: 8px; }
+  .topic-avatar { width: 20px; height: 20px; flex-basis: 20px; border-radius: 4px; }
+  .topic-sub { display: none; }
+  .skeleton-banner { height: auto; aspect-ratio: 4.5; }
+  .skeleton-pills { flex-wrap: nowrap; overflow: hidden; }
+  .skeleton-pill { flex: 0 0 64px; height: 34px; border-radius: 9px; }
 }
-@media (max-width: 760px) {
-  .skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-box::after, .skeleton-line::after, .skeleton-banner::after, .skeleton-pill::after { animation: none; }
 }
 </style>

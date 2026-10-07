@@ -1,6 +1,7 @@
 <template>
   <article class="goods-item-card" :class="{ 'is-voted': isVoted, 'is-clickable': !!buyUrl }" @click="openGoods">
     <div class="goods-item-cover">
+      <span v-if="rank" :class="['goods-rank-medal', { 'is-first': rank === 1 }]">{{ rank }}</span>
       <AppImage
         v-if="cover"
         :src="cover"
@@ -65,6 +66,7 @@ import { useAuthStore } from '../../stores/auth';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { showToast } from '../../utils/toast';
 import { getErrorMessage } from '../../utils/errors';
+import { getRankingProduct } from '../../utils/goodsRanking';
 
 const props = withDefaults(
   defineProps<{
@@ -73,6 +75,7 @@ const props = withDefaults(
     ownerUid?: string | number;
     canManage?: boolean;
     canVote?: boolean;
+    rank?: number;
   }>(),
   {
     goodsListId: '',
@@ -90,30 +93,15 @@ const emit = defineEmits<{
 
 const authStore = useAuthStore();
 
-const cover = computed(() =>
-  props.item.product_goods_cover
-    || props.item.product_goods_logo
-    || props.item.logo
-    || props.item.pic
-    || '',
-);
-const title = computed(() =>
-  props.item.product_goods_title
-    || props.item.title
-    || props.item.goods_title
-    || '',
-);
-const price = computed(() => props.item.price || props.item.goods_price || '');
-const mallName = computed(() => props.item.mall_name || props.item.mall_title || '');
-const note = computed(() => props.item.note || '');
+const product = computed(() => getRankingProduct(props.item));
+const sourceGoods = computed(() => props.item.extra_entities?.[0] || props.item.extraEntities?.[0] || props.item);
+const cover = computed(() => product.value.cover || props.item.pic || '');
+const title = computed(() => product.value.title || props.item.goods_title || '');
+const price = computed(() => product.value.price);
+const mallName = computed(() => sourceGoods.value.mall_name || sourceGoods.value.mall_title || '');
+const note = computed(() => props.item.note || props.item.message || '');
 const subTitle = computed(() => props.item.sub_title || '');
-const buyUrl = computed(() =>
-  props.item.product_goods_url
-    || props.item.goods_url
-    || props.item.url
-    || props.item.goods_buy_url
-    || '',
-);
+const buyUrl = computed(() => sourceGoods.value.product_goods_url || sourceGoods.value.goods_url || sourceGoods.value.sell_url || sourceGoods.value.url || sourceGoods.value.goods_buy_url || '');
 
 function openGoods() {
   const url = buyUrl.value;
@@ -121,9 +109,9 @@ function openGoods() {
   void CoolapkTauriAPI.openUrl(url, 'system');
 }
 
-const voteNum = ref(Number(props.item.vote_num || props.item.voteNum || 0));
+const voteNum = ref(Number(props.item.goodsListInfo?.vote_num ?? props.item.vote_num ?? props.item.voteNum ?? 0));
 const isVoted = computed(() => {
-  const value = props.item.isVote ?? props.item.is_vote;
+  const value = props.item.goodsListInfo?.is_vote ?? props.item.isVote ?? props.item.is_vote;
   return value === true || value === 1 || value === '1';
 });
 const voting = ref(false);
@@ -135,7 +123,7 @@ async function handleVote() {
   }
   if (voting.value) return;
   const id = String(props.goodsListId);
-  const itemId = String(props.item.id ?? props.item.feed_id ?? props.item.entityId ?? '');
+  const itemId = String(props.item.goodsListInfo?.item_id ?? props.item.id ?? props.item.feed_id ?? props.item.entityId ?? '');
   if (!id || !itemId) {
     showToast('缺少投票参数', 'error');
     return;
@@ -311,4 +299,10 @@ async function handleVote() {
   color: var(--danger);
   background-color: rgba(240, 68, 68, 0.1);
 }
+
+.goods-item-cover { position:relative; overflow:visible; }
+.goods-cover-img { border-radius:inherit; overflow:hidden; }
+.goods-rank-medal { position:absolute; z-index:1; top:-8px; left:-8px; width:25px; height:25px; display:grid; place-items:center; border-radius:50%; background:#e7edf4; border:2px solid #b4c5d8; color:#596b80; }
+.goods-rank-medal.is-first { background:#fff0a6; border-color:#ffbc42; color:#745d1c; }
+@media(max-width:720px) { .goods-item-card:has(.goods-rank-medal) .goods-item-cover { width:96px; height:96px; flex:0 0 96px; } }
 </style>

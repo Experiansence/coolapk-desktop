@@ -297,6 +297,9 @@ export function getEntityText(entity: DiscoveryEntity): string {
 }
 
 export function resolveDiscoveryRoute(entity: DiscoveryEntity): DiscoveryRoute | null {
+  if ((String(entity.feedType || entity.feed_type).toLowerCase() === 'goodslist' || String(entity.entityType || '').toLowerCase() === 'goodslist' || (!entity.feedType && !entity.feed_type && entity.goodsListInfo)) && (entity.id || entity.entityId)) {
+    return { kind: 'native', target: `/goods/ranking/${encodeURIComponent(String(entity.id || entity.entityId))}`, title: asString(entity.title) };
+  }
   const extra = parseExtraData(entity);
   const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)} ${asString(entity.entityTypeName)} ${asString(entity.entity_type_name)}`.toLowerCase().trim();
   const entityUrl = asString(entity.url);

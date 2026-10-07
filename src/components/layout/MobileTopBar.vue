@@ -1,8 +1,8 @@
 <template>
-  <header v-if="!isReportPage && !(officialMobileDetail && /^\/feed\//.test(route.path))" class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me', 'is-digital-page': route.path === '/digital' }">
-    <template v-if="route.path === '/digital'">
+  <header v-if="!isReportPage && !(officialMobileDetail && /^\/feed\//.test(route.path))" class="mobile-top-bar" :class="{ 'is-macos': macOverlay, 'is-profile-page': route.path === '/me', 'is-digital-page': route.path === '/digital' || route.path === '/discover' }">
+    <template v-if="route.path === '/digital' || route.path === '/discover'">
       <button type="button" class="mobile-icon-button digital-avatar" aria-label="个人主页" @click="router.push('/me')"><AppAvatar :src="authStore.user?.userAvatar" :size="24" /></button>
-      <button type="button" class="digital-search-entry" aria-label="搜索数码" @click="appStore.openSearch"><span>搜索数码产品</span><i class="fas fa-magnifying-glass"></i></button>
+      <button type="button" class="digital-search-entry" :aria-label="route.path === '/discover' ? '搜索' : '搜索数码'" @click="appStore.openSearch"><span>{{ route.path === '/discover' ? '搜索你感兴趣的内容' : '搜索数码产品' }}</span><i class="fas fa-magnifying-glass"></i></button>
       <button type="button" class="mobile-icon-button has-badge digital-official-icon" aria-label="应用游戏" @click="router.push('/apps')"><span :style="iconStyle(appIcon)"></span></button>
       <button type="button" class="mobile-icon-button has-badge digital-official-icon" aria-label="私信" @click="router.push('/messages')"><span :style="iconStyle(mailIcon)"></span><span v-if="notificationStore.unreadCount" class="mobile-badge">{{ notificationStore.unreadCount > 99 ? '99+' : notificationStore.unreadCount }}</span></button>
     </template>

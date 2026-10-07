@@ -39,6 +39,7 @@
 </template>
 
 <script setup lang="ts">
+import { observeResizeOnFrame } from '../../utils/observeResizeOnFrame';
 import { nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { ConfigPageTab } from '../../types/settings';
 import type { HomeSubChannelSelection } from '../../utils/homeTabs';
@@ -69,7 +70,7 @@ defineEmits<{
 const showTabManager = ref(false);
 const tabsContainer = ref<HTMLElement | null>(null);
 const indicatorStyle = ref({ transform: 'translate3d(0, 0, 0)', opacity: 0 });
-let resizeObserver: ResizeObserver | undefined;
+let stopObservingResize: (() => void) | undefined;
 let disposed = false;
 
 async function alignActiveTab() {
@@ -101,14 +102,11 @@ async function alignActiveTab() {
 watch(() => [props.activeKey, props.tabs, props.wrap], () => { void alignActiveTab(); }, { immediate: true, deep: true });
 watch(() => props.swipeProgress, () => { void alignActiveTab(); });
 onMounted(() => {
-  if (typeof ResizeObserver !== 'undefined' && tabsContainer.value) {
-    resizeObserver = new ResizeObserver(() => { void alignActiveTab(); });
-    resizeObserver.observe(tabsContainer.value);
-  }
+  if (tabsContainer.value) stopObservingResize = observeResizeOnFrame(tabsContainer.value, () => { void alignActiveTab(); });
   void document.fonts?.ready.then(() => alignActiveTab());
 });
 onActivated(() => { void alignActiveTab(); });
-onUnmounted(() => { disposed = true; resizeObserver?.disconnect(); });
+onUnmounted(() => { disposed = true; stopObservingResize?.(); });
 
 function getTabKey(tab: ConfigPageTab): string {
   return tab.page_name || tab.url || String(tab.id || tab.title);

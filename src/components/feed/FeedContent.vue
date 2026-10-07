@@ -30,6 +30,7 @@
 </template>
 
 <script setup lang="ts">
+import { observeResizeOnFrame } from '../../utils/observeResizeOnFrame';
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderCoolapkRichText } from '../../utils/richText';
 import { handleAnchorClick } from '../../utils/anchorClick';
@@ -148,22 +149,17 @@ const formattedMessage = computed(() => {
   return renderCoolapkRichText(stripFeedMoreSuffix(currentMessage.value), props.highlightKeyword);
 });
 
-let resizeObserver: ResizeObserver | null = null;
+let stopObservingResize: (() => void) | undefined;
 
 onMounted(() => {
   nextTick(() => {
     checkOverflow();
-    if (bodyRef.value && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => {
-        checkOverflow();
-      });
-      resizeObserver.observe(bodyRef.value);
-    }
+    if (bodyRef.value) stopObservingResize = observeResizeOnFrame(bodyRef.value, checkOverflow);
   });
 });
 
 onUnmounted(() => {
-  resizeObserver?.disconnect();
+  stopObservingResize?.();
 });
 
 watch([formattedMessage, collapseLines], () => {
