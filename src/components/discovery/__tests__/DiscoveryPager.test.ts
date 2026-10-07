@@ -27,6 +27,7 @@ describe('发现频道滑动', () => {
     const w = render();
     pointer(w.find('button').element, 'pointerdown', 280);
     pointer(w.element, 'pointermove', 100);
+    const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(cb => cb(0));
     await nextTick();
     expect(w.emitted('progress')?.at(-1)).toEqual([.5]);
     pointer(w.element, 'pointerup', 100);
@@ -61,5 +62,21 @@ describe('发现频道滑动', () => {
     expect(w.findAll('section')[0].attributes('inert')).toBeDefined();
     expect(w.findAll('section')[1].attributes('inert')).toBeUndefined();
     w.unmount();
+  });
+  it('连续移动每帧只写一次动画，不触发内容重新渲染或加载', async () => {
+    const renderContent = vi.fn(() => '频道内容');
+    const w = mount(DiscoveryPager, { props: { tabs, activeKey: 'life' }, slots: { default: renderContent } });
+    const initialRenders = renderContent.mock.calls.length;
+    pointer(w.element, 'pointerdown', 280);
+    pointer(w.element, 'pointermove', 200);
+    pointer(w.element, 'pointermove', 100);
+    expect(frames.size).toBe(1);
+    expect(w.emitted('prepare')).toBeUndefined();
+    const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(cb => cb(0));
+    await nextTick();
+    expect(renderContent).toHaveBeenCalledTimes(initialRenders);
+    expect(w.get('.discovery-pager-track').attributes('style')).toContain('-180px');
+    w.unmount();
+    expect(frames.size).toBe(0);
   });
 });

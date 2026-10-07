@@ -10,7 +10,7 @@
         <span class="tab-label">{{ tab.title }}</span>
         <span v-if="props.wrap && activeKey === getTabKey(tab)" class="coolapk-tab-indicator" aria-hidden="true"></span>
       </button>
-      <span v-if="!props.wrap" class="coolapk-tab-indicator sliding-indicator" :class="{ 'follows-pager': props.swipeProgress !== undefined }" :style="indicatorStyle" aria-hidden="true"></span>
+      <span ref="indicator" v-if="!props.wrap" class="coolapk-tab-indicator sliding-indicator" :class="{ 'follows-pager': props.swipeProgress !== undefined }" aria-hidden="true"></span>
     </div>
 
     <!-- 官方右侧 ☰ 频道管理按钮 -->
@@ -69,7 +69,19 @@ defineEmits<{
 
 const showTabManager = ref(false);
 const tabsContainer = ref<HTMLElement | null>(null);
-const indicatorStyle = ref({ transform: 'translate3d(0, 0, 0)', opacity: 0 });
+const indicator = ref<HTMLElement | null>(null);
+let tabCenters: number[] = [];
+let pagerProgress: number | undefined;
+function setSwipeProgress(progress: number) {
+  pagerProgress = progress;
+  if (!indicator.value || !tabCenters.length) return;
+  const value = Math.max(0, Math.min(tabCenters.length - 1, progress));
+  const from = tabCenters[Math.floor(value)], to = tabCenters[Math.ceil(value)];
+  indicator.value.classList.add('follows-pager');
+  indicator.value.style.transform = `translate3d(${from + (to - from) * (value % 1)}px, 0, 0)`;
+  indicator.value.style.opacity = '1';
+}
+defineExpose({ setSwipeProgress });
 let stopObservingResize: (() => void) | undefined;
 let disposed = false;
 
@@ -80,13 +92,14 @@ async function alignActiveTab() {
   const activeTab = container?.querySelector<HTMLElement>('.tab-item.is-active');
   if (!container || !activeTab || !container.clientWidth) return;
   const buttons = Array.from(container.querySelectorAll<HTMLElement>('.tab-item'));
-  const progress = Math.max(0, Math.min(buttons.length - 1, props.swipeProgress ?? buttons.indexOf(activeTab)));
-  const from = buttons[Math.floor(progress)] || activeTab, to = buttons[Math.ceil(progress)] || from;
   const center = (button: HTMLElement) => button.offsetLeft + (button.offsetWidth - 22) / 2;
-  indicatorStyle.value = {
-    transform: `translate3d(${center(from) + (center(to) - center(from)) * (progress % 1)}px, 0, 0)`,
-    opacity: 1,
-  };
+  tabCenters = buttons.map(center);
+  const progress = props.swipeProgress ?? pagerProgress ?? buttons.indexOf(activeTab);
+  if (props.swipeProgress !== undefined || pagerProgress !== undefined) setSwipeProgress(progress);
+  else if (indicator.value) {
+    indicator.value.style.transform = `translate3d(${tabCenters[buttons.indexOf(activeTab)]}px, 0, 0)`;
+    indicator.value.style.opacity = '1';
+  }
   if (props.wrap) return;
   const start = activeTab.offsetLeft - 12;
   const end = activeTab.offsetLeft + activeTab.offsetWidth + 12;
@@ -100,7 +113,7 @@ async function alignActiveTab() {
 }
 
 watch(() => [props.activeKey, props.tabs, props.wrap], () => { void alignActiveTab(); }, { immediate: true, deep: true });
-watch(() => props.swipeProgress, () => { void alignActiveTab(); });
+watch(() => props.swipeProgress, value => { if (value !== undefined) setSwipeProgress(value); });
 onMounted(() => {
   if (tabsContainer.value) stopObservingResize = observeResizeOnFrame(tabsContainer.value, () => { void alignActiveTab(); });
   void document.fonts?.ready.then(() => alignActiveTab());

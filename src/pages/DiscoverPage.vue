@@ -2,14 +2,14 @@
   <div :class="['discover-page', { 'is-cool-picture': isCoolPicturePage }]" @pointerdown="discoveryRipple" @keydown="discoveryRipple">
     <div class="discover-main-column">
       <div class="discover-toolbar-row">
-        <FeedTabs v-if="tabs.length" :active-key="selectedKey" :tabs="feedTabs" :swipe-progress="swipeProgress" :show-manage="false" @update:active-key="selectTab" />
+        <FeedTabs ref="feedTabsView" v-if="tabs.length" :active-key="selectedKey" :tabs="feedTabs" :show-manage="false" @update:active-key="selectTab" />
       </div>
 
       <div v-if="configError && !tabs.length" class="config-error">
         <strong>发现频道配置加载失败</strong><span>{{ configError }}</span><button type="button" @click="loadConfig">重试</button>
       </div>
       <DiscoverySkeleton v-else-if="!tabs.length" />
-      <DiscoveryPager v-else :tabs="tabs" :active-key="selectedKey" @select="selectTab" @prepare="prepareTab" @progress="swipeProgress = $event">
+      <DiscoveryPager v-else :tabs="tabs" :active-key="selectedKey" @select="selectTab" @prepare="prepareTab" @progress="updateSwipeProgress">
       <template #default="{ tab }">
       <div class="discover-scroll-container custom-scrollbar" @scroll.passive="handleScroll($event, tab)">
       <template v-for="state in [states[tab.key]]" :key="tab.key">
@@ -99,7 +99,8 @@ interface PageState extends DiscoveryPageResult {
 const router = useRouter();
 const tabs = ref<DiscoveryTab[]>([]);
 const selectedKey = ref('');
-const swipeProgress = ref(0);
+const feedTabsView = ref<InstanceType<typeof FeedTabs> | null>(null);
+function updateSwipeProgress(position: number) { feedTabsView.value?.setSwipeProgress(position); }
 const configError = ref('');
 const states = reactive<Record<string, PageState>>({});
 const feedTabs = computed<ConfigPageTab[]>(() => tabs.value.map((tab) => ({ id: tab.key, title: tab.title, page_name: tab.key, url: tab.url, subTitle: tab.subTitle })));
