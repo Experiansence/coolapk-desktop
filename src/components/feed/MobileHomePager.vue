@@ -29,6 +29,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { getHomeTabKey, resolvePreferredHomeTab, type HomeSubChannelSelection } from '../../utils/homeTabs';
 import type { ConfigPageTab } from '../../types/settings';
 import { homePagerMovingKey } from '../../utils/feedPageVisibility';
+import { observeResizeOnFrame } from '../../utils/observeResizeOnFrame';
 
 const props = withDefaults(defineProps<{ mobile?: boolean }>(), { mobile: true });
 const sidebarMounted = ref(!props.mobile);
@@ -68,7 +69,8 @@ async function loadTabs() {
     await nextTick(); measure();
   } catch (err) { error.value = err instanceof Error ? err.message : String(err); }
 }
-let frame = 0, clickUntil = 0, observer: ResizeObserver | undefined;
+let frame = 0, clickUntil = 0;
+let stopObservingResize: (() => void) | undefined;
 type Drag = { id: number; x: number; y: number; origin: number; lastX: number; lastTime: number; velocity: number; axis: 'pending' | 'horizontal' };
 let drag: Drag | null = null;
 function stopAnimation() { cancelAnimationFrame(frame); frame = 0; }
@@ -182,10 +184,15 @@ function resetGesture() {
   drag = null; stopAnimation(); position.value = activeIndex.value; moving.value = false; clearTimeout(wheelTimer); wheelDelta = 0;
 }
 watch(tabs, () => { if (tabs.value.length && !tabs.value.some(tab => getHomeTabKey(tab) === activeKey.value)) activeKey.value = getHomeTabKey(tabs.value[0]!); if (!drag && !frame) position.value = activeIndex.value; });
-onMounted(() => { bind(); void loadTabs(); observer = new ResizeObserver(measure); });
-watch(viewport, el => { observer?.disconnect(); if (el) { observer?.observe(el); measure(); } });
+function observeViewport() {
+  stopObservingResize?.();
+  stopObservingResize = viewport.value ? observeResizeOnFrame(viewport.value, measure) : undefined;
+  measure();
+}
+onMounted(() => { bind(); void loadTabs(); observeViewport(); });
+watch(viewport, observeViewport);
 onActivated(bind); onDeactivated(unbind);
-onUnmounted(() => { unbind(); observer?.disconnect(); });
+onUnmounted(() => { unbind(); stopObservingResize?.(); });
 </script>
 <style scoped>
 .mobile-home-pager { container-type: inline-size; container-name: home-layout; display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--surface); }

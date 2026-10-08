@@ -11,6 +11,7 @@ import { useSettingsStore } from './stores/settings';
 import { setupGlobalAlertProxy } from './utils/toast';
 import { normalizeCoolapkDeepLink } from './utils/coolapkRoute';
 import { installDiagnosticLogging, logDiagnostic, summarizeDiagnosticError } from './utils/diagnosticLogger';
+import { isResizeObserverWarning } from './utils/windowError';
 
 // 启动全局原生 alert 代理拦截，统一呈现顶部高质感 Toast
 setupGlobalAlertProxy();
@@ -83,6 +84,11 @@ app.config.errorHandler = (err, _instance, info) => {
 };
 
 window.addEventListener('error', (e) => {
+  if (isResizeObserverWarning(e)) {
+    logDiagnostic('warn', 'window', 'resize_notification_deferred', e.message);
+    e.preventDefault();
+    return;
+  }
   const msg = `${e.message || 'unknown'} @ ${e.filename || ''}:${e.lineno || ''}:${e.colno || ''}`;
   const location = `${e.filename || 'unknown'}:${e.lineno || 0}:${e.colno || 0}`;
   logDiagnostic('error', 'window', 'uncaught_exception', `${summarizeDiagnosticError(e.error || e.message)} location=${location}`);

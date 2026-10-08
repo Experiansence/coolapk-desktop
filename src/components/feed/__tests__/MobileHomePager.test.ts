@@ -9,6 +9,7 @@ import HomePage from '../../../pages/HomePage.vue';
 import { useSettingsStore } from '../../../stores/settings';
 const Panel = defineComponent({ name: 'HomeTabPanel', props: ['tabKey', 'selected'], template: '<div class="panel-stub"><div class="nested" style="overflow-x:auto">内容</div></div>' });
 let now = 0, sequence = 0;
+let notifyResize: () => void;
 const frames = new Map<number, FrameRequestCallback>();
 function pointer(target: Element | Window, type: string, x: number, y = 120) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
@@ -33,13 +34,27 @@ describe('移动首页一体滑动', () => {
     vi.spyOn(performance, 'now').mockImplementation(() => now);
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.set(++sequence, cb); return sequence; });
     vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
-    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { notifyResize = callback; } observe() {} disconnect() {} });
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360);
     HTMLElement.prototype.setPointerCapture = vi.fn();
     HTMLElement.prototype.hasPointerCapture = vi.fn(() => true);
     HTMLElement.prototype.releasePointerCapture = vi.fn();
   });
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it('尺寸通知不立即改动布局，下一帧更新宽度并在卸载时取消待处理通知', async () => {
+    const w = await render();
+    const before = w.get('.pager-track').attributes('style');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(480);
+    notifyResize(); notifyResize();
+    await flushPromises();
+    expect(w.get('.pager-track').attributes('style')).toBe(before);
+    expect(frames.size).toBe(1);
+    finish(); await flushPromises();
+    expect(w.get('.pager-track').attributes('style')).toContain('-480px');
+    notifyResize();
+    w.unmount();
+    expect(frames.size).toBe(0);
+  });
   it('跨过移动断点和关闭自动移动布局时保留当前栏目、页面实例与滚动位置', async () => {
     const listeners = new Set<() => void>();
     let narrow = false;

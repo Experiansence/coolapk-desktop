@@ -11,6 +11,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { DiscoveryTab } from '../../types/discovery';
+import { observeResizeOnFrame } from '../../utils/observeResizeOnFrame';
 
 const props = defineProps<{ tabs: DiscoveryTab[]; activeKey: string }>();
 const emit = defineEmits<{ select: [key: string]; prepare: [key: string]; progress: [position: number] }>();
@@ -19,7 +20,7 @@ const track = ref<HTMLElement>();
 let width = 1, position = 0, moveFrame = 0;
 const visited = ref(new Set<string>([props.activeKey]));
 const activeIndex = computed(() => Math.max(0, props.tabs.findIndex(tab => tab.key === props.activeKey)));
-let observer: ResizeObserver | undefined, animation = 0;
+let stopObservingResize: (() => void) | undefined, animation = 0;
 let drag: { id: number; x: number; y: number; time: number; index: number; horizontal: boolean } | undefined;
 let suppressClickUntil = 0;
 
@@ -96,13 +97,12 @@ watch(activeIndex, value => {
 onMounted(() => {
   width = viewport.value?.clientWidth || 1;
   setPosition(activeIndex.value);
-  observer = new ResizeObserver(() => {
+  if (viewport.value) stopObservingResize = observeResizeOnFrame(viewport.value, () => {
     const nextWidth = viewport.value?.clientWidth || 1;
     if (nextWidth !== width) { width = nextWidth; cancel(); }
   });
-  if (viewport.value) observer.observe(viewport.value);
 });
-onUnmounted(() => { observer?.disconnect(); cancelAnimationFrame(animation); cancelAnimationFrame(moveFrame); });
+onUnmounted(() => { stopObservingResize?.(); cancelAnimationFrame(animation); cancelAnimationFrame(moveFrame); });
 </script>
 
 <style scoped>
