@@ -61,7 +61,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { logDiagnostic, logDiagnosticLayout, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
@@ -179,6 +180,7 @@ async function loadConfig() {
     }
   } catch (error: any) {
     configError.value = error?.message || '无法获取服务端发现配置';
+    logDiagnostic('warn', 'discovery', 'config_failed', summarizeDiagnosticError(error));
   } finally {
     if (!selectedKey.value && tabs.value.length) {
       selectedKey.value = tabs.value[0].key;
@@ -226,6 +228,8 @@ async function loadSelected(reset = false, loadMore = false, tab = selectedTab.v
   state.loading = true;
   state.error = '';
   const requestId = ++state.requestId;
+  const page = state.page;
+  const diagnosticContext = `channel=${tab.pageName || tab.nativeKind || 'feed'} page=${page} reset=${reset} load_more=${loadMore}`;
   try {
     const response = tab.nativeKind === 'dyh'
       ? await CoolapkTauriAPI.getDyhList(state.page)
@@ -249,6 +253,7 @@ async function loadSelected(reset = false, loadMore = false, tab = selectedTab.v
     state.pageContext = parsed.pageContext;
     state.hasMore = parsed.hasMore && nextItems.length > 0;
     state.page += 1;
+    logDiagnostic('info', 'discovery', 'page_loaded', `${diagnosticContext} received=${parsed.items.length} appended=${nextItems.length} total=${state.items.length} has_more=${state.hasMore}`);
     if (parsed.flexUrl && !state.flexUrl && !state.selectorUrl) {
       state.flexUrl = parsed.flexUrl;
       state.selectorHeader = [...state.items];
@@ -264,8 +269,13 @@ async function loadSelected(reset = false, loadMore = false, tab = selectedTab.v
     if (requestId !== state.requestId) return;
     const detail = error?.message || String(error || '未知错误');
     state.error = `${tab.title}（${tab.url || tab.pageName || tab.key}）：${detail}`;
+    logDiagnostic('warn', 'discovery', 'page_failed', `${diagnosticContext} reason=${summarizeDiagnosticError(error)}`);
   } finally {
-    if (requestId === state.requestId) state.loading = false;
+    if (requestId === state.requestId) {
+      state.loading = false;
+      await nextTick();
+      document.querySelectorAll<HTMLElement>('.discover-scroll-container').forEach(element => logDiagnosticLayout('discovery', element));
+    }
   }
 }
 

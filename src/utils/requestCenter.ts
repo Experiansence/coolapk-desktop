@@ -1,4 +1,6 @@
 import { reactive, readonly } from 'vue';
+import { logDiagnostic, summarizeDiagnosticError } from './diagnosticLogger';
+let diagnosticRequestId = 0;
 
 export type RequestKind = 'feed' | 'comment' | 'default';
 
@@ -49,11 +51,15 @@ function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Pro
 }
 
 export async function requestWithPolicy<T>(label: string, task: () => Promise<T>, policy: RequestPolicy = {}): Promise<T> {
+  const requestId = ++diagnosticRequestId;
+  const started = Date.now();
   const retry = policy.retry ?? true;
   const maxAttempts = retry ? Math.max(1, policy.maxAttempts ?? 3) : 1;
   const timeoutMs = policy.timeoutMs ?? 15_000;
   const retryDelayMs = policy.retryDelayMs ?? 350;
   requestState.pending += 1;
+  const context = `request_id=${requestId} command=${label} kind=${policy.kind || 'default'}`;
+  logDiagnostic('debug', 'request', 'started', `${context} max_attempts=${maxAttempts} timeout_ms=${timeoutMs} pending=${requestState.pending}`);
   try {
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -64,12 +70,15 @@ export async function requestWithPolicy<T>(label: string, task: () => Promise<T>
         const result = timeoutMs === 0 ? await request : await withTimeout(request, timeoutMs, label);
         requestState.lastError = '';
         requestState.lastSuccessAt = Date.now();
+        logDiagnostic('debug', 'request', 'completed', `${context} attempt=${attempt} elapsed_ms=${Date.now() - started}`);
         return result;
       } catch (error) {
         lastError = error;
         requestState.lastError = getErrorText(error);
         requestState.lastErrorAt = Date.now();
-        if (attempt >= maxAttempts || !shouldRetryRequest(error)) throw error;
+        const willRetry = attempt < maxAttempts && shouldRetryRequest(error);
+        logDiagnostic('warn', 'request', willRetry ? 'retry_scheduled' : 'failed', `${context} attempt=${attempt} elapsed_ms=${Date.now() - started} retry_delay_ms=${willRetry ? retryDelayMs * attempt : 0} reason=${summarizeDiagnosticError(error)}`);
+        if (!willRetry) throw error;
         await wait(retryDelayMs * attempt);
       }
     }

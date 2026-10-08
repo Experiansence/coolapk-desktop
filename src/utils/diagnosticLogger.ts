@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { debug as writeDebug, error as writeError, info as writeInfo, warn as writeWarn } from '@tauri-apps/plugin-log';
+import { APP_VERSION } from '../constants/version';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 let installed = false;
@@ -9,6 +10,28 @@ const recentEvents = new Map<string, number>();
 const CONSOLE_DEDUPLICATION_MS = 5_000;
 const CLICK_DEDUPLICATION_MS = 1_000;
 const MAX_RECENT_EVENTS = 500;
+const session = Date.now().toString(36);
+let sequence = 0;
+let currentPage = 'startup';
+
+export function setDiagnosticPage(page: string): void {
+  currentPage = /^[a-zA-Z0-9_/:>.-]{1,160}$/.test(page) ? page : 'unnamed';
+}
+
+export function diagnosticViewport(): string {
+  if (typeof window === 'undefined') return '';
+  const viewport = window.visualViewport;
+  return `page=${currentPage} viewport=${window.innerWidth}x${window.innerHeight} visible_height=${Math.round(viewport?.height ?? window.innerHeight)} visible_top=${Math.round(viewport?.offsetTop ?? 0)} dpr=${window.devicePixelRatio || 1} online=${navigator.onLine} visibility=${document.visibilityState}`;
+}
+
+/** 数值尺寸足以判断裁切；不记录 DOM 文本、图片地址或输入内容。 */
+export function logDiagnosticLayout(module: string, element: HTMLElement): void {
+  const width = element.clientWidth;
+  const overflow = element.scrollWidth > width + 1;
+  logDiagnosticLimited(overflow ? 'warn' : 'debug', module, 'layout_measured',
+    `width=${width} scroll_width=${element.scrollWidth} height=${element.clientHeight} scroll_height=${element.scrollHeight} overflow_x=${overflow}`,
+    2000, `${module}:layout:${width}:${element.scrollWidth}:${overflow}`);
+}
 
 function loggingAvailable(): boolean {
   return typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__);
@@ -35,8 +58,8 @@ export function redactDiagnosticText(value: string): string {
         return '[url]';
       }
     })
-    .replace(/"(?:SESSID|cookie|token|access[_-]?token|password|passwd|device[_-]?id|deviceCode|oaid|ck|code)"\s*:\s*"[^"]*"/gi, '"[credential]"')
-    .replace(/\b(?:SESSID|cookie|token|access[_-]?token|password|passwd|device[_-]?id|deviceCode|oaid|ck|code)\s*[:=]\s*[^\s;,&]+/gi, '[credential]')
+    .replace(/"(?:SESSID|cookie|token|access[_-]?token|password|passwd|device[_-]?id|deviceCode|oaid|ddid|imei|imsi|idfa|client_secret|access_key_secret|security_token|(?:_v2_)?post_token|ck|code)"\s*:\s*"[^"]*"/gi, '"[credential]"')
+    .replace(/\b(?:SESSID|cookie|token|access[_-]?token|password|passwd|device[_-]?id|deviceCode|oaid|ddid|imei|imsi|idfa|client_secret|access_key_secret|security_token|(?:_v2_)?post_token|ck|code)\s*[:=]\s*[^\s;,&]+/gi, '[credential]')
     .replace(/\b(?:Authorization\s*:\s*Bearer|Bearer)\s+[^\s]+/gi, '[credential]')
     .replace(/(?:[?&](?:code|ck|token|access_token|device_id|password)=)[^&#\s]+/gi, '[credential]')
     .replace(/[A-Z]:\\Users\\[^\\\s]+/gi, '[user-dir]')
@@ -71,17 +94,19 @@ function consoleDedupeKey(level: 'warn' | 'error', summary: string): string {
 export function summarizeDiagnosticError(value: unknown): string {
   if (typeof value === 'string') return redactDiagnosticText(value).slice(0, 800);
   if (!(value instanceof Error)) return 'unknown';
-  const frame = value.stack?.split('\n').slice(1).find(line => line.trim().startsWith('at '))?.trim() || '';
+  const frame = value.stack?.split('\n').slice(1).find(line => /^\s*at |@(?:https?|tauri):/.test(line))?.trim() || '';
   return redactDiagnosticText(`${value.name}: ${value.message}${frame ? ` frame=${frame}` : ''}`).slice(0, 800);
 }
 
 export function logDiagnostic(level: LogLevel, module: string, event: string, detail?: unknown): void {
   if (!loggingAvailable() || writing || (level === 'debug' && !verbose)) return;
-  const message = `[frontend][${redactDiagnosticText(module)}] ${redactDiagnosticText(event)}${detail === undefined ? '' : ` ${summarize(detail)}`}`;
+  const message = `[frontend][${redactDiagnosticText(module)}] ${redactDiagnosticText(event)} time=${new Date().toISOString()} session=${session} seq=${++sequence} ${diagnosticViewport()}${detail === undefined ? '' : ` ${summarize(detail)}`}`;
   writing = true;
   try {
     const send = level === 'error' ? writeError : level === 'warn' ? writeWarn : level === 'debug' ? writeDebug : writeInfo;
-    void send(message).catch(() => undefined);
+    void Promise.resolve(send(message)).catch(() => undefined);
+  } catch {
+    // 日志插件失败不能影响原操作，也不能递归触发全局错误。
   } finally {
     writing = false;
   }
@@ -97,8 +122,9 @@ export function logDiagnosticLimited(
   dedupeKey = `${module}:${event}:${detail === undefined ? '' : summarize(detail)}`,
 ): void {
   const now = Date.now();
-  const previous = recentEvents.get(dedupeKey) || 0;
-  if (now - previous < intervalMs) return;
+  if (!loggingAvailable() || (level === 'debug' && !verbose)) return;
+  const previous = recentEvents.get(dedupeKey);
+  if (previous !== undefined && now - previous < intervalMs) return;
   recentEvents.set(dedupeKey, now);
   if (recentEvents.size > MAX_RECENT_EVENTS) {
     const oldest = recentEvents.keys().next().value;
@@ -173,5 +199,22 @@ export function installDiagnosticLogging(): void {
   installed = true;
   installConsoleDiagnosticBridge();
   installClickDiagnosticBridge();
-  logDiagnostic('info', 'app', 'startup');
+  logDiagnostic('info', 'app', 'startup', `version=${APP_VERSION}`);
+  let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+  const logViewport = () => {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(() => logDiagnosticLimited('info', 'viewport', 'changed', undefined, 1000, `viewport:${diagnosticViewport()}`), 250);
+  };
+  window.addEventListener('resize', logViewport);
+  window.visualViewport?.addEventListener('resize', logViewport);
+  window.addEventListener('orientationchange', logViewport);
+  for (const event of ['online', 'offline', 'pageshow', 'pagehide']) {
+    window.addEventListener(event, () => logDiagnostic('info', 'app', event));
+  }
+  document.addEventListener('visibilitychange', () => logDiagnostic('info', 'app', 'visibility_changed'));
+  window.addEventListener('error', event => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !['IMG', 'VIDEO', 'AUDIO', 'SCRIPT', 'LINK'].includes(target.tagName)) return;
+    logDiagnosticLimited('warn', 'resource', 'load_failed', `element=${target.tagName.toLowerCase()}`, 5000, `resource:${target.tagName}`);
+  }, true);
 }

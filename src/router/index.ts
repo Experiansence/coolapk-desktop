@@ -68,7 +68,7 @@ import StartupSettingsPage from '../pages/settings/StartupSettingsPage.vue';
 import DeviceSettingsPage from '../pages/settings/DeviceSettingsPage.vue';
 import DiagnosticsSettingsPage from '../pages/settings/DiagnosticsSettingsPage.vue';
 import { restoreRouteScrollPosition, saveRouteScrollPosition } from '../utils/routeScroll';
-import { logDiagnostic } from '../utils/diagnosticLogger';
+import { logDiagnostic, setDiagnosticPage, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 
 import AuthCallbackView from '../pages/AuthCallbackView.vue';
 
@@ -177,9 +177,15 @@ router.beforeEach((_to, from) => {
   saveRouteScrollPosition(from.fullPath);
 });
 
-router.afterEach((to, from) => {
+router.onError(error => logDiagnostic('error', 'navigation', 'failed', summarizeDiagnosticError(error)));
+router.afterEach((to, from, failure) => {
   const page = String(to.name || to.matched.map((record) => record.path).join('>') || 'unnamed');
   const previousPage = String(from.name || from.matched.map((record) => record.path).join('>') || 'startup');
+  if (failure) {
+    logDiagnostic('warn', 'navigation', 'not_completed', `from=${previousPage} to=${page} type=${failure.type}`);
+    return;
+  }
+  setDiagnosticPage(page);
   logDiagnostic('info', 'navigation', 'route_changed', `from=${previousPage} to=${page}`);
   void restoreRouteScrollPosition(to.fullPath);
 });

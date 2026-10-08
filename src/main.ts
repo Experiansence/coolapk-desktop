@@ -10,7 +10,7 @@ import { CoolapkTauriAPI } from './api/coolapk';
 import { useSettingsStore } from './stores/settings';
 import { setupGlobalAlertProxy } from './utils/toast';
 import { normalizeCoolapkDeepLink } from './utils/coolapkRoute';
-import { installDiagnosticLogging, logDiagnostic, summarizeDiagnosticError } from './utils/diagnosticLogger';
+import { installDiagnosticLogging, logDiagnostic, logDiagnosticLimited, summarizeDiagnosticError } from './utils/diagnosticLogger';
 import { isResizeObserverWarning } from './utils/windowError';
 
 // 启动全局原生 alert 代理拦截，统一呈现顶部高质感 Toast
@@ -85,7 +85,7 @@ app.config.errorHandler = (err, _instance, info) => {
 
 window.addEventListener('error', (e) => {
   if (isResizeObserverWarning(e)) {
-    logDiagnostic('warn', 'window', 'resize_notification_deferred', e.message);
+    logDiagnosticLimited('warn', 'window', 'resize_notification_deferred', e.message);
     e.preventDefault();
     return;
   }

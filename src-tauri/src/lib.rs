@@ -798,6 +798,9 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new()
+            .format(|out, message, record| {
+                out.finish(format_args!("[{}][{}][{}] {}", chrono::Utc::now().to_rfc3339(), record.level(), record.target(), message))
+            })
             .clear_targets()
             .target(tauri_plugin_log::Target::new(
                 tauri_plugin_log::TargetKind::LogDir { file_name: Some("coolapk-diagnostics".to_string()) },

@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+const logging = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock('../diagnosticLogger', () => ({ logDiagnostic: logging.log, summarizeDiagnosticError: (error: Error) => error.message }));
 import { requestWithPolicy, shouldRetryRequest } from '../requestCenter';
 
 describe('requestCenter', () => {
+  beforeEach(() => logging.log.mockClear());
   it('只对可恢复的网络错误进行重试', () => {
     expect(shouldRetryRequest(new Error('请求超时'))).toBe(true);
     expect(shouldRetryRequest(new Error('HTTP 503'))).toBe(true);
@@ -17,6 +20,11 @@ describe('requestCenter', () => {
     }, { retry: true, maxAttempts: 2, retryDelayMs: 0, timeoutMs: 100 });
     expect(result).toBe('ok');
     expect(attempts).toBe(2);
+    const entries = logging.log.mock.calls;
+    expect(entries.map(entry => entry[2])).toEqual(['started', 'retry_scheduled', 'completed']);
+    const ids = entries.map(entry => entry[3].match(/request_id=\d+/)?.[0]);
+    expect(new Set(ids).size).toBe(1);
+    expect(entries[2][3]).toContain('attempt=2');
   });
 
   it('关闭重试时只执行一次请求', async () => {
@@ -26,6 +34,7 @@ describe('requestCenter', () => {
       throw new Error('网络连接失败');
     }, { retry: false, timeoutMs: 100 })).rejects.toThrow('网络连接失败');
     expect(attempts).toBe(1);
+    expect(logging.log.mock.calls.map(entry => entry[2])).toEqual(['started', 'failed']);
   });
 
   it('timeoutMs 为 0 时等待长请求完成而不重试', async () => {

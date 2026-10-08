@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: mocks.invoke }));
 vi.mock('@tauri-apps/plugin-log', () => ({ info: mocks.info, warn: mocks.warn, error: mocks.error, debug: mocks.debug }));
 
-import { installDiagnosticLogging, logDiagnostic, logDiagnosticLimited, redactDiagnosticText, setVerboseDiagnosticLogging, summarizeDiagnosticError } from '../diagnosticLogger';
+import { installDiagnosticLogging, logDiagnostic, logDiagnosticLayout, logDiagnosticLimited, redactDiagnosticText, setDiagnosticPage, setVerboseDiagnosticLogging, summarizeDiagnosticError } from '../diagnosticLogger';
 
 describe('diagnosticLogger', () => {
   beforeEach(() => { (window as any).__TAURI_INTERNALS__ = {}; });
@@ -36,6 +36,35 @@ describe('diagnosticLogger', () => {
     logDiagnostic('error', 'login', 'failed', { cookie: 'private-value' });
     expect(mocks.error).toHaveBeenCalledWith(expect.stringContaining('[object]'));
     expect(mocks.error.mock.calls[0][0]).not.toContain('private-value');
+  });
+
+  it('每条日志包含时间、运行标识、序号及安全的页面视口信息', () => {
+    setDiagnosticPage('/feed/:id');
+    logDiagnostic('info', 'test', 'context');
+    const message = mocks.info.mock.calls.at(-1)![0];
+    expect(message).toMatch(/time=\d{4}-\d{2}-\d{2}T/);
+    expect(message).toMatch(/session=\w+ seq=\d+/);
+    expect(message).toContain('page=/feed/:id');
+    expect(message).toMatch(/viewport=\d+x\d+ visible_height=\d+/);
+    setDiagnosticPage('/search?keyword=private');
+    logDiagnostic('info', 'test', 'context');
+    expect(mocks.info.mock.calls.at(-1)![0]).not.toContain('private');
+  });
+
+  it('过滤设备标识和上传密钥', () => {
+    const result = redactDiagnosticText('ddid=private-ddid imei=private-imei client_secret=private-key "security_token":"private-sts"');
+    expect(result).not.toContain('private');
+  });
+
+  it('布局溢出只记录数值，不收集内容；日志插件同步失败不影响业务', () => {
+    const element = document.createElement('div');
+    element.textContent = '私密帖子';
+    Object.defineProperties(element, { clientWidth: { value: 360 }, scrollWidth: { value: 480 } });
+    logDiagnosticLayout('layout-test', element);
+    expect(mocks.warn.mock.calls.at(-1)![0]).toContain('overflow_x=true');
+    expect(mocks.warn.mock.calls.at(-1)![0]).not.toContain('私密帖子');
+    mocks.info.mockImplementationOnce(() => { throw new Error('plugin unavailable'); });
+    expect(() => logDiagnostic('info', 'test', 'plugin_failure')).not.toThrow();
   });
 
   it('logs one sanitized source frame for runtime errors', () => {
