@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAuthStore } from '../../../stores/auth';
 import { useSettingsStore } from '../../../stores/settings';
@@ -430,11 +430,18 @@ describe('评论完整信息展示', () => {
     expect(wrapper.find('.comment-toolbar-collapse-btn').exists()).toBe(false);
     expect(wrapper.find('.comment-title').text()).toContain('回复');
     await (wrapper.vm as any).openComposer();
-    const editor = wrapper.find('.comment-rich-editor');
+    const layer = document.body.querySelector('.official-composer-layer')!;
+    expect(layer.parentElement).toBe(document.body);
+    expect(wrapper.find('.comment-composer-box').exists()).toBe(false);
+    expect(layer.querySelector('.official-composer-backdrop')).not.toBeNull();
+    const editor = new DOMWrapper(layer.querySelector('.comment-rich-editor')!);
     (editor.element as HTMLElement).textContent = '未发送的评论'; await editor.trigger('input');
-    await wrapper.find('.official-composer-close').trigger('click');
+    await new DOMWrapper(layer.querySelector('.official-composer-close')!).trigger('click');
+    expect(document.body.querySelector('.official-composer-layer')).toBeNull();
     await (wrapper.vm as any).openComposer();
-    expect(wrapper.find('.comment-rich-editor').text()).toBe('未发送的评论');
+    expect(document.body.querySelector('.official-composer-layer .comment-rich-editor')?.textContent).toBe('未发送的评论');
+    await new DOMWrapper(document.body.querySelector('.official-composer-backdrop')!).trigger('click');
+    expect(document.body.querySelector('.official-composer-layer')).toBeNull();
     wrapper.unmount();
   });
 

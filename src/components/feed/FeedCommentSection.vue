@@ -38,8 +38,10 @@
     </div>
 
     <!-- 评论发表输入框组件 -->
-    <div v-if="officialDetail && composerOpen" class="official-composer-backdrop" @click="composerOpen = false"></div>
-    <div v-if="!officialDetail || composerOpen" class="comment-composer-box">
+    <Teleport to="body" :disabled="!officialDetail">
+    <div v-if="!officialDetail || composerOpen" :class="officialDetail ? 'official-composer-layer' : 'inline-composer-layer'">
+    <div v-if="officialDetail" class="official-composer-backdrop" @click="composerOpen = false"></div>
+    <div class="comment-composer-box">
       <button v-if="officialDetail" type="button" class="official-composer-close" aria-label="关闭评论输入" @click="composerOpen = false"><i class="fas fa-xmark"></i></button>
       <!-- 针对楼层的回复目标提示栏 -->
       <div v-if="replyTargetUser" class="comment-reply-target-bar">
@@ -189,6 +191,9 @@
         </div>
       </div>
     </div>
+
+    </div>
+    </Teleport>
 
     <!-- 评论加载中 -->
     <div v-if="loading" class="comment-loading">
@@ -1886,8 +1891,11 @@ async function handleSend() {
 .official-detail-comments .sub-user { color: var(--brand-primary); font-weight: 400; }
 .official-detail-comments .sub-reply-text { display: inline; font-size: 14px; line-height: 1.65; }
 .official-detail-comments .sub-reply-text::before { content: '：'; }
-.official-detail-comments .comment-composer-box { position: fixed; bottom: 0; left: 0; right: 0; z-index: 85; max-height: min(70vh, 600px); overflow-y: auto; border-radius: 18px 18px 0 0; padding: 30px 16px max(16px, env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -4px 28px #0002; }
-.official-composer-backdrop { position: fixed; inset: 0; z-index: 80; background: #0006; }
+.inline-composer-layer { display: contents; }
+/* 挂在 body 上，避免帖子容器的变换/裁切和桌面侧栏遮挡；使用键盘上方的可视视口。 */
+.official-composer-layer { position: fixed; left: 0; right: 0; top: var(--app-viewport-top, 0px); height: var(--app-viewport-height, 100dvh); z-index: 1100; display: flex; flex-direction: column; justify-content: flex-end; pointer-events: none; }
+.official-composer-layer .comment-composer-box { position: relative; z-index: 1; flex-shrink: 0; width: 100%; box-sizing: border-box; margin: 0; max-height: min(70%, 600px); overflow-y: auto; border-radius: 18px 18px 0 0; padding: 30px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--surface); box-shadow: 0 -4px 28px #0002; pointer-events: auto; }
+.official-composer-backdrop { position: absolute; inset: 0; background: #0006; pointer-events: auto; }
 .official-composer-close { position: absolute; right: 10px; top: 4px; width: 30px; height: 30px; border: 0; background: transparent; color: var(--text-secondary); font-size: 18px; }
 .feed-comment-section {
   margin-top: 14px;
