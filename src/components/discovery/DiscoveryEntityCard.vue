@@ -568,6 +568,8 @@ async function toggleDyhFollow() {
 /* 资讯群组等高卡片与超长展开控制 */
 .discovery-feed-card-wrapper {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   position: relative;
 }
 .discovery-feed-card-wrapper.is-compact {

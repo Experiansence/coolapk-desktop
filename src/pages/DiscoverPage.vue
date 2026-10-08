@@ -402,7 +402,8 @@ onMounted(() => { void loadConfig(); });
 .config-error { flex-wrap: wrap; color: var(--text-primary); }
 .config-error span { flex: 1 1 100%; }
 .state-container { max-width: none; width: 100%; margin: 30px 0 0; min-height: 360px; display: flex; justify-content: center; align-items: center; }
-.discover-content { max-width: 1120px; width: 100%; margin: 0 auto; display: grid; gap: 16px; }
+.discover-content { max-width: 1120px; width: 100%; min-width: 0; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.discover-content > :deep(*) { min-width: 0; }
 .discover-scroll-container > :deep(.discovery-skeleton) { max-width: 1120px; margin-inline: auto; }
 .discover-content.is-cool-picture, .is-cool-picture .discover-scroll-container > :deep(.discovery-skeleton) { box-sizing: border-box; width: 100%; padding-inline: 0; }
 .discover-content.is-cool-picture { gap: 14px; }
