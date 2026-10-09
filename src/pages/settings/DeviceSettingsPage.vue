@@ -159,7 +159,7 @@
       <div class="setting-group">
         <h4 class="group-title">机型模板</h4>
         <div class="catalog-section">
-          <p class="row-sub">从 Google 官方机型表选择设备</p>
+            <p class="row-sub">从 Google 官方 Android 机型表和 AppleDB 苹果设备表选择设备</p>
           <div class="catalog-picker">
             <input v-model="presetSearch" class="text-input" placeholder="搜索名称、型号或设备代号" aria-label="搜索官方机型表" />
             <div class="catalog-grid">

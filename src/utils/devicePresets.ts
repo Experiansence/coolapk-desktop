@@ -1,4 +1,8 @@
 import catalogUrl from '../../data/android-devices/catalog.json?url';
+import appleCatalog from '../../data/apple-devices/catalog.json';
+
+/** 苹果表与安卓表使用相同四列；Device 列保留来源提供的设备分类。 */
+export const appleDevicePresets: DevicePreset[] = appleCatalog.rows.map(([brand, label, device, model], index) => ({ id: `apple-${index}`, brand, label, device, model }));
 
 export interface DevicePreset {
   id: string;
@@ -9,14 +13,14 @@ export interface DevicePreset {
 }
 
 let catalogPromise: Promise<DevicePreset[]> | null = null;
-/** 从随安装包提供的完整官方表读取，不向第三方发送设备或账号信息。 */
+/** 从随安装包提供的 Google 官方表和 AppleDB 快照读取设备信息。 */
 export function loadDevicePresets(): Promise<DevicePreset[]> {
   return catalogPromise ??= fetch(catalogUrl).then(async response => {
     if (!response.ok) throw new Error('机型表加载失败');
     const data = await response.json() as { rows: [string, string, string, string][] };
     return data.rows.map(([brand, label, device, model], index) => ({
       id: String(index), brand, label: label || model || device, device, model,
-    })).filter(item => item.model.trim());
+    })).filter(item => item.model.trim()).concat(appleDevicePresets);
   }).finally(() => {
     // 只合并正在读取的请求；调用方保留需要的表，机型名称索引不额外常驻五万行对象。
     catalogPromise = null;
@@ -41,6 +45,8 @@ export function searchDevicePresets(rows: DevicePreset[], query: string, limit =
 export function getDeviceSeries(row: DevicePreset): string {
   const brand = row.brand.toLowerCase();
   const name = row.label.trim();
+  // 苹果分类直接使用源表的设备类别，不从型号编号猜测产品系列。
+  if (brand === 'apple') return row.device || '其他机型';
   if (brand === 'xiaomi') {
     if (/\b(?:pad|mipad)\b/i.test(name)) return '平板系列';
     if (/^(?:xiaomi|mi)\s*mix\b/i.test(name)) return 'MIX 系列';

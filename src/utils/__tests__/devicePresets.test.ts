@@ -1,10 +1,22 @@
 import catalog from '../../../data/android-devices/catalog.json';
+import appleCatalog from '../../../data/apple-devices/catalog.json';
+import appleSource from '../../../data/apple-devices/devices.json';
 import { describe, it, expect, vi } from 'vitest';
-import { searchDevicePresets, groupDevicePresets, getDeviceSeries, loadDevicePresets, resolveDeviceIdentity, getAndroidSdkWarning } from '../devicePresets';
+import { appleDevicePresets, searchDevicePresets, groupDevicePresets, getDeviceSeries, loadDevicePresets, resolveDeviceIdentity, getAndroidSdkWarning } from '../devicePresets';
 
 const rows = catalog.rows.map(([brand, label, device, model]: string[], index: number) => ({ id: String(index), brand, label, device, model }));
 
 describe('official device catalog', () => {
+  it('苹果目录完整展开源表型号，搜索和分类不丢失记录', () => {
+    const expected = new Set(appleSource.flatMap(device => [...(device.identifier ?? []), ...(device.model ?? [])].filter(Boolean).map(model => JSON.stringify(['Apple', device.name, device.type, model]))));
+    expect(new Set(appleCatalog.rows.map(row => JSON.stringify(row)))).toEqual(expected);
+    expect(appleCatalog.sourceDeviceCount).toBe(appleSource.length);
+    expect(appleCatalog.sha256).toMatch(/^[a-f0-9]{64}$/);
+    const groups = groupDevicePresets(appleDevicePresets);
+    expect(groups.flatMap(brand => [...brand.series.values()].flatMap(series => [...series.values()].flat()))).toHaveLength(expected.size);
+    expect(searchDevicePresets(appleDevicePresets, 'iPhone18,2')[0]?.label).toBe('iPhone 17 Pro Max');
+    expect(groups[0].series.has('MacBook Air')).toBe(true);
+  });
   it('retains the complete downloaded table and its source hash', () => {
     expect(catalog.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(rows.length).toBeGreaterThan(50000);
@@ -41,7 +53,7 @@ describe('official device catalog', () => {
     try {
       const [first, second] = await Promise.all([loadDevicePresets(), loadDevicePresets()]);
       expect(first).toBe(second);
-      expect(first.length).toBe(rows.filter((row: { model: string }) => row.model.trim()).length);
+      expect(first.length).toBe(rows.filter((row: { model: string }) => row.model.trim()).length + appleDevicePresets.length);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const reloaded = await loadDevicePresets();
       expect(reloaded).toEqual(first);

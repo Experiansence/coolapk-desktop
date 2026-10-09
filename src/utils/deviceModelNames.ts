@@ -1,5 +1,5 @@
 import { shallowRef } from 'vue';
-import { loadDevicePresets, type DevicePreset } from './devicePresets';
+import { appleDevicePresets, loadDevicePresets, type DevicePreset } from './devicePresets';
 
 const keyOf = (value: string) => value.trim().replace(/\s+/g, '').toLowerCase();
 type ModelIndex = {
@@ -11,7 +11,8 @@ type ModelIndex = {
 export function buildDeviceModelIndex(rows: DevicePreset[]): ModelIndex {
   const index = new Map<string, string | null>();
   const marketingNames = new Set<string>();
-  for (const row of rows) {
+  // 苹果完整快照随包携带，Android 目录加载失败时也能识别；重复记录不影响索引。
+  for (const row of [...appleDevicePresets, ...rows]) {
     if (!row.model.trim() || !row.label.trim()) continue;
     const name = row.label.trim();
     marketingNames.add(keyOf(name));
