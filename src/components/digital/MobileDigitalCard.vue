@@ -1,6 +1,6 @@
 <template>
   <section v-if="isCarousel && children.length" class="mobile-digital-banner">
-    <div class="banner-track" @scroll.passive="updateBanner" ref="bannerTrack">
+    <div class="banner-track" data-discovery-horizontal-scroll @scroll.passive="updateBanner" ref="bannerTrack">
       <button v-for="(item, index) in children" :key="getEntityKey(item, index)" type="button" :aria-label="getDigitalEntityTitle(item) || '数码推荐'" @click="$emit('open', item)">
         <AppImage :src="getEntityImage(item)" fit="cover" image-class="banner-image" />
       </button>

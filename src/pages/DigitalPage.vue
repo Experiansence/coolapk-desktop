@@ -1,8 +1,16 @@
 <template>
   <div class="digital-page page-container" :class="{ 'is-mobile-presentation': mobilePresentation }">
-    <FeedTabs v-if="digitalTabs.length" :active-key="selectedTabKey" :tabs="digitalTabNavItems" :show-manage="false" @update:active-key="selectDigitalTabByKey" />
+    <FeedTabs v-if="digitalTabs.length && !channelOnly" :active-key="selectedTabKey" :tabs="digitalTabNavItems" :swipe-progress="mobilePresentation ? swipeProgress : undefined" :show-manage="false" @update:active-key="selectDigitalTabByKey" />
 
-    <nav v-if="visibleDigitalSubtabs.length" class="digital-subtabs" aria-label="数码服务端子栏目">
+    <!-- 复用发现页的滑动容器；各栏目独立保留筛选、分页与滚动位置。 -->
+    <DiscoveryPager v-if="mobilePresentation && !channelOnly && digitalTabs.length" :tabs="pagerTabs" :active-key="selectedTabKey" @select="selectDigitalTabByKey" @progress="swipeProgress = $event">
+      <template #default="{ tab }">
+        <DigitalPage :key="tab.key" channel-only :channel-tabs="digitalTabs" :channel-key="tab.key" :channel-active="selectedTabKey === tab.key" @select-channel="selectDigitalTabByKey" />
+      </template>
+    </DiscoveryPager>
+    <template v-else>
+
+    <nav v-if="visibleDigitalSubtabs.length" class="digital-subtabs" data-discovery-horizontal-scroll aria-label="数码服务端子栏目">
       <button v-for="item in visibleDigitalSubtabs" :key="subtabKey(item)" type="button" :class="['digital-subtab', { active: selectedSubtabKey === subtabKey(item) }]" @click="selectDigitalSubtab(item)">
         <span>{{ entityTitle(item) || '子栏目' }}</span>
       </button>
@@ -227,6 +235,7 @@
         </div>
       </div>
     </main>
+    </template>
   </div>
 </template>
 
@@ -240,6 +249,7 @@ import ErrorState from '../components/common/ErrorState.vue';
 import LoadingState from '../components/common/LoadingState.vue';
 import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
 import DiscoverySkeleton from '../components/discovery/DiscoverySkeleton.vue';
+import DiscoveryPager from '../components/discovery/DiscoveryPager.vue';
 import FeedTabs from '../components/feed/FeedTabs.vue';
 import DigitalProductCard from '../components/digital/DigitalProductCard.vue';
 import MobileDigitalCard from '../components/digital/MobileDigitalCard.vue';
@@ -248,7 +258,7 @@ import { isTouchMobilePlatform } from '../utils/platform';
 import DigitalProductRow from '../components/digital/DigitalProductRow.vue';
 import DigitalSeriesMore from '../components/digital/DigitalSeriesMore.vue';
 import DigitalSeriesTitle from '../components/digital/DigitalSeriesTitle.vue';
-import type { DiscoveryEntity, DiscoveryPageResult } from '../types/discovery';
+import type { DiscoveryEntity, DiscoveryPageResult, DiscoveryTab } from '../types/discovery';
 import type { ProductBrand } from '../types/product';
 import type { ConfigPageTab } from '../types/settings';
 import { decodeDiscoveryRouteSegment, getEntityFallbackIcon, getEntityImage, getEntityKey, parseDiscoveryPage, resolveDiscoveryRoute } from '../utils/discovery';
@@ -257,6 +267,9 @@ import { getFallbackDigitalTabs, parseDigitalConfig, removeRedundantFirstDigital
 import type { DigitalTab } from '../utils/digitalTabs';
 
 type DigitalMode = 'brand' | 'category';
+const props = withDefaults(defineProps<{ channelOnly?: boolean; channelTabs?: DigitalTab[]; channelKey?: string; channelActive?: boolean }>(), { channelOnly: false, channelActive: true });
+const emit = defineEmits<{ (event: 'select-channel', key: string): void }>();
+const swipeProgress = ref<number>();
 type DisplayMode = 'grid' | 'vertical' | 'horizontal';
 type DigitalBlock = { kind: 'title' | 'more' | 'products' | 'entity'; title?: string; items: DiscoveryEntity[]; entity?: DiscoveryEntity; more?: DiscoveryEntity };
 
@@ -336,6 +349,7 @@ let dynamicCategoryObserver: IntersectionObserver | null = null;
 let tabObserver: IntersectionObserver | null = null;
 
 const selectedTab = computed(() => digitalTabs.value.find((tab) => tab.key === selectedTabKey.value) || null);
+const pagerTabs = computed<DiscoveryTab[]>(() => digitalTabs.value.map(tab => ({ ...tab, subTitle: tab.subTitle || '' })));
 const digitalTabNavItems = computed<ConfigPageTab[]>(() => digitalTabs.value.map((tab) => ({ title: tab.title, page_name: tab.key, url: tab.url || tab.key })));
 const isCategoryTab = computed(() => selectedTab.value?.category === true);
 const isDynamicCategoryView = computed(() => !isCategoryTab.value && Boolean(dynamicCategorySelected.value));
@@ -544,8 +558,8 @@ async function loadDigitalConfig() {
   configLoading.value = true;
   configError.value = '';
   try {
-    const response = await CoolapkTauriAPI.getTabConfig();
-    const parsed = parseDigitalConfig(response);
+    // 子栏目沿用外层已获取的配置，不重复请求栏目配置接口。
+    const parsed = props.channelOnly && props.channelTabs ? { tabs: props.channelTabs, selectedKey: props.channelKey || '' } : parseDigitalConfig(await CoolapkTauriAPI.getTabConfig());
     const normalizedTabs = removeRedundantFirstDigitalTab(parsed.tabs.length ? parsed.tabs : getFallbackDigitalTabs());
     digitalTabs.value = normalizedTabs.tabs;
     const defaultTabKey = resolveDefaultDigitalTabKey(digitalTabs.value, parsed.selectedKey, normalizedTabs.removedKey);
@@ -560,6 +574,7 @@ async function loadDigitalConfig() {
   const nextTab = digitalTabs.value.find((tab) => tab.key === selectedTabKey.value) || digitalTabs.value[0];
   if (!nextTab) return;
   selectedTabKey.value = nextTab.key;
+  if (mobilePresentation.value && !props.channelOnly) return;
   selectedSubtabKey.value = '';
   searchQuery.value = '';
   clearDynamicCategoryView();
@@ -571,6 +586,9 @@ async function loadDigitalConfig() {
 }
 
 function selectDigitalTab(tab: DigitalTab) {
+  // 内容中的跨栏目入口交给外层切换，保持顶部选中项与滑动页一致。
+  if (props.channelOnly && tab.key !== props.channelKey) { emit('select-channel', tab.key); return; }
+  if (mobilePresentation.value && !props.channelOnly) { selectedTabKey.value = tab.key; return; }
   if (selectedTabKey.value === tab.key && !tab.category && isDynamicCategoryView.value) {
     clearDynamicCategoryView();
     return;
@@ -900,7 +918,7 @@ function observePaginationSentinels() {
   productObserver = null;
   dynamicCategoryObserver = null;
   tabObserver = null;
-  if (typeof IntersectionObserver === 'undefined') return;
+  if (!props.channelActive || typeof IntersectionObserver === 'undefined') return;
   if (productBottomSentinel.value) {
     productObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) void loadProducts(true); }, { root: productScrollContainer.value, rootMargin: '480px 0px' });
     productObserver.observe(productBottomSentinel.value);
@@ -920,7 +938,9 @@ function formatCount(value: number): string {
   return String(value);
 }
 
-watch([productBottomSentinel, dynamicCategoryBottomSentinel, tabBottomSentinel, productScrollContainer, tabScrollContainer], () => { void nextTick(observePaginationSentinels); }, { flush: 'post' });
+watch([productBottomSentinel, dynamicCategoryBottomSentinel, tabBottomSentinel, productScrollContainer, tabScrollContainer, () => props.channelActive], () => { void nextTick(observePaginationSentinels); }, { flush: 'post' });
+// 桌面布局仍使用原页面；从移动布局切回时补加载当前栏目。
+watch(mobilePresentation, mobile => { if (!mobile && !props.channelOnly && selectedTab.value) selectDigitalTab(selectedTab.value); });
 
 onMounted(() => { void loadDigitalConfig(); });
 
