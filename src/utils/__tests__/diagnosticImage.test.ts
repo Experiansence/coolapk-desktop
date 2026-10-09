@@ -1,5 +1,6 @@
+import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { packDiagnosticImage, unpackDiagnosticImage, MAX_DIAGNOSTIC_LOG_BYTES, formatDiagnosticTime } from '../diagnosticImage';
+import { packDiagnosticImage, packDiagnosticZip, unpackDiagnosticImage, MAX_DIAGNOSTIC_LOG_BYTES, formatDiagnosticTime } from '../diagnosticImage';
 
 const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='), character => character.charCodeAt(0));
 const report = { version: '1.28.0', platform: 'iOS', createdAt: '2026-10-01T04:00:00.000Z', log: '[INFO] 全文加载成功\n[WARN] request timeout' };
@@ -14,6 +15,14 @@ describe('diagnostic PNG ZIP attachments', () => {
     const packed = packDiagnosticImage(png, report);
     expect(packed.subarray(0, png.length)).toEqual(png);
     expect(unpackDiagnosticImage(packed)).toEqual({ format: 'coolapk-diagnostics-v1', ...report });
+  });
+  it('round trips a standalone ZIP with standard offsets', () => {
+    const zip = packDiagnosticZip(report);
+    expect(Array.from(zip.subarray(0, 4))).toEqual([0x50, 0x4b, 3, 4]);
+    expect(new TextDecoder().decode(unzipSync(zip)['diagnostic.log'])).toBe(report.log);
+    expect(unpackDiagnosticImage(zip)).toEqual({ format: 'coolapk-diagnostics-v1', ...report });
+    zip[30 + 'manifest.json'.length] ^= 1;
+    expect(() => unpackDiagnosticImage(zip)).toThrow();
   });
   it('rejects an ordinary image, thumbnails and truncated downloads', () => {
     expect(() => unpackDiagnosticImage(png)).toThrow('原图');

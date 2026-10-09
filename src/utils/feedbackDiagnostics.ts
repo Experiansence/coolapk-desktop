@@ -3,7 +3,7 @@ import { CoolapkTauriAPI } from '../api/coolapk';
 import { APP_VERSION } from '../constants/version';
 import { getFeedbackTemplate } from './feedback';
 import { redactDiagnosticText } from './diagnosticLogger';
-import { MAX_DIAGNOSTIC_IMAGE_BYTES, MAX_DIAGNOSTIC_LOG_BYTES, packDiagnosticImage, unpackDiagnosticImage, formatDiagnosticTime } from './diagnosticImage';
+import { MAX_DIAGNOSTIC_IMAGE_BYTES, MAX_DIAGNOSTIC_LOG_BYTES, packDiagnosticImage, packDiagnosticZip, unpackDiagnosticImage, formatDiagnosticTime } from './diagnosticImage';
 
 export const DIAGNOSTIC_LINK_LABEL = '诊断日志图片：';
 
@@ -27,15 +27,15 @@ export function sanitizeFeedbackLogs(content: string): string {
 export function normalizeDiagnosticImageUrl(value: string): string {
   const url = new URL(value.trim());
   if (!['http:', 'https:'].includes(url.protocol) || url.hostname !== 'image.coolapk.com'
-    || url.username || url.password || !/^\/feed\/.*\.png$/i.test(url.pathname) || url.search || url.hash) {
-    throw new Error('请填写酷安诊断日志的 PNG 原图地址');
+    || url.username || url.password || !/^\/feed\/.*\.(?:png|zip)$/i.test(url.pathname) || url.search || url.hash) {
+    throw new Error('请填写酷安诊断日志的 PNG 原图或 ZIP 附件地址');
   }
   url.protocol = 'https:';
   return url.href;
 }
 
 export function getDiagnosticLink(text: string): string {
-  const value = text.replace(/<[^>]*>/g, '').match(/诊断日志图片：\s*(https?:\/\/[^\s<>"']+)/)?.[1];
+  const value = text.replace(/<[^>]*>/g, '').match(/诊断日志(?:图片|附件)：\s*(https?:\/\/[^\s<>"']+)/)?.[1];
   if (!value) return '';
   try { return normalizeDiagnosticImageUrl(value); } catch { return ''; }
 }
@@ -77,26 +77,31 @@ export async function createFeedbackDiagnosticImage(): Promise<Uint8Array> {
 
 export async function uploadFeedbackDiagnosticImage(): Promise<string> {
   const bytes = await createFeedbackDiagnosticImage();
-  // Upload the original bytes. No canvas decoding, thumbnail conversion or image message sending here.
-  const response = await CoolapkTauriAPI.uploadImage(bytes, `coolapk-diagnostics-${Date.now()}.png`, 'image/png', 'feed');
-  const data = response?.data ?? response;
-  const url = typeof data === 'string' ? data : data?.url;
-  if (!url) throw new Error('日志已上传，但未取得原图地址');
-  const originalUrl = normalizeDiagnosticImageUrl(url);
-  const original = await downloadDiagnosticImage(originalUrl);
-  if (original.length !== bytes.length || !original.every((byte, index) => byte === bytes[index])) {
-    throw new Error('酷安改写了日志图片，暂未发送反馈，请重试；仍失败可取消附带日志，改用导出日志');
+  const expected = unpackDiagnosticImage(bytes);
+  async function uploadAndVerify(payload: Uint8Array, extension: 'png' | 'zip'): Promise<string> {
+    const response = await CoolapkTauriAPI.uploadImage(payload, `coolapk-diagnostics-${Date.now()}.${extension}`, extension === 'png' ? 'image/png' : 'application/zip', 'feed');
+    const data = response?.data ?? response;
+    const url = typeof data === 'string' ? data : data?.url;
+    if (!url) throw new Error('日志已上传，但未取得附件地址');
+    const originalUrl = normalizeDiagnosticImageUrl(url);
+    const actual = unpackDiagnosticImage(await downloadDiagnosticImage(originalUrl));
+    // 图片编码可以变化，但报告元数据和脱敏日志必须完整一致。
+    if (actual.version !== expected.version || actual.platform !== expected.platform || actual.createdAt !== expected.createdAt || actual.log !== expected.log) throw new Error('上传后的日志附件内容不一致');
+    return originalUrl;
   }
-  try { unpackDiagnosticImage(original); }
-  catch { throw new Error('酷安处理后的图片未能保留完整日志，请重新发送；仍失败可取消附带日志，改用导出日志'); }
-  return originalUrl;
+  try { return await uploadAndVerify(bytes, 'png'); }
+  catch {
+    // 使用同一次脱敏快照生成独立 ZIP，避免 PNG 尾部数据被服务端清除。
+    try { return await uploadAndVerify(packDiagnosticZip(expected), 'zip'); }
+    catch (cause) { throw new Error(`PNG 和 ZIP 日志上传未能完成校验，请重试或导出日志：${String(cause)}`); }
+  }
 }
 
 async function downloadDiagnosticImage(value: string): Promise<Uint8Array> {
   const url = normalizeDiagnosticImageUrl(value);
   const dataUrl = await CoolapkTauriAPI.getImageDataUrl(url);
-  const match = dataUrl.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
-  if (!match || match[1]!.length > Math.ceil(MAX_DIAGNOSTIC_IMAGE_BYTES / 3) * 4) throw new Error('下载内容不是有效日志原图，或超过 2 MB');
+  const match = dataUrl.match(/^data:(?:image\/png|application\/(?:zip|x-zip-compressed|octet-stream));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match || match[1]!.length > Math.ceil(MAX_DIAGNOSTIC_IMAGE_BYTES / 3) * 4) throw new Error('下载内容不是有效日志附件，或超过 2 MB');
   return Uint8Array.from(atob(match[1]!), character => character.charCodeAt(0));
 }
 

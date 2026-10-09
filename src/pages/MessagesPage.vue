@@ -2052,7 +2052,7 @@ const sendMessage = async () => {
       }
       // Never send an account's report to a conversation selected while the upload was in flight.
       if (`${currentUserUid.value}:${getConversationKey()}` !== owner) throw new Error('会话或账号已切换，日志未发送，请在目标会话重试');
-      feedbackText = `${text}\n\n- ${DIAGNOSTIC_LINK_LABEL}${feedbackUpload.value.url}\n- 日志读取：设置 → 诊断日志 → 读取日志图片，粘贴上方链接即可读取`;
+      feedbackText = `${text}\n\n- ${feedbackUpload.value.url.endsWith('.zip') ? '诊断日志附件：' : DIAGNOSTIC_LINK_LABEL}${feedbackUpload.value.url}\n- 日志读取：设置 → 诊断日志 → 读取日志附件，粘贴上方链接即可读取`;
       feedbackStage.value = '日志上传完成，正在发送反馈…';
     }
     // 1. 发送待发送列表中的所有图片

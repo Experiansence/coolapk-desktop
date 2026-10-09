@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ invoke: vi.fn(), uploadImage: vi.fn(), getImag
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('../../api/coolapk', () => ({ CoolapkTauriAPI: mocks }));
 import { getDiagnosticLink, normalizeDiagnosticImageUrl, sanitizeFeedbackLogs, readDiagnosticImageUrl, uploadFeedbackDiagnosticImage } from '../feedbackDiagnostics';
-import { packDiagnosticImage, MAX_DIAGNOSTIC_LOG_BYTES } from '../diagnosticImage';
+import { packDiagnosticImage, packDiagnosticZip, unpackDiagnosticImage, MAX_DIAGNOSTIC_LOG_BYTES } from '../diagnosticImage';
 
 describe('feedback diagnostic links', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -58,6 +58,33 @@ describe('feedback diagnostic links', () => {
     expect([cover.width, cover.height]).toEqual([64, 64]);
     expect(mocks.uploadImage.mock.calls[0]!.slice(2)).toEqual(['image/png', 'feed']);
     expect((await readDiagnosticImageUrl('https://image.coolapk.com/feed/test.png')).log).toContain('elapsed_ms=4321');
+  });
+
+  it('falls back to ZIP when the PNG payload is removed and reads the verified attachment', async () => {
+    mockCoverAndLogs();
+    mocks.uploadImage.mockImplementation(async (_bytes, name) => ({ data: `https://image.coolapk.com/feed/${name.endsWith('.zip') ? 'test.zip' : 'test.png'}` }));
+    mocks.getImageDataUrl.mockImplementation(async (url: string) => {
+      if (url.endsWith('.png')) return 'data:image/png;base64,YWJj';
+      const bytes = mocks.uploadImage.mock.calls[1]![0] as Uint8Array;
+      return `data:application/zip;base64,${btoa(String.fromCharCode(...bytes))}`;
+    });
+    expect(await uploadFeedbackDiagnosticImage()).toBe('https://image.coolapk.com/feed/test.zip');
+    expect(mocks.uploadImage.mock.calls[1]!.slice(2)).toEqual(['application/zip', 'feed']);
+    expect(mocks.invoke).toHaveBeenCalledOnce();
+    expect(getDiagnosticLink('诊断日志附件：https://image.coolapk.com/feed/test.zip')).toBe('https://image.coolapk.com/feed/test.zip');
+    expect((await readDiagnosticImageUrl('https://image.coolapk.com/feed/test.zip')).log).toContain('elapsed_ms=4321');
+  });
+
+  it('rejects a readable ZIP whose log was replaced', async () => {
+    mockCoverAndLogs();
+    mocks.uploadImage.mockImplementation(async (_bytes, name) => ({ data: `https://image.coolapk.com/feed/${name.endsWith('.zip') ? 'test.zip' : 'test.png'}` }));
+    mocks.getImageDataUrl.mockImplementation(async (url: string) => {
+      if (url.endsWith('.png')) return 'data:image/png;base64,YWJj';
+      const original = unpackDiagnosticImage(mocks.uploadImage.mock.calls[1]![0] as Uint8Array);
+      const changed = packDiagnosticZip({ ...original, log: 'replaced log' });
+      return `data:application/zip;base64,${btoa(String.fromCharCode(...changed))}`;
+    });
+    await expect(uploadFeedbackDiagnosticImage()).rejects.toThrow('内容不一致');
   });
 
   it('rejects uploads whose downloaded image lost the ZIP payload', async () => {

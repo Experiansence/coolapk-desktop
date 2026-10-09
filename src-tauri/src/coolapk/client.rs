@@ -3795,7 +3795,11 @@ impl CoolapkClient {
         if !status.is_success() {
             return Err(format!("Coolapk image CDN returned HTTP {status}"));
         }
-        if !content_type.starts_with("image/") {
+        // 诊断 ZIP 仅允许酷安 feed 原始附件地址，其他图片请求维持原有类型限制。
+        let diagnostic_zip = host == "image.coolapk.com"
+            && reqwest::Url::parse(source_url).map(|source| source.path().starts_with("/feed/") && source.path().to_ascii_lowercase().ends_with(".zip") && source.query().is_none() && source.fragment().is_none()).unwrap_or(false)
+            && matches!(content_type.split(';').next().unwrap_or("").trim(), "application/zip" | "application/x-zip-compressed" | "application/octet-stream");
+        if !content_type.starts_with("image/") && !diagnostic_zip {
             return Err(format!("unexpected image content type: {content_type}"));
         }
 
@@ -3806,6 +3810,7 @@ impl CoolapkClient {
         if bytes.len() > 50 * 1024 * 1024 {
             return Err("image exceeds the 50 MB desktop limit".to_string());
         }
+        let content_type = if diagnostic_zip { "application/zip" } else { &content_type };
         Ok(format!(
             "data:{content_type};base64,{}",
             BASE64.encode(bytes)

@@ -26,12 +26,12 @@
     <pre class="log-content custom-scrollbar">{{ visibleLines.length ? visibleLines.join('\n') : '暂无日志' }}</pre>
     <p class="path">日志目录：{{ snapshot.directory || '正在获取…' }}</p>
     <section class="report-reader">
-      <h4>读取日志图片</h4>
-      <p class="description">粘贴反馈私信中的“诊断日志图片”链接即可读取。也可在浏览器打开该链接，保存 PNG 文件后点“选择原图”。请勿保存聊天缩略图或截图。</p>
+      <h4>读取日志附件</h4>
+      <p class="description">粘贴反馈私信中的诊断日志图片或 ZIP 附件链接即可读取。也可在浏览器保存 PNG 原图或 ZIP 文件后点“选择附件”。请勿保存聊天缩略图或截图。</p>
       <div class="toolbar">
-        <input v-model="reportUrl" type="url" class="control search" placeholder="https://image.coolapk.com/feed/…png" aria-label="日志原图地址" />
+        <input v-model="reportUrl" type="url" class="control search" placeholder="https://image.coolapk.com/feed/…png 或 …zip" aria-label="日志附件地址" />
         <AppButton variant="secondary" size="sm" :loading="readingReport" :disabled="!reportUrl.trim() || readingReport" @click="readReportUrl">读取链接</AppButton>
-        <label class="control report-file-button">选择原图<input type="file" accept="image/png,.png" :disabled="readingReport" @change="readReportFile" /></label>
+        <label class="control report-file-button">选择附件<input type="file" accept="image/png,application/zip,.png,.zip" :disabled="readingReport" @change="readReportFile" /></label>
       </div>
       <p v-if="reportError" class="error-text" role="alert">{{ reportError }}</p>
       <template v-if="report">
@@ -83,7 +83,7 @@ async function readReportFile(event: Event) {
   const file = input.files?.[0];
   if (!file) return;
   await readReport(async () => {
-    if (file.size > MAX_DIAGNOSTIC_IMAGE_BYTES) throw new Error('日志图片超过 2 MB');
+    if (file.size > MAX_DIAGNOSTIC_IMAGE_BYTES) throw new Error('日志附件超过 2 MB');
     return unpackDiagnosticImage(new Uint8Array(await file.arrayBuffer()));
   });
   input.value = '';

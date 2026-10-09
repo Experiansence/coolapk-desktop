@@ -46,7 +46,15 @@ function pngEnd(bytes: Uint8Array): number {
 }
 
 export function packDiagnosticImage(png: Uint8Array, report: Omit<DiagnosticReport, 'format'>): Uint8Array {
-  const prefix = png.subarray(0, pngEnd(png));
+  return packDiagnosticArchive(png.subarray(0, pngEnd(png)), report);
+}
+
+/** 独立 ZIP 使用从零开始的偏移，可直接由普通解压软件读取。 */
+export function packDiagnosticZip(report: Omit<DiagnosticReport, 'format'>): Uint8Array {
+  return packDiagnosticArchive(new Uint8Array(), report);
+}
+
+function packDiagnosticArchive(prefix: Uint8Array, report: Omit<DiagnosticReport, 'format'>): Uint8Array {
   const log = encoder.encode(report.log);
   if (!log.length || log.length > MAX_DIAGNOSTIC_LOG_BYTES) throw new Error('日志为空或超过 512 KB');
   const { log: _, ...metadata } = report;
@@ -103,7 +111,8 @@ export function packDiagnosticImage(png: Uint8Array, report: Omit<DiagnosticRepo
 /** Read only the two known entries with bounded decompression buffers; support old stored ZIPs. */
 export function unpackDiagnosticImage(bytes: Uint8Array): DiagnosticReport {
   if (bytes.length > MAX_DIAGNOSTIC_IMAGE_BYTES) throw new Error('日志图片超过 2 MB');
-  const start = pngEnd(bytes);
+  // 同时兼容旧 PNG 尾部附件和独立 ZIP，继续校验大小、条目与 CRC。
+  const start = bytes[0] === 0x50 && bytes[1] === 0x4b ? 0 : pngEnd(bytes);
   const end = bytes.length - 22;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const invalid = () => new Error('未找到完整日志附件，请使用原图，不能使用缩略图或截图');
