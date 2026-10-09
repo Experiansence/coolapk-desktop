@@ -787,6 +787,16 @@ fn is_main_window_navigation_allowed(url: &tauri::Url) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    #[cfg(desktop)]
+    let context = {
+        let mut context = context;
+        // 桌面主窗口先隐藏，恢复记忆尺寸和位置后再显示，避免默认尺寸闪现。
+        if let Some(window) = context.config_mut().app.windows.iter_mut().find(|window| window.label == "main") {
+            window.visible = false;
+        }
+        context
+    };
     diagnostics::install_panic_hook();
     let client = CoolapkClient::new();
     let state = AppState {
@@ -966,7 +976,6 @@ pub fn run() {
                             }
                             if flags["start_minimized"].as_bool().unwrap_or(false) {
                                 START_MINIMIZED.store(true, Ordering::SeqCst);
-                                let _ = w.hide();
                             }
                         }
                     }
@@ -988,6 +997,8 @@ pub fn run() {
                         }
                     }
                 }
+                // 完成窗口状态恢复后才首次显示；静默启动时继续隐藏到托盘。
+                if !START_MINIMIZED.load(Ordering::SeqCst) { w.show()?; }
             }
 
             }
@@ -1404,7 +1415,7 @@ pub fn run() {
             vote_goods_list_item,
             bind_feed_to_goods_list,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(&event, tauri::RunEvent::Exit) {
