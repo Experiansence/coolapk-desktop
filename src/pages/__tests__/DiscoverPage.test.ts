@@ -95,6 +95,24 @@ describe('二手频道自动加载 flex 信息流', () => {
       { id: 1, title: '分类入口', entityTemplate: 'imageSquareScrollCard' },
     ], hasMore: false });
   });
+  it('不足 20 条的二手页继续分页，空页才停止加载', async () => {
+    api.getDiscoveryPageData.mockResolvedValueOnce({ data: [{ id: 10, title: '第一页商品', entityType: 'feed', feedType: 'ershou' }], pageContext: 'context-1' });
+    const w = await render();
+    try {
+      expect(w.find('.no-more').exists()).toBe(false);
+      api.getDiscoveryPageData.mockResolvedValueOnce({ data: [{ id: 11, title: '第二页商品', entityType: 'feed', feedType: 'ershou' }] });
+      await w.find('.discover-scroll-container').trigger('scroll'); await flushPromises();
+      expect(api.getDiscoveryPageData.mock.calls[2][0]).toMatchObject({ page: 2, lastItem: '10', pageContext: 'context-1' });
+      expect(w.text()).toContain('第二页商品');
+      expect(w.find('.no-more').exists()).toBe(false);
+      api.getDiscoveryPageData.mockResolvedValueOnce({ data: [] });
+      await w.find('.discover-scroll-container').trigger('scroll'); await flushPromises();
+      expect(w.find('.no-more').exists()).toBe(true);
+      const count = api.getDiscoveryPageData.mock.calls.length;
+      await w.find('.discover-scroll-container').trigger('scroll'); await flushPromises();
+      expect(api.getDiscoveryPageData).toHaveBeenCalledTimes(count);
+    } finally { w.unmount(); }
+  });
   it('先加载头部，再自动请求商品，下一页使用商品游标且不重复头部', async () => {
     api.getDiscoveryPageData.mockResolvedValueOnce({ data: [{ id: 10, title: '小米平板5', entityType: 'feed', feedType: 'ershou' }], hasMore: true, lastItem: '10', pageContext: 'feed-context' });
     const w = await render();

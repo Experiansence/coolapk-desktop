@@ -13,6 +13,12 @@ import {
 } from '../discovery';
 
 describe('discovery dynamic configuration', () => {
+  it('continues short secondhand pages until an empty page or explicit end', () => {
+    const data = [{ entityTemplate: 'sponsorCard', entityId: 'ad' }, { id: 12, entityTemplate: 'feedErshou', entityType: 'feed', feedType: 'ershou' }];
+    expect(parseDiscoveryPage({ data }, 2).hasMore).toBe(true);
+    expect(parseDiscoveryPage({ data, hasMore: false }, 2).hasMore).toBe(false);
+    expect(parseDiscoveryPage({ data: [] }, 3).hasMore).toBe(false);
+  });
   it('does not display native sponsor slots as blank cards or include them in feed cursors', () => {
     const result = parseDiscoveryPage({data:[{entityTemplate:'sponsorCard',entityType:'card',entityId:'sponsor',entities:[]},{id:12,entityTemplate:'feedErshou',entityType:'feed',feedType:'ershou'}]},1);
     expect(result.items.map(item=>item.id)).toEqual([12]);

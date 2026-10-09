@@ -171,9 +171,11 @@ export function parseDiscoveryPage(response: unknown, page: number): DiscoveryPa
   const explicitMore = root.hasMore ?? root.has_more ?? meta.hasMore ?? meta.has_more
     ?? (total > 0 ? current < total : undefined);
   const contentCount = items.reduce((count, item) => count + (Array.isArray(item.entities) ? item.entities.length : 1), 0);
+  // 二手信息流每页数量不固定，广告过滤也会减少条数，不能以不足 20 条判断结束。
+  const hasSecondHandFeed = parsedItems.some(item => String(item.feedType || item.feed_type).toLowerCase() === 'ershou' || String(item.entityTemplate).toLowerCase() === 'feedershou');
   const hasMore = typeof explicitMore === 'boolean'
     ? explicitMore
-    : contentCount >= 20;
+    : hasSecondHandFeed || contentCount >= 20;
   // APK DataListFragment uses configCard.flexList to mount a separate feed list.
   const flexUrl = String(config.flexList) === '1' ? firstString(config.url) : '';
   return { items, page, hasMore, firstItem, lastItem, pageContext, flexUrl, raw: response };
