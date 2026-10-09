@@ -210,6 +210,8 @@ struct ScreenRect {
 }
 
 static WINDOW_STATE: Mutex<Option<WindowState>> = Mutex::new(None);
+// 最大化状态独立保存，WINDOW_STATE 始终保留可还原的普通窗口几何信息。
+static WINDOW_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 static STARTUP_STATE_LOCK: Mutex<()> = Mutex::new(());
 static STARTUP_STATE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -321,12 +323,16 @@ fn persist_window_geometry(app: &tauri::AppHandle, state: WindowState) {
         "remember_window_state": REMEMBER_WINDOW_STATE.load(Ordering::SeqCst),
         "always_on_top": ALWAYS_ON_TOP.load(Ordering::SeqCst)
     });
-    let _ = update_startup_state_file(&path, fallback, |flags| {
-        flags["x"] = serde_json::json!(state.x);
-        flags["y"] = serde_json::json!(state.y);
-        flags["w"] = serde_json::json!(state.w);
-        flags["h"] = serde_json::json!(state.h);
-    });
+    let _ = update_startup_state_file(&path, fallback, |flags| write_saved_window_state(flags, state, WINDOW_MAXIMIZED.load(Ordering::SeqCst)));
+}
+
+// 最大化标记与普通窗口几何信息一起写入，保留同一文件里的其他启动设置。
+fn write_saved_window_state(flags: &mut serde_json::Value, state: WindowState, maximized: bool) {
+    flags["x"] = serde_json::json!(state.x);
+    flags["y"] = serde_json::json!(state.y);
+    flags["w"] = serde_json::json!(state.w);
+    flags["h"] = serde_json::json!(state.h);
+    flags["maximized"] = serde_json::json!(maximized);
 }
 
 fn cached_window_state() -> Option<WindowState> {
@@ -419,7 +425,14 @@ pub(crate) fn persist_current_window_geometry(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let state = match (window.outer_position(), window.inner_size()) {
+    // 最小化到任务栏时保留此前状态，避免将最小化尺寸或最大化尺寸写入普通窗口记录。
+    let minimized = window.is_minimized().unwrap_or(false);
+    if !minimized {
+        if let Ok(maximized) = window.is_maximized() { WINDOW_MAXIMIZED.store(maximized, Ordering::SeqCst); }
+    }
+    let state = if minimized || WINDOW_MAXIMIZED.load(Ordering::SeqCst) {
+        cached_window_state()
+    } else { match (window.outer_position(), window.inner_size()) {
         (Ok(pos), Ok(size)) if size.width >= MIN_WINDOW_W && size.height >= MIN_WINDOW_H => {
             Some(WindowState {
                 x: pos.x,
@@ -429,7 +442,7 @@ pub(crate) fn persist_current_window_geometry(app: &tauri::AppHandle) {
             })
         }
         _ => cached_window_state(),
-    };
+    } };
     if let Some(state) = state {
         persist_window_geometry(app, state);
     }
@@ -439,8 +452,22 @@ pub(crate) fn persist_current_window_geometry(app: &tauri::AppHandle) {
 mod window_state_tests {
     use super::{
         MIN_WINDOW_H, MIN_WINDOW_W, ScreenRect, WindowState, parse_saved_window_state,
-        restore_window_rect, update_startup_state_file,
+        restore_window_rect, update_startup_state_file, write_saved_window_state,
     };
+
+    #[test]
+    fn saves_maximized_state_without_losing_normal_geometry_or_preferences() {
+        let normal = WindowState { x: 120, y: 80, w: 1200, h: 700 };
+        let mut flags = serde_json::json!({"remember_window_state": true, "start_minimized": true});
+        write_saved_window_state(&mut flags, normal, true);
+        let mut restored: serde_json::Value = serde_json::from_str(&flags.to_string()).unwrap();
+        assert_eq!(restored["maximized"], true);
+        assert_eq!(parse_saved_window_state(&restored), Some(normal));
+        assert_eq!(restored["start_minimized"], true);
+        write_saved_window_state(&mut restored, normal, false);
+        assert_eq!(restored["maximized"], false);
+        assert_eq!(parse_saved_window_state(&restored), Some(normal));
+    }
 
     #[test]
     fn parses_valid_window_geometry() {
@@ -930,6 +957,7 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
+            let mut restore_maximized = false;
             // 读取启动参数并应用：窗口置顶 / 记忆上次窗口大小位置 / 静默启动到托盘
             if let Some(path) = startup_state_path(app.app_handle()) {
                 if let Ok(raw) = std::fs::read_to_string(&path) {
@@ -944,6 +972,8 @@ pub fn run() {
                                 flags["remember_window_state"].as_bool().unwrap_or(true);
                             REMEMBER_WINDOW_STATE.store(remember_window_state, Ordering::SeqCst);
                             if remember_window_state {
+                                // 旧版记录不含此字段时继续按普通窗口恢复。
+                                restore_maximized = flags["maximized"].as_bool().unwrap_or(false);
                                 if let Some(saved_state) = parse_saved_window_state(&flags) {
                                     let screens: Vec<ScreenRect> = w
                                         .available_monitors()
@@ -997,6 +1027,9 @@ pub fn run() {
                         }
                     }
                 }
+                // 先保存普通窗口尺寸，再在首次显示前最大化，确保点击还原能恢复普通尺寸。
+                WINDOW_MAXIMIZED.store(restore_maximized, Ordering::SeqCst);
+                if restore_maximized { w.maximize()?; }
                 // 完成窗口状态恢复后才首次显示；静默启动时继续隐藏到托盘。
                 if !START_MINIMIZED.load(Ordering::SeqCst) { w.show()?; }
             }
@@ -1075,6 +1108,14 @@ pub fn run() {
             {
             if window.label() != "main" {
                 return;
+            }
+            // 移动和缩放事件同时更新状态，但最大化或最小化期间不覆盖普通窗口尺寸。
+            if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+                if window.is_minimized().unwrap_or(false) { return; }
+                if let Ok(maximized) = window.is_maximized() {
+                    WINDOW_MAXIMIZED.store(maximized, Ordering::SeqCst);
+                    if maximized { return; }
+                } else { return; }
             }
             match event {
                 WindowEvent::Moved(pos) => {
