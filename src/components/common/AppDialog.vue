@@ -1,10 +1,10 @@
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="isOpen" class="dialog-backdrop" @click="handleBackdropClick"></div>
+      <div v-if="isOpen" class="dialog-backdrop" :style="{ zIndex: layer }" @click="handleBackdropClick"></div>
     </Transition>
     <Transition name="scale-dialog">
-      <div v-if="isOpen" class="dialog-wrapper">
+      <div v-if="isOpen" class="dialog-wrapper" :style="{ zIndex: layer + 1 }">
         <div class="dialog-container" :class="dialogClass" :style="{ width: `${width}px` }">
           <div v-if="title" class="dialog-header">
             <slot name="header">
@@ -26,8 +26,14 @@
   </Teleport>
 </template>
 
+<script lang="ts">
+// 所有实例共享打开顺序，避免 Teleport 的挂载顺序将确认窗口压在来源窗口下方。
+const openDialogs = new Map<symbol, number>();
+let nextDialogLayer = 2000;
+</script>
+
 <script setup lang="ts">
-import { onActivated, onDeactivated, onUnmounted, watch } from 'vue';
+import { onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
 
 const props = withDefaults(
@@ -60,18 +66,30 @@ function handleBackdropClick() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (props.isOpen && e.key === 'Escape') {
+  // 只处理最上层弹窗，取消确认时保留下方的用户操作窗口。
+  if (props.isOpen && e.key === 'Escape' && Array.from(openDialogs.keys()).at(-1) === dialogId) {
+    e.stopImmediatePropagation();
     close();
   }
 }
 
 useAndroidBackButton(() => props.isOpen, close);
 
+const dialogId = Symbol('dialog');
+const layer = ref(2000);
+
 function bindGlobalListeners() {
+  if (!openDialogs.has(dialogId)) {
+    layer.value = nextDialogLayer;
+    nextDialogLayer += 2;
+    openDialogs.set(dialogId, layer.value);
+  }
   window.addEventListener('keydown', handleKeydown);
 }
 
 function unbindGlobalListeners() {
+  openDialogs.delete(dialogId);
+  if (!openDialogs.size) nextDialogLayer = 2000;
   window.removeEventListener('keydown', handleKeydown);
 }
 
