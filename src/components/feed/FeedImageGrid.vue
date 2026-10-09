@@ -231,8 +231,7 @@ function openViewer(index: number) {
   border-radius: 12px;
   overflow: hidden;
   isolation: isolate;
-  /* 宫格尺寸由宽高比确定，离屏时跳过内部绘制，不改变列表高度。 */
-  content-visibility: auto;
+  /* 宫格保持正常布局；整张卡片统一回收离屏内容，避免嵌套跳过绘制引起滚动补偿。 */
   background-color: var(--background-secondary, rgba(0, 0, 0, 0.03));
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);

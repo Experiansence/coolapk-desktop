@@ -1,7 +1,7 @@
 <template>
+  <!-- 卡片保留正常布局，离屏子树由 useViewportContent 回收，避免绘制跳过与高度测量反复影响滚动位置。 -->
   <article
     ref="cardRef"
-    v-deferred-paint="renderViewportContent && !detailMode && !officialMobileDetail && !showComments && !moreMenuOpen"
     :style="viewportPlaceholderStyle"
     @click.capture="retainViewportContent"
     @pointerdown.capture="retainPointerContent"
@@ -333,7 +333,6 @@
 <script setup lang="ts">
 import { isFeedEdited } from '../../utils/feedEditStatus';
 import { computed, ref, watch, onMounted, nextTick, onUnmounted, onActivated, onDeactivated, inject } from 'vue';
-import { vDeferredPaint } from '../../utils/deferredPaint';
 import { useViewportContent } from '../../composables/useViewportContent';
 import { feedPageVisibleKey, feedPageRenderKey } from '../../utils/feedPageVisibility';
 import { useRouter } from 'vue-router';
