@@ -15,6 +15,7 @@ import android.provider.Settings
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.view.View
+import android.view.WindowManager
 import android.webkit.MimeTypeMap
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -216,15 +217,20 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        // Android WebView 的 CSS safe-area 可能为 0，原生预留系统栏及刘海区域。
+        // 保证旧版 Android 也派发键盘遮挡区域，由原生容器统一避让。
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        // Android WebView 的 CSS safe-area 可能为 0，原生预留系统栏、刘海及键盘区域。
         val content = findViewById<View>(android.R.id.content)
         val safeAreaTypes = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        val handledTypes = safeAreaTypes or WindowInsetsCompat.Type.ime()
         ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
             val bars = insets.getInsets(safeAreaTypes)
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            // 已由父容器预留，避免 WebView 再次添加安全区；保留键盘等其他 inset。
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            // 键盘高度已包含底部系统区域，取较大值而非相加，避免输入框被重复顶起。
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
+            // 父容器已完成避让，清除向 WebView 派发的同类区域，避免再次缩小内容区。
             WindowInsetsCompat.Builder(insets)
-                .setInsets(safeAreaTypes, Insets.NONE)
+                .setInsets(handledTypes, Insets.NONE)
                 .setInsetsIgnoringVisibility(safeAreaTypes, Insets.NONE)
                 .build()
         }
