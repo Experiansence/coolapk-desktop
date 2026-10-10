@@ -131,6 +131,37 @@ function ensureAndroidProject() {
       `${signingStorePassword}\n                enableV1Signing = true\n                enableV2Signing = true`,
     );
   }
+  const sizeOptimizationMarker = '// coolapk-android-size-optimization';
+  if (!buildGradle.includes(sizeOptimizationMarker)) {
+    buildGradle = buildGradle.replace(
+      '    buildTypes {',
+      `    ${sizeOptimizationMarker}\n    androidResources {\n        localeFilters += listOf("zh", "zh-rCN", "zh-rHK", "zh-rTW", "en")\n    }\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n    buildTypes {`,
+    );
+  }
+  // Tauri 模板在 debug buildType 内调用的 packaging 实际作用域为全局 android.packaging，
+  // 若不限定仅 Debug 任务生效，会导致 Release 构建也跳过 .so 符号表剥离。
+  const unconditionalKeepSymbols = [
+    '            packaging {',
+    '                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")',
+    '                jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")',
+    '                jniLibs.keepDebugSymbols.add("*/x86/*.so")',
+    '                jniLibs.keepDebugSymbols.add("*/x86_64/*.so")',
+    '            }',
+  ].join('\n');
+  const debugOnlyKeepSymbols = [
+    '            if (gradle.startParameter.taskNames.any { it.contains("Debug", ignoreCase = true) }) {',
+    '                packaging {',
+    '                    jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")',
+    '                    jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")',
+    '                    jniLibs.keepDebugSymbols.add("*/x86/*.so")',
+    '                    jniLibs.keepDebugSymbols.add("*/x86_64/*.so")',
+    '                }',
+    '            }',
+  ].join('\n');
+  const normalizedGradle = buildGradle.replaceAll('\r\n', '\n');
+  if (normalizedGradle.includes(unconditionalKeepSymbols)) {
+    buildGradle = normalizedGradle.replace(unconditionalKeepSymbols, debugOnlyKeepSymbols);
+  }
   writeFileSync(appBuildGradle, buildGradle, 'utf8');
 
   const loginActivityMarker = 'android:name=".LoginActivity"';
