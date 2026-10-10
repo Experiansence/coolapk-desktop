@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   getSubReplies: vi.fn(),
   replyFeed: vi.fn(),
   uploadImage: vi.fn(),
+  logDiagnostic: vi.fn(),
+}));
+vi.mock('../../../utils/diagnosticLogger', async (original) => ({
+  ...await original<typeof import('../../../utils/diagnosticLogger')>(),
+  logDiagnostic: mocks.logDiagnostic,
 }));
 vi.mock('../../../utils/devicePresets', async (original) => ({
   ...await original<typeof import('../../../utils/devicePresets')>(),
@@ -333,6 +338,28 @@ describe('评论完整信息展示', () => {
     await flushPromises();
     expect(mocks.getReplyDetail).toHaveBeenCalledWith('reply-1');
     expect(wrapper.text()).toContain('小米 17 Ultra');
+  });
+
+  it('长评论的查看更多读取评论详情并在原位显示完整正文', async () => {
+    mocks.getReplyDetail.mockResolvedValue({ data: { message: '完整的长评论正文' } });
+    const wrapper = mountSection({ id: '610688345', message: '摘要…<a href="/feed/610688345">查看更多</a>' });
+    await wrapper.get('.comment-text a').trigger('click');
+    await flushPromises();
+    expect(mocks.getReplyDetail).toHaveBeenCalledWith('610688345');
+    expect(mocks.logDiagnostic).toHaveBeenCalledWith('info', 'comment', 'expand_requested', 'feed_id=feed-1 reply_id=610688345');
+    expect(wrapper.get('.comment-text').text()).toBe('完整的长评论正文');
+    expect(wrapper.get('.comment-text').text()).not.toContain('查看更多');
+    wrapper.unmount();
+  });
+
+  it('楼中楼长回复的查看更多也在当前评论区展开', async () => {
+    mocks.getReplyDetail.mockImplementation(async (id: string) => ({ data: { message: id === 'sub-1' ? '楼中楼完整正文' : '' } }));
+    const wrapper = mountSection({ replyRows: [{ id: 'sub-1', username: '回复用户', message: '摘要…<a href="/feed/sub-1">查看更多</a>' }] });
+    await wrapper.get('.sub-reply-text a').trigger('click');
+    await flushPromises();
+    expect(mocks.getReplyDetail).toHaveBeenCalledWith('sub-1');
+    expect(wrapper.get('.sub-reply-text').text()).toBe('楼中楼完整正文');
+    wrapper.unmount();
   });
 
   it('支持表情面板展开与表情插入，并支持最近使用与移除顶部栏', async () => {

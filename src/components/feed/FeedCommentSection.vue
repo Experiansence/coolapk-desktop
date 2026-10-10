@@ -420,7 +420,7 @@
                   </span>
                 </div>
                 <!-- 子回复正文 -->
-                <div class="sub-reply-text" v-html="formatCommentText(getCommentText(sub))" @click="handleAnchorClick"></div>
+                <div class="sub-reply-text" v-html="formatCommentText(getCommentText(sub))" @click="handleSubReplyTextClick($event, sub)"></div>
                 <FeedImageGrid
                   v-if="getCommentImages(sub).length"
                   class="comment-image-grid sub-comment-images"
@@ -558,6 +558,8 @@ import { showToast } from '../../utils/toast';
 import { requestConfirmation } from '../../utils/confirm';
 import { getErrorMessage } from '../../utils/errors';
 import { renderCoolapkRichText } from '../../utils/richText';
+import { hasFeedMoreSuffix } from '../../utils/feedContent';
+import { logDiagnostic, summarizeDiagnosticError } from '../../utils/diagnosticLogger';
 import { reactiveUserProfileMap, getCachedUserProfileSync } from '../../utils/userProfilePreloader';
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
@@ -1566,10 +1568,38 @@ function handleCommentTextClick(e: MouseEvent, c: any) {
   if (hasActiveTextSelection()) return;
   // 点中了评论内的链接则交给统一链接处理，否则视为点击评论（设置为回复对象）
   if ((e.target as HTMLElement).closest('a')) {
+    if (handleCommentMoreClick(e, c)) return;
     handleAnchorClick(e);
     return;
   }
   setReplyTarget(c.username || c.userInfo?.username, c.id);
+}
+
+function handleSubReplyTextClick(e: MouseEvent, sub: any) {
+  if (!handleCommentMoreClick(e, sub)) handleAnchorClick(e);
+}
+
+function handleCommentMoreClick(e: MouseEvent, comment: any): boolean {
+  const anchor = (e.target as HTMLElement).closest('a');
+  if (!anchor?.textContent?.trim().includes('查看更多')) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const replyId = String(comment?.id ?? '').trim();
+  const feedId = String(props.feedId ?? '').trim();
+  // 只记录所属动态和评论 ID，便于从用户诊断日志定位原文章，不记录正文。
+  logDiagnostic('info', 'comment', 'expand_requested', `feed_id=${feedId} reply_id=${replyId}`);
+  if (!replyId) return true;
+  // 评论的“查看更多”指向评论 ID，必须读取评论详情，不能作为动态 ID 打开。
+  void CoolapkTauriAPI.getReplyDetail(replyId).then((response: any) => {
+    const message = response?.data?.message;
+    if (typeof message !== 'string' || !message.trim() || hasFeedMoreSuffix(message)) throw new Error('评论详情没有返回完整正文');
+    replyDetails.value = { ...replyDetails.value, [replyId]: { ...replyDetails.value[replyId], ...response.data } };
+    logDiagnostic('info', 'comment', 'expand_succeeded', `feed_id=${feedId} reply_id=${replyId}`);
+  }).catch((error: unknown) => {
+    logDiagnostic('warn', 'comment', 'expand_failed', `feed_id=${feedId} reply_id=${replyId} reason=${summarizeDiagnosticError(error)}`);
+    showToast('加载完整评论失败，请稍后重试', 'error');
+  });
+  return true;
 }
 
 function handleSubReplyClick(e: MouseEvent, sub: any, floor: any) {

@@ -4400,6 +4400,8 @@ impl CoolapkClient {
             "code": 200,
             "data": {
                 "id": obj.get("id").map(value_to_string).unwrap_or_default(),
+                // 评论列表可能截断正文并附加“查看更多”，详情中的 message 用于原位展开。
+                "message": obj.get("message").cloned().unwrap_or(Value::Null),
                 "deviceTitle": device_title,
                 "deviceName": obj.get("device_name").and_then(Value::as_str).unwrap_or(""),
                 "deviceBuild": device_build,
