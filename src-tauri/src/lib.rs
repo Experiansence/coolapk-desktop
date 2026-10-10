@@ -551,6 +551,18 @@ fn set_window_theme(app: tauri::AppHandle, theme: Option<String>) -> Result<(), 
     Ok(())
 }
 
+#[tauri::command]
+async fn set_android_system_bar_theme(app: tauri::AppHandle, dark: bool) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let theme = if dark { "dark" } else { "light" };
+        coolapk::commands::call_android_update_method(&app, "setSystemBarTheme", theme.to_string()).await?;
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = (app, dark);
+    Ok(())
+}
+
 #[cfg(windows)]
 fn choose_windows_font_family(
     owner: windows::Win32::Foundation::HWND,
@@ -1320,6 +1332,7 @@ pub fn run() {
             get_platform_info,
             set_close_to_tray,
             set_window_theme,
+            set_android_system_bar_theme,
             pick_font_family,
             set_startup_flags,
             send_desktop_notification,

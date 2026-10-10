@@ -3,9 +3,11 @@ package com.coolapk.desktop
 import android.content.ClipData
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.res.Configuration
 import android.content.Intent
 import android.app.AlertDialog
 import android.app.Activity
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,10 +26,25 @@ import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    private fun applySystemBarTheme(dark: Boolean) {
+        val surface = if (dark) Color.rgb(0x18, 0x1b, 0x1e) else Color.WHITE
+        // 状态栏保持透明；给原生安全区与网页顶栏使用相同的背景色。
+        window.decorView.setBackgroundColor(surface)
+        findViewById<View>(android.R.id.content).setBackgroundColor(surface)
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !dark
+    }
+
+    @Keep
+    fun setSystemBarTheme(theme: String): String {
+        runOnUiThread { applySystemBarTheme(theme == "dark") }
+        return "ok"
+    }
+
     @Keep
     fun getUploadFileName(location: String): String {
         val uri = Uri.parse(location)
@@ -217,6 +234,7 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        applySystemBarTheme(resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
         // 保证旧版 Android 也派发键盘遮挡区域，由原生容器统一避让。
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         // Android WebView 的 CSS safe-area 可能为 0，原生预留系统栏、刘海及键盘区域。

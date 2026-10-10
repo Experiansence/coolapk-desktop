@@ -507,6 +507,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function syncWindowTheme(theme: 'light' | 'dark' | null) {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
+    if (typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent)) {
+      // Android 状态栏后方由原生容器绘制，颜色须与当前 CSS 主题一致。
+      void invoke('set_android_system_bar_theme', { dark: document.documentElement.getAttribute('data-theme') === 'dark' }).catch((err) => console.warn('同步 Android 状态栏主题失败:', err));
+    }
     if ((window as any).__TAURI_INTERNALS__?.metadata) {
       void getCurrentWindow().setTheme(theme).catch((err) => {
         console.warn('通过 Tauri Window API 设置窗口主题失败:', err);

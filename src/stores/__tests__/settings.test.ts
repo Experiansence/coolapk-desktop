@@ -189,6 +189,22 @@ describe('settings store', () => {
     expect(store.settings.theme).toBe('dark');
   });
 
+  it('Android 主题切换时同步状态栏背景和图标模式', async () => {
+    const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Android');
+    try {
+      (window as any).__TAURI_INTERNALS__ = {};
+      const store = useSettingsStore();
+      store.setTheme('dark');
+      await nextTick();
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: true });
+      store.setTheme('light');
+      await nextTick();
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: false });
+    } finally {
+      userAgent.mockRestore();
+    }
+  });
+
   it('setTheme persists to localStorage across new store instances', async () => {
     const store = useSettingsStore();
     store.setTheme('dark');
