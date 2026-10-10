@@ -5,6 +5,7 @@ import {
   extractUserSpaceItems,
   isTruthy,
   normalizeEntityPage,
+  relationUserBio,
 } from '../userSpace';
 
 describe('user space data normalization', () => {
@@ -46,5 +47,12 @@ describe('user space data normalization', () => {
     expect(page.firstItem).toBe('11');
     expect(page.lastItem).toBe('11');
     expect(page.hasMore).toBe(true);
+  });
+
+  it('does not show the current account bio on fans without a bio', () => {
+    const fan = { uid: '2', bio: '', signature: '', sign: '当前账号简介', userInfo: { uid: '2', bio: '' }, fUserInfo: { uid: '1', bio: '当前账号简介' } };
+    expect(relationUserBio(fan, 'fans')).toBe('');
+    expect(relationUserBio({ ...fan, userInfo: { uid: '2', bio: '粉丝本人简介' } }, 'fans')).toBe('粉丝本人简介');
+    expect(relationUserBio({ bio: '', fUserInfo: { bio: '关注用户简介' } }, 'follow')).toBe('关注用户简介');
   });
 });

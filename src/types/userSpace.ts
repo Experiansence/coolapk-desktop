@@ -102,6 +102,13 @@ export interface EntityPage {
 export type UserSpacePage = EntityPage;
 export type Entity = UserSpaceEntity;
 
+/** 粉丝接口的 fUserInfo 是当前账号的占位信息，不能作为粉丝简介的回退来源。 */
+export function relationUserBio(user: any, relation: 'fans' | 'follow'): string {
+  const info = relation === 'fans' ? user?.userInfo : (user?.fUserInfo || user?.userInfo);
+  const topLevel = user?.bio || user?.signature || (relation === 'follow' ? user?.sign : '');
+  return String(topLevel || info?.bio || info?.signature || info?.sign || '').trim();
+}
+
 export function asUserSpaceProfile(value: unknown, uid: string): UserSpaceProfile {
   const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
   const userInfo = source.userInfo && typeof source.userInfo === 'object'

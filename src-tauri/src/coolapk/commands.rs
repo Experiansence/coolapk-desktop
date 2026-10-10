@@ -2605,8 +2605,9 @@ pub async fn get_follow_user_list(
     state: State<'_, AppState>,
     uid: String,
     page: u32,
+    category: Option<String>,
 ) -> Result<Value, String> {
-    state.client.get_follow_user_list(&uid, page).await
+    state.client.get_follow_user_list(&uid, page, category.as_deref()).await
 }
 
 #[tauri::command]

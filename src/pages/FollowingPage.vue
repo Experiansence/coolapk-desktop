@@ -141,7 +141,7 @@
               />
               <div class="user-item-meta">
                 <span class="user-item-name">{{ u.userInfo?.username || u.fUserInfo?.username || u.displayUsername || u.fusername || u.username || '酷友' }}</span>
-                <span class="user-item-desc">{{ u.userInfo?.bio || u.fUserInfo?.bio || u.bio || u.sign || '酷安酷友' }}</span>
+                <span v-if="relationUserBio(u, sidebarTab === 'fans' ? 'fans' : 'follow')" class="user-item-desc">{{ relationUserBio(u, sidebarTab === 'fans' ? 'fans' : 'follow') }}</span>
               </div>
               <button
                 class="user-profile-btn"
@@ -172,6 +172,7 @@ import AppButton from '../components/common/AppButton.vue';
 import LoadingState from '../components/common/LoadingState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
 import MoreDataPage from './MoreDataPage.vue';
+import { relationUserBio } from '../types/userSpace';
 
 const router = useRouter();
 const route = useRoute();
@@ -235,7 +236,7 @@ const filteredUsers = computed(() => {
   const q = userSearchQuery.value.trim().toLowerCase();
   return list.filter((u: any) => {
     const name = (u.userInfo?.username || u.fUserInfo?.username || u.displayUsername || u.fusername || u.username || '').toLowerCase();
-    const bio = (u.userInfo?.bio || u.fUserInfo?.bio || u.bio || u.sign || '').toLowerCase();
+    const bio = relationUserBio(u, sidebarTab.value === 'fans' ? 'fans' : 'follow').toLowerCase();
     return name.includes(q) || bio.includes(q);
   });
 });

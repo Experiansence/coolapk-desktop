@@ -7040,12 +7040,17 @@ impl CoolapkClient {
         Ok(json!({ "code": 200, "data": Self::extract_cleaned_list(&raw) }))
     }
 
-    pub async fn get_follow_user_list(&self, uid: &str, page: u32) -> Result<Value, String> {
+    pub async fn get_follow_user_list(&self, uid: &str, page: u32, category: Option<&str>) -> Result<Value, String> {
+        // 与官方酷友列表保持相同的服务端分类，避免仅筛选已加载的第一页。
+        let mut query = vec![("uid", uid.to_string()), ("page", page.to_string())];
+        match category.unwrap_or("follow") {
+            "follow" => { query.push(("isSpecialFollow", "-1".to_string())); query.push(("isFriend", "0".to_string())); }
+            "special" => query.push(("isSpecialFollow", "1".to_string())),
+            "friend" => query.push(("isFriend", "1".to_string())),
+            _ => return Err("无效的关注列表分类".to_string()),
+        }
         let raw = self
-            .api_get(
-                "/v6/user/followList",
-                &[("uid", uid.to_string()), ("page", page.to_string())],
-            )
+            .api_get("/v6/user/followList", &query)
             .await?;
 
         let list = raw.get("data").cloned().unwrap_or(Value::Array(Vec::new()));
