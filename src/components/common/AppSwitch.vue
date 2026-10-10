@@ -36,7 +36,10 @@ function onToggle(e: Event) {
 .app-switch {
   position: relative;
   display: inline-block;
+  /* 固定轨道宽度，避免窄屏长说明在弹性布局中挤压开关，导致圆点越界。 */
+  flex: 0 0 44px;
   width: 44px;
+  min-width: 44px;
   height: 24px;
   cursor: pointer;
 }
