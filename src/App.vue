@@ -234,6 +234,8 @@ const authStore = useAuthStore();
 const settingsStore = useSettingsStore();
 const downloadStore = useDownloadStore();
 const route = useRoute();
+// 路由与吸顶状态共同决定安卓状态栏后方的页面背景。
+watch(() => [route.path, settingsStore.profileToolbarCompact] as const, ([path, compact]) => { if (/android/i.test(navigator.userAgent)) settingsStore.setAndroidProfileBackground(path === '/me' && !compact); }, { immediate: true });
 const officialMobileDetail = useOfficialMobileFeedDetail();
 const feedDetailTransition = ref('');
 const feedDetailEasing = window.CSS?.supports('transition-timing-function', officialFeedDetailEasing) ? officialFeedDetailEasing : 'cubic-bezier(0.05, 0, 0.25, 1)';

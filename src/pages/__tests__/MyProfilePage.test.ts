@@ -37,6 +37,18 @@ describe('移动端个人中心', () => {
     const wrapper = render(); await flushPromises();
     expect(wrapper.find('.profile-statistics strong').text()).toBe('—'); wrapper.unmount();
   });
+  it('滚动吸顶时同步状态栏背景，回到顶部时恢复个人页背景', async () => {
+    const wrapper = render();
+    const page = wrapper.find('.my-profile-page');
+    (page.element as HTMLElement).scrollTop = 101;
+    await page.trigger('scroll');
+    expect(useSettingsStore().profileToolbarCompact).toBe(true);
+    expect(wrapper.find('.profile-toolbar').classes()).toContain('is-compact');
+    (page.element as HTMLElement).scrollTop = 0;
+    await page.trigger('scroll');
+    expect(useSettingsStore().profileToolbarCompact).toBe(false);
+    wrapper.unmount();
+  });
   it('夜间模式按钮切换共享主题', async () => {
     const settings = useSettingsStore(); settings.setTheme('light');
     const wrapper = render();

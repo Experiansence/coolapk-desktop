@@ -377,6 +377,8 @@ const ACCENT_PALETTES: Record<AccentColor, { light: AccentPalette; dark: AccentP
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings>(cloneDefaultSettings());
+  const androidProfileBackground = ref(false);
+  const profileToolbarCompact = ref(false);
   const isTauriRuntime = typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__);
   let fileStore: SettingsFileStore | null = null;
   let persistenceReady = !isTauriRuntime;
@@ -506,12 +508,20 @@ export const useSettingsStore = defineStore('settings', () => {
 
   void initializeSettings();
 
-  function syncWindowTheme(theme: 'light' | 'dark' | null) {
+  // 我的页面使用独立背景，滚动后的顶栏恢复普通表面色。
+  function setAndroidProfileBackground(enabled: boolean) { androidProfileBackground.value = enabled; syncAndroidSystemBarTheme(); }
+
+  function syncAndroidSystemBarTheme() {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
     if (typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent)) {
       // Android 状态栏后方由原生容器绘制，颜色须与当前 CSS 主题一致。
-      void invoke('set_android_system_bar_theme', { dark: document.documentElement.getAttribute('data-theme') === 'dark' }).catch((err) => console.warn('同步 Android 状态栏主题失败:', err));
+      void invoke('set_android_system_bar_theme', { dark: document.documentElement.getAttribute('data-theme') === 'dark', profile: androidProfileBackground.value }).catch((err) => console.warn('同步 Android 状态栏主题失败:', err));
     }
+  }
+
+  function syncWindowTheme(theme: 'light' | 'dark' | null) {
+    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
+    syncAndroidSystemBarTheme();
     if ((window as any).__TAURI_INTERNALS__?.metadata) {
       void getCurrentWindow().setTheme(theme).catch((err) => {
         console.warn('通过 Tauri Window API 设置窗口主题失败:', err);
@@ -785,6 +795,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
   return {
     settings,
+    profileToolbarCompact,
+    setAndroidProfileBackground,
     initializeSettings,
     flushSettings,
     syncDeviceProfile,

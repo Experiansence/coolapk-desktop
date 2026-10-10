@@ -222,10 +222,17 @@ describe('settings store', () => {
       const store = useSettingsStore();
       store.setTheme('dark');
       await nextTick();
-      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: true });
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: true, profile: false });
       store.setTheme('light');
       await nextTick();
-      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: false });
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: false, profile: false });
+      store.setAndroidProfileBackground(true);
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: false, profile: true });
+      store.setTheme('dark');
+      await nextTick();
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: true, profile: true });
+      store.setAndroidProfileBackground(false);
+      expect(invoke).toHaveBeenCalledWith('set_android_system_bar_theme', { dark: true, profile: false });
     } finally {
       userAgent.mockRestore();
     }

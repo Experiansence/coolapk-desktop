@@ -31,8 +31,9 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
-    private fun applySystemBarTheme(dark: Boolean) {
-        val surface = if (dark) Color.rgb(0x18, 0x1b, 0x1e) else Color.WHITE
+    private fun applySystemBarTheme(dark: Boolean, profile: Boolean = false) {
+        // 个人页背景与网页一致；吸顶或离开个人页后恢复普通顶栏颜色。
+        val surface = if (profile) { if (dark) Color.rgb(0x0e, 0x10, 0x12) else Color.rgb(0xf2, 0xf2, 0xf6) } else { if (dark) Color.rgb(0x18, 0x1b, 0x1e) else Color.WHITE }
         // 状态栏保持透明；给原生安全区与网页顶栏使用相同的背景色。
         window.decorView.setBackgroundColor(surface)
         findViewById<View>(android.R.id.content).setBackgroundColor(surface)
@@ -41,7 +42,7 @@ class MainActivity : TauriActivity() {
 
     @Keep
     fun setSystemBarTheme(theme: String): String {
-        runOnUiThread { applySystemBarTheme(theme == "dark") }
+        runOnUiThread { applySystemBarTheme(theme.startsWith("dark"), theme.endsWith("-profile")) }
         return "ok"
     }
 

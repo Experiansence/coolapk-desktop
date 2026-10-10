@@ -73,6 +73,8 @@ const isDark = computed(() => settings.settings.theme === 'dark' || (settings.se
 const experiencePercent = computed(() => Math.max(0, Math.min(100, (auth.user?.exp ?? 0) / (auth.user?.maxExp || 1) * 100)));
 const profileData = ref<Record<string, unknown> | null>(null);
 const compact = ref(false);
+// 同步吸顶背景，避免滚动后状态栏仍保留个人页的浅灰色。
+watch(compact, value => { settings.profileToolbarCompact = value; }, { immediate: true });
 const tipsDismissed = ref(false);
 const accountTips = computed(() => profileData.value?.tips as { title: string; logo?: string; buttonName?: string; url?: string; closable?: number } | undefined);
 function openTip() { if (accountTips.value?.url) void CoolapkTauriAPI.openUrl(accountTips.value.url, 'internal'); }
@@ -133,13 +135,14 @@ async function showQr() {
 :global([data-theme="dark"] .my-profile-page) { --profile-background: var(--background); }
 button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; touch-action: manipulation; }
 button:active { opacity: .65; }
-.profile-toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; gap: 0; height: 64px; align-items: center; padding-top: env(safe-area-inset-top); color: #757575; background: var(--profile-background); }
+.profile-toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; gap: 0; height: 48px; align-items: center; padding-top: env(safe-area-inset-top); color: #757575; background: var(--profile-background); }
 .profile-toolbar.is-compact { background: var(--surface); }
 .profile-toolbar .compact-avatar { margin-right: auto; }
 .compact-avatar .app-image-container { width: 24px; height: 24px; border-radius: 50%; }
 .profile-toolbar button { width: 44px; height: 44px; position: relative; display: grid; place-items: center; }
 .official-icon { display: inline-block; width: 24px; height: 24px; background: currentColor; mask-size: contain; mask-repeat: no-repeat; mask-position: center; }
-.profile-identity { display: flex; align-items: center; gap: 0; padding: 28px 8px 16px; }
+/* 缩小工具栏与身份区间距，同时保留按钮的触摸区域。 */
+.profile-identity { display: flex; align-items: center; gap: 0; padding: 8px 8px 16px; }
 .identity-link { display: flex; align-items: center; flex: 1; min-width: 0; text-align: left; gap: 14px; padding: 0; }
 .profile-avatar { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--surface); }
 .placeholder-avatar { display: grid; place-items: center; font-size: 28px; color: var(--text-tertiary); }
