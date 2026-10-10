@@ -11,6 +11,7 @@
   <a href="https://github.com/daimiaopeng/coolapk-desktop/releases"><img src="https://img.shields.io/github/v/release/daimiaopeng/coolapk-desktop?color=41b883" alt="最新版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri" alt="Tauri 2">
+  <a href="#-qq-交流群"><img src="https://img.shields.io/badge/QQ群-1129528119-12B7F5?logo=tencentqq&logoColor=white" alt="QQ 交流群"></a>
 </p>
 
 > [!IMPORTANT]
@@ -30,6 +31,12 @@
 | **iPhone / iPad** | `.ipa` | `coolapk-vx.y.z-ios-arm64-unsigned.ipa`（未签名，需自行签名安装） |
 
 > 💡 **提示**：构建产物均由 GitHub Actions 自动化流程在云端打包。Windows 单文件版无需解压或安装，系统需已有 WebView2 Runtime。iOS IPA 为未签名设备包，不能直接安装到普通 iPhone/iPad，需要使用 AltStore、SideStore、Sideloadly 或自己的 Apple 证书完成签名。
+
+## 💬 QQ 交流群
+
+欢迎扫码或搜索群号 **1129528119** 加入交流群，讨论使用体验与反馈问题：
+
+<img src="docs/qq-group.png" width="260" alt="QQ 交流群二维码 (1129528119)">
 
 ## 界面预览
 
