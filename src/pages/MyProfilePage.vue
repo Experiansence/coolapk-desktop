@@ -141,8 +141,8 @@ button:active { opacity: .65; }
 .compact-avatar .app-image-container { width: 24px; height: 24px; border-radius: 50%; }
 .profile-toolbar button { width: 44px; height: 44px; position: relative; display: grid; place-items: center; }
 .official-icon { display: inline-block; width: 24px; height: 24px; background: currentColor; mask-size: contain; mask-repeat: no-repeat; mask-position: center; }
-/* 缩小工具栏与身份区间距，同时保留按钮的触摸区域。 */
-.profile-identity { display: flex; align-items: center; gap: 0; padding: 8px 8px 16px; }
+/* 隔离头像挂件的内部层级，滚动时随身份区一起被吸顶工具栏遮挡。 */
+.profile-identity { isolation: isolate; display: flex; align-items: center; gap: 0; padding: 8px 8px 16px; }
 .identity-link { display: flex; align-items: center; flex: 1; min-width: 0; text-align: left; gap: 14px; padding: 0; }
 .profile-avatar { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--surface); }
 .placeholder-avatar { display: grid; place-items: center; font-size: 28px; color: var(--text-tertiary); }
