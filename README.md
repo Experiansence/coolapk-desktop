@@ -11,7 +11,7 @@
   <a href="https://github.com/daimiaopeng/coolapk-desktop/releases"><img src="https://img.shields.io/github/v/release/daimiaopeng/coolapk-desktop?color=41b883" alt="最新版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri" alt="Tauri 2">
-  <a href="#-qq-交流群"><img src="https://img.shields.io/badge/QQ群-1129528119-12B7F5?logo=tencentqq&logoColor=white" alt="QQ 交流群"></a>
+  <a href="https://qm.qq.com/q/bAOWmjCfJ0"><img src="https://img.shields.io/badge/QQ群-1129528119-12B7F5?logo=tencentqq&logoColor=white" alt="QQ 交流群"></a>
 </p>
 
 > [!IMPORTANT]
@@ -34,9 +34,9 @@
 
 ## 💬 QQ 交流群
 
-欢迎扫码或搜索群号 **1129528119** 加入交流群，讨论使用体验与反馈问题：
+点击链接加入群聊 **[【coolapk-desktop反馈群】](https://qm.qq.com/q/bAOWmjCfJ0)**，或扫码 / 搜索群号 **1129528119** 加入：
 
-<img src="docs/qq-group.png" width="260" alt="QQ 交流群二维码 (1129528119)">
+<a href="https://qm.qq.com/q/bAOWmjCfJ0"><img src="docs/qq-group.png" width="260" alt="QQ 交流群二维码 (1129528119)"></a>
 
 ## 界面预览
 

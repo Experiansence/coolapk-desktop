@@ -100,6 +100,13 @@
         </div>
         <AppIconButton icon="fas fa-smile" size="sm" title="打开酷安主页" @click="open('https://www.coolapk.com/u/oxygen%E7%9A%84%E5%96%B5')" />
       </div>
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">QQ 交流群</span>
+          <span class="row-sub">1129528119</span>
+        </div>
+        <AppIconButton icon="fab fa-qq" size="sm" title="加入 QQ 交流群" @click="open('https://qm.qq.com/q/bAOWmjCfJ0')" />
+      </div>
     </div>
 
     <!-- 反馈说明指引 -->
