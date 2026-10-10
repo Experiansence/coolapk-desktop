@@ -8,7 +8,7 @@ fn field<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> { value.ge
 fn hmac_hex(key: &[u8], text: &str) -> Result<String, String> { let mut mac = Hmac::<Sha1>::new_from_slice(key).map_err(|error| error.to_string())?; mac.update(text.as_bytes()); Ok(hex::encode(mac.finalize().into_bytes())) }
 async fn vod_request(action: &str, body: &Value) -> Result<Value, String> {
     let url = format!("https://vod2.qcloud.com/v3/index.php?Action={action}");
-    let client = session(&url, SessionPolicy::Follow, None)?;
+    let client = session(&url, SessionPolicy::Follow)?;
     let response = client.post(url).timeout(Duration::from_secs(600)).json(body).send().await.map_err(|_| "视频上传服务连接失败".to_string())?;
     if !response.status().is_success() { return Err(format!("视频上传服务异常（HTTP {}）", response.status())); }
     let value: Value = response.json().await.map_err(|_| "视频上传服务响应无效".to_string())?;
@@ -31,7 +31,7 @@ async fn put_object(prepared: &Value, path: &str, bytes: &[u8], content_type: &s
     let canonical = format!("put\n{}\n\nhost={host}\n", url.path());
     let sign = hmac_hex(sign_key.as_bytes(), &format!("sha1\n{time}\n{:x}\n", Sha1::digest(canonical.as_bytes())))?;
     let authorization = format!("q-sign-algorithm=sha1&q-ak={}&q-sign-time={time}&q-key-time={time}&q-header-list=host&q-url-param-list=&q-signature={sign}", field(certificate, "secretId")?);
-    let client = session(url.as_str(), SessionPolicy::Follow, None)?;
+    let client = session(url.as_str(), SessionPolicy::Follow)?;
     let mut response = client.put(url).timeout(Duration::from_secs(600)).header("Authorization", authorization).header("x-cos-security-token", field(certificate, "token")?).header("Content-Type", content_type).body(bytes.to_vec()).send().await.map_err(|_| "视频文件上传失败，请重试".to_string())?;
     if !response.status().is_success() { return Err(format!("视频文件上传失败（HTTP {}）", response.status())); }
     // 读完响应才可将连接交还池中，供同一存储站点的封面上传复用。

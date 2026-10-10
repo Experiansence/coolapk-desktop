@@ -420,7 +420,6 @@ async function startBackgroundDownload(info: UpdateInfo) {
     });
     const path = await CoolapkTauriAPI.downloadUpdate(url, {
       speedLimitKbps: settingsStore.settings.updateSpeedLimitKBps,
-      proxyUrl: settingsStore.settings.proxyUrl,
     });
     logDiagnostic('info', 'update', 'download_finished');
     const downloadedVersion = normalizeVersion(info.latestVersion || '') || info.latestVersion || '';

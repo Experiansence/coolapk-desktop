@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   settings: {
     updateChannel: 'stable', ignoredUpdateVersion: '', ignoreAllUpdates: false,
     checkUpdateOnStartup: false, autoCleanCache: false, desktopNotifications: false,
-    updateSpeedLimitKBps: 0, proxyUrl: '',
+    updateSpeedLimitKBps: 0,
   },
 }));
 vi.mock('../utils/platform', () => ({ getPlatformInfo: async () => mocks.platform }));

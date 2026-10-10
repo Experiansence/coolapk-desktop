@@ -61,6 +61,7 @@ import NotificationSettingsPage from '../pages/settings/NotificationSettingsPage
 import PrivacySettingsPage from '../pages/settings/PrivacySettingsPage.vue';
 import ContentSettingsPage from '../pages/settings/ContentSettingsPage.vue';
 import DownloadSettingsPage from '../pages/settings/DownloadSettingsPage.vue';
+import NetworkSettingsPage from '../pages/settings/NetworkSettingsPage.vue';
 import AppearanceSettingsPage from '../pages/settings/AppearanceSettingsPage.vue';
 import ShortcutSettingsPage from '../pages/settings/ShortcutSettingsPage.vue';
 import AboutSettingsPage from '../pages/settings/AboutSettingsPage.vue';
@@ -154,6 +155,7 @@ const routes = [
       { path: 'privacy', component: PrivacySettingsPage },
       { path: 'content', component: ContentSettingsPage },
       { path: 'downloads', component: DownloadSettingsPage },
+      { path: 'network', component: NetworkSettingsPage },
       { path: 'appearance', component: AppearanceSettingsPage },
       { path: 'shortcuts', component: ShortcutSettingsPage },
       { path: 'startup', component: StartupSettingsPage },

@@ -2131,7 +2131,6 @@ async fn run_apk_download(
     dir: Option<&str>,
     target_path: Option<&str>,
     extra_analysis_data: Option<&str>,
-    proxy_url: Option<&str>,
 ) -> Result<Value, String> {
     use reqwest::header::{ACCEPT_ENCODING, CONTENT_TYPE, COOKIE, RANGE};
     use tauri::Emitter;
@@ -2211,7 +2210,7 @@ async fn run_apk_download(
         return Ok(json!({ "status": "canceled", "path": target, "partialPath": partial }));
     }
 
-    let http_client = session(request_url.as_str(), SessionPolicy::Download, proxy_url)?;
+    let http_client = session(request_url.as_str(), SessionPolicy::Download)?;
     let mut request = if is_coolapk_download {
         http_client
             .post(request_url.clone())
@@ -2387,7 +2386,6 @@ pub async fn start_apk_download(
     dir: Option<String>,
     target_path: Option<String>,
     extra_analysis_data: Option<String>,
-    proxy_url: Option<String>,
 ) -> Result<Value, String> {
     if task_id.trim().is_empty() || package_name.trim().is_empty() {
         return Err("下载任务参数不完整".to_string());
@@ -2406,7 +2404,6 @@ pub async fn start_apk_download(
         dir.as_deref(),
         target_path.as_deref(),
         extra_analysis_data.as_deref(),
-        proxy_url.as_deref(),
     )
     .await;
     state.downloads.finish(&task_id);
@@ -2661,6 +2658,16 @@ pub fn update_device_profile(
 ) -> Result<Value, String> {
     state.client.update_device_profile(profile);
     Ok(json!({ "code": 200, "data": true }))
+}
+
+#[tauri::command]
+pub fn set_network_proxy(state: State<'_, AppState>, proxy_url: Option<String>) -> Result<(), String> {
+    state.client.set_network_proxy(proxy_url)
+}
+
+#[tauri::command]
+pub async fn test_network_proxy(proxy_url: String) -> Result<super::network_proxy::ProxyTestResult, String> {
+    super::network_proxy::test_connection(proxy_url.trim()).await
 }
 
 #[tauri::command]
@@ -4263,7 +4270,7 @@ mod login_callback_tests {
 }
 
 /// 后台静默下载更新安装包，实时向前端广播下载进度；
-/// 支持限速（speed_limit_kbps，0 为不限速）与 HTTP 代理（proxy_url，空为不使用）
+/// 支持限速（speed_limit_kbps，0 为不限速），网络请求使用全局代理设置。
 ///
 /// 安全约束：仅允许 https + GitHub 官方域名白名单（含 release 资源重定向目标），
 /// 文件名净化 + 体积上限，防止前端被注入时被利用下载并执行任意文件。
@@ -4274,7 +4281,6 @@ pub async fn download_update(
     app: tauri::AppHandle,
     url: String,
     speed_limit_kbps: Option<u64>,
-    proxy_url: Option<String>,
 ) -> Result<String, String> {
     use tauri::Emitter;
     use tokio::io::AsyncWriteExt;
@@ -4318,7 +4324,7 @@ pub async fn download_update(
     let path = dir.join(unique_name);
     let partial_path = path.with_extension(format!("{extension}.part"));
 
-    let client = session(&url, SessionPolicy::Updater, proxy_url.as_deref())?;
+    let client = session(&url, SessionPolicy::Updater)?;
     let mut response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Err(format!("下载失败：HTTP {}", response.status()));

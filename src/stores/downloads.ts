@@ -212,7 +212,6 @@ export const useDownloadStore = defineStore('downloads', () => {
         // 系统默认目录不保存操作系统专属的绝对路径，允许换平台后按文件名重新定位断点文件。
         targetPath: task.downloadDir ? task.targetPath : '',
         extraAnalysisData: task.extraAnalysisData,
-        proxyUrl: settingsStore.settings.proxyUrl,
       });
       const status = normalizeStatus(result?.status) || 'completed';
       patchTask(task.id, {

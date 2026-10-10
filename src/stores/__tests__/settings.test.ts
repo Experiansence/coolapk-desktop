@@ -20,6 +20,32 @@ const fileStoreState = vi.hoisted(() => {
 vi.mock('@tauri-apps/plugin-store', () => ({ Store: { load: fileStoreState.load } }));
 
 describe('settings store', () => {
+  it('applies a client proxy on every platform and keeps the saved value after success', async () => {
+    (window as any).__TAURI_INTERNALS__ = {};
+    const store = useSettingsStore();
+    expect(await store.setNetworkProxyUrl(' http://127.0.0.1:7890 ')).toBe(true);
+    expect(invoke).toHaveBeenCalledWith('set_network_proxy', { proxyUrl: 'http://127.0.0.1:7890' });
+    expect(store.settings.networkProxyUrl).toBe('http://127.0.0.1:7890');
+    expect(await store.setNetworkProxyUrl('')).toBe(true);
+    expect(invoke).toHaveBeenCalledWith('set_network_proxy', { proxyUrl: null });
+    expect(store.settings.networkProxyUrl).toBe('');
+  });
+
+  it('does not save a proxy address when the native client rejects it', async () => {
+    (window as any).__TAURI_INTERNALS__ = {};
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const store = useSettingsStore();
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('invalid proxy'));
+    expect(await store.setNetworkProxyUrl('invalid')).toBe(false);
+    expect(store.settings.networkProxyUrl).toBe('');
+    warning.mockRestore();
+  });
+
+  it('moves the previous download proxy into the global proxy setting', () => {
+    expect(normalizeSettings({ proxyUrl: 'http://127.0.0.1:7890' }).networkProxyUrl).toBe('http://127.0.0.1:7890');
+    expect(normalizeSettings({ proxyUrl: 'http://old:7890', networkProxyUrl: 'http://new:7890' }).networkProxyUrl).toBe('http://new:7890');
+  });
+
   it('synchronizes selected device identity while preserving saved device IDs', async () => {
     setActivePinia(createPinia());
     const store = useSettingsStore();

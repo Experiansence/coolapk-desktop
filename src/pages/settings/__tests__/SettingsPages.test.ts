@@ -46,6 +46,7 @@ import AboutSettingsPage from '../AboutSettingsPage.vue';
 import ContentSettingsPage from '../ContentSettingsPage.vue';
 import DeviceSettingsPage from '../DeviceSettingsPage.vue';
 import DownloadSettingsPage from '../DownloadSettingsPage.vue';
+import NetworkSettingsPage from '../NetworkSettingsPage.vue';
 import NotificationSettingsPage from '../NotificationSettingsPage.vue';
 import PrivacySettingsPage from '../PrivacySettingsPage.vue';
 import StartupSettingsPage from '../StartupSettingsPage.vue';
@@ -67,6 +68,7 @@ describe('设置页面交互', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    delete (window as any).__TAURI_INTERNALS__;
     vi.clearAllMocks();
     document.body.innerHTML = '';
   });
@@ -225,12 +227,40 @@ describe('设置页面交互', () => {
     expect(wrapper.get('.cache-breakdown').text()).toContain('图片');
     expect(wrapper.get('.cache-breakdown').text()).toContain('48.4 MB');
     expect(wrapper.get('.cache-breakdown').text()).toContain('独立保留');
+    expect(wrapper.text()).not.toContain('HTTP 代理');
     expect(mocks.getCacheInfo).toHaveBeenCalled();
+  });
+
+  it('网络页应用全局代理地址', async () => {
+    const { wrapper, settings } = mountPage(NetworkSettingsPage);
+    await flushPromises();
+    (window as any).__TAURI_INTERNALS__ = {};
+    await wrapper.get('#proxy-type').setValue('socks5h');
+    await wrapper.get('#proxy-address').setValue('127.0.0.1:7890');
+    await wrapper.findAll('.action-button')[1].trigger('click');
+    await flushPromises();
+    expect(invoke).toHaveBeenCalledWith('set_network_proxy', { proxyUrl: 'socks5h://127.0.0.1:7890' });
+    expect(settings.settings.networkProxyUrl).toBe('socks5h://127.0.0.1:7890');
+    delete (window as any).__TAURI_INTERNALS__;
+  });
+
+  it('网络页测试草稿代理时不应用设置', async () => {
+    const { wrapper, settings } = mountPage(NetworkSettingsPage);
+    await flushPromises();
+    await wrapper.get('#proxy-type').setValue('socks4');
+    await wrapper.get('#proxy-address').setValue('127.0.0.1:1080');
+    vi.mocked(invoke).mockResolvedValueOnce({ statusCode: 200, elapsedMs: 42 });
+    await wrapper.findAll('.action-button')[0].trigger('click');
+    await flushPromises();
+    expect(invoke).toHaveBeenCalledWith('test_network_proxy', { proxyUrl: 'socks4://127.0.0.1:1080' });
+    expect(wrapper.get('[role="status"]').text()).toContain('42 ms');
+    expect(settings.settings.networkProxyUrl).toBe('');
   });
 
   it('设置布局展示全部设置分类', () => {
     const { wrapper } = mountPage(SettingsLayout);
-    expect(wrapper.findAll('.settings-menu-item')).toHaveLength(12);
+    expect(wrapper.findAll('.settings-menu-item')).toHaveLength(13);
+    expect(wrapper.text()).toContain('网络代理');
     expect(wrapper.text()).toContain('诊断日志');
     expect(wrapper.text()).toContain('账号与安全');
     expect(wrapper.text()).toContain('个人信息');

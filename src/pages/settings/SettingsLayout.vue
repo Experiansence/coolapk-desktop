@@ -34,6 +34,7 @@ const settingsMenu = [
   { path: '/settings/privacy', label: '隐私设置', icon: 'fas fa-lock' },
   { path: '/settings/content', label: '内容偏好', icon: 'fas fa-sliders-h' },
   { path: '/settings/downloads', label: '下载与缓存', icon: 'fas fa-download' },
+  { path: '/settings/network', label: '网络代理', icon: 'fas fa-globe' },
   { path: '/settings/appearance', label: '外观设置', icon: 'fas fa-palette' },
   { path: '/settings/shortcuts', label: '快捷键', icon: 'fas fa-keyboard' },
   { path: '/settings/startup', label: '启动与行为', icon: 'fas fa-power-off' },

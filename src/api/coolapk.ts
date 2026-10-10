@@ -1244,7 +1244,6 @@ export class CoolapkTauriAPI {
     dir?: string;
     targetPath?: string;
     extraAnalysisData?: string;
-    proxyUrl?: string;
   }) {
     return await invoke<{
       status: string;
@@ -1263,7 +1262,6 @@ export class CoolapkTauriAPI {
       dir: options.dir || '',
       targetPath: options.targetPath || '',
       extraAnalysisData: options.extraAnalysisData || '',
-      proxyUrl: options.proxyUrl || '',
     });
   }
 
@@ -1479,12 +1477,11 @@ export class CoolapkTauriAPI {
 
   static async downloadUpdate(
     url: string,
-    options?: { speedLimitKbps?: number; proxyUrl?: string }
+    options?: { speedLimitKbps?: number }
   ) {
     return await invoke<string>('download_update', {
       url,
       speedLimitKbps: options?.speedLimitKbps ?? 0,
-      proxyUrl: options?.proxyUrl ?? '',
     });
   }
 

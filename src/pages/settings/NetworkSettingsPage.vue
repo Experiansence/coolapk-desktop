@@ -1,0 +1,107 @@
+<template>
+  <div class="settings-section">
+    <h3 class="section-title">网络代理</h3>
+    <div class="setting-group">
+      <h4 class="group-title">客户端代理</h4>
+      <div class="row-info">
+        <span class="row-label">全局代理</span>
+        <span class="row-sub">用于客户端接口及原生图片、下载请求。支持 Windows、macOS、Linux、Android 和 iOS。</span>
+      </div>
+      <div class="proxy-fields">
+        <label class="field-label" for="proxy-type">代理类型</label>
+        <select id="proxy-type" v-model="draftProxyType" class="select-control" :disabled="saving || testing">
+          <option v-for="type in proxyTypes" :key="type" :value="type">{{ type.toUpperCase() }}</option>
+        </select>
+        <label class="field-label" for="proxy-address">代理地址</label>
+        <input id="proxy-address" v-model="draftProxyAddress" type="text" class="text-input" placeholder="127.0.0.1:7890" autocomplete="off" spellcheck="false" :disabled="saving || testing" @keydown.enter="applyProxy" />
+        <div class="row-actions">
+          <button class="action-button secondary" :disabled="saving || testing || !draftProxyAddress.trim()" @click="testProxy">{{ testing ? '测试中…' : '测试连接' }}</button>
+          <button class="action-button" :disabled="saving || testing || composedProxyUrl === settingsStore.settings.networkProxyUrl" @click="applyProxy">{{ saving ? '应用中…' : '应用' }}</button>
+        </div>
+      </div>
+      <p class="setting-note">清空地址并应用可恢复默认连接。SOCKS4a / SOCKS5h 由代理解析域名。移动设备请填写设备可访问的代理地址；网页登录窗口使用设备的系统网络设置。</p>
+      <p v-if="testResult" class="setting-success" role="status">{{ testResult }}</p>
+      <p v-if="error" class="setting-error" role="alert">{{ error }}</p>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import { useSettingsStore } from '../../stores/settings';
+
+type ProxyType = 'http' | 'https' | 'socks4' | 'socks4a' | 'socks5' | 'socks5h';
+const proxyTypes: ProxyType[] = ['http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'];
+const settingsStore = useSettingsStore();
+function parseProxyUrl(value: string): { type: ProxyType; address: string } {
+  const match = value.match(/^([a-z0-9]+):\/\/(.*)$/i);
+  const type = match?.[1]?.toLowerCase() as ProxyType;
+  return { type: proxyTypes.includes(type) ? type : 'http', address: match?.[2] ?? value };
+}
+const initialProxy = parseProxyUrl(settingsStore.settings.networkProxyUrl);
+const draftProxyType = ref<ProxyType>(initialProxy.type);
+const draftProxyAddress = ref(initialProxy.address);
+const composedProxyUrl = computed(() => draftProxyAddress.value.trim() ? `${draftProxyType.value}://${draftProxyAddress.value.trim()}` : '');
+const saving = ref(false);
+const testing = ref(false);
+const error = ref('');
+const testResult = ref('');
+watch(() => settingsStore.settings.networkProxyUrl, (value) => { if (!saving.value) { const parsed = parseProxyUrl(value); draftProxyType.value = parsed.type; draftProxyAddress.value = parsed.address; } });
+watch([draftProxyType, draftProxyAddress], () => { error.value = ''; testResult.value = ''; });
+
+function validatedProxyUrl(): string | null {
+  const value = composedProxyUrl.value;
+  if (!value) return '';
+  try {
+    const parsed = new URL(value);
+    if (parsed.hostname && (!parsed.pathname || parsed.pathname === '/') && !parsed.search && !parsed.hash) return value;
+  } catch { /* 输入错误由页面统一提示。 */ }
+  error.value = '请输入有效的代理地址，例如 127.0.0.1:7890。';
+  return null;
+}
+
+async function applyProxy() {
+  if (saving.value || testing.value) return;
+  const value = validatedProxyUrl();
+  if (value === null) return;
+  saving.value = true;
+  error.value = '';
+  try { if (!await settingsStore.setNetworkProxyUrl(value)) error.value = '代理设置未能生效，请检查地址后重试。'; }
+  finally { saving.value = false; }
+}
+
+async function testProxy() {
+  if (saving.value || testing.value) return;
+  const value = validatedProxyUrl();
+  if (!value) return;
+  testing.value = true;
+  error.value = '';
+  testResult.value = '';
+  try {
+    const result = await invoke<{ statusCode: number; elapsedMs: number }>('test_network_proxy', { proxyUrl: value });
+    if (composedProxyUrl.value === value) testResult.value = `已通过代理连接到测试站点（HTTP ${result.statusCode}，${result.elapsedMs} ms）。`;
+  } catch (cause) { if (composedProxyUrl.value === value) error.value = String(cause); }
+  finally { testing.value = false; }
+}
+</script>
+
+<style scoped>
+.settings-section { display: flex; flex-direction: column; gap: var(--space-6); max-width: 720px; }
+.section-title { margin: 0; padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); color: var(--text-primary); font-size: var(--font-size-title-md); }
+.setting-group { display: flex; flex-direction: column; gap: var(--space-3); }
+.group-title { margin: 0; color: var(--text-primary); font-size: var(--font-size-title-sm); }
+.row-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.proxy-fields { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; padding: var(--space-3) 0; border-bottom: 1px solid var(--border-light); }
+.field-label { color: var(--text-primary); font-weight: var(--font-weight-medium); }
+.select-control, .text-input { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-light); border-radius: var(--radius-md); color: var(--text-primary); background: var(--surface); }
+.row-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-2); }
+.action-button { padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-md); background: var(--brand-primary); color: var(--text-inverse); cursor: pointer; }
+.action-button.secondary { border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); }
+.action-button:disabled { opacity: .5; cursor: default; }
+.row-label { color: var(--text-primary); font-weight: var(--font-weight-medium); }
+.row-sub, .setting-note { color: var(--text-tertiary); font-size: var(--font-size-caption); line-height: 1.5; }
+.setting-note { margin: var(--space-3) 0 0; }
+.setting-error { margin: var(--space-3) 0 0; color: var(--danger); font-size: var(--font-size-caption); }
+.setting-success { margin: var(--space-3) 0 0; color: var(--success); font-size: var(--font-size-caption); }
+</style>

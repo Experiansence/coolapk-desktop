@@ -242,9 +242,9 @@ pub fn classify_path(path: &str) -> PathRequirements {
 }
 
 pub struct CoolapkClient {
-    client: Client,
+    client: RwLock<Client>,
     /// Live Photo 解析只需要拿到重定向地址，不能跟随重定向把视频正文提前下载掉。
-    redirect_client: Client,
+    redirect_client: RwLock<Client>,
     auth: RwLock<CoolapkAuth>,
     user_cookie: RwLock<Option<String>>,
     cookie_file: RwLock<Option<PathBuf>>,
@@ -1071,6 +1071,10 @@ fn image_source_url(value: &Value) -> Option<String> {
 /// 使 Rust 侧与 WKWebView 对系统根证书（含本机 MITM 代理、企业 CA）的信任决策一致。
 /// 其余平台保持 reqwest 默认的内置 Mozilla 根证书。
 pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    super::network_proxy::configure(base_http_client_builder())
+}
+
+pub(crate) fn base_http_client_builder() -> reqwest::ClientBuilder {
     let builder = Client::builder();
     #[cfg(target_vendor = "apple")]
     let builder = match apple_platform_tls_config() {
@@ -1078,6 +1082,24 @@ pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
         None => builder,
     };
     builder
+}
+
+fn build_api_clients(profile: &DeviceProfile) -> Result<(Client, Client), String> {
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_AGENT, profile.user_agent.as_deref().and_then(|value| HeaderValue::from_str(value).ok()).unwrap_or_else(|| HeaderValue::from_static(super::native_device::COMPATIBILITY_UA)));
+    headers.insert("X-Sdk-Int", profile.sdk_int.as_deref().and_then(|value| HeaderValue::from_str(value).ok()).unwrap_or_else(|| HeaderValue::from_static("36")));
+    headers.insert("X-Sdk-Locale", HeaderValue::from_static("zh-CN"));
+    headers.insert("X-App-Mode", HeaderValue::from_static("universal"));
+    headers.insert("X-App-Channel", HeaderValue::from_static("coolapk"));
+    headers.insert("X-App-Id", HeaderValue::from_static("com.coolapk.market"));
+    headers.insert("X-App-Version", HeaderValue::from_static("16.2.0"));
+    headers.insert("X-App-Code", HeaderValue::from_static("2604201"));
+    headers.insert("X-Api-Version", HeaderValue::from_static("16"));
+    headers.insert("X-App-Supported", HeaderValue::from_static("2604201"));
+    headers.insert("X-Dark-Mode", HeaderValue::from_static("0"));
+    let client = http_client_builder().default_headers(headers.clone()).build().map_err(|_| "创建酷安 HTTP 客户端失败".to_string())?;
+    let redirect_client = http_client_builder().default_headers(headers).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| "创建酷安重定向客户端失败".to_string())?;
+    Ok((client, redirect_client))
 }
 
 /// Apple 平台经 Security.framework 校验证书；初始化失败时回退内置根证书，
@@ -1102,37 +1124,11 @@ impl CoolapkClient {
     pub fn new() -> Self {
         let native_device_profile = super::native_device::detect();
         let device_code = device_code_with_profile(&generate_random_device_code(), &native_device_profile);
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            USER_AGENT,
-            native_device_profile.user_agent.as_deref().and_then(|value| HeaderValue::from_str(value).ok())
-                .unwrap_or_else(|| HeaderValue::from_static(super::native_device::COMPATIBILITY_UA)),
-        );
-        headers.insert("X-Sdk-Int", native_device_profile.sdk_int.as_deref()
-            .and_then(|value| HeaderValue::from_str(value).ok()).unwrap_or_else(|| HeaderValue::from_static("36")));
-        headers.insert("X-Sdk-Locale", HeaderValue::from_static("zh-CN"));
-        headers.insert("X-App-Mode", HeaderValue::from_static("universal"));
-        headers.insert("X-App-Channel", HeaderValue::from_static("coolapk"));
-        headers.insert("X-App-Id", HeaderValue::from_static("com.coolapk.market"));
-        headers.insert("X-App-Version", HeaderValue::from_static("16.2.0"));
-        headers.insert("X-App-Code", HeaderValue::from_static("2604201"));
-        headers.insert("X-Api-Version", HeaderValue::from_static("16"));
-        headers.insert("X-App-Supported", HeaderValue::from_static("2604201"));
-        headers.insert("X-Dark-Mode", HeaderValue::from_static("0"));
-
-        let client = http_client_builder()
-            .default_headers(headers.clone())
-            .build()
-            .unwrap_or_default();
-        let redirect_client = http_client_builder()
-            .default_headers(headers)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_default();
+        let (client, redirect_client) = build_api_clients(&native_device_profile).unwrap_or_else(|_| (Client::new(), Client::new()));
 
         Self {
-            client,
-            redirect_client,
+            client: RwLock::new(client),
+            redirect_client: RwLock::new(redirect_client),
             auth: RwLock::new(CoolapkAuth::new(device_code.clone())),
             user_cookie: RwLock::new(None),
             cookie_file: RwLock::new(None),
@@ -1140,6 +1136,22 @@ impl CoolapkClient {
             native_device_profile,
             device_code: RwLock::new(device_code),
         }
+    }
+
+    fn api_client(&self) -> Result<Client, String> { self.client.read().map(|client| client.clone()).map_err(|_| "无法读取酷安 HTTP 客户端".to_string()) }
+    fn api_redirect_client(&self) -> Result<Client, String> { self.redirect_client.read().map(|client| client.clone()).map_err(|_| "无法读取酷安重定向客户端".to_string()) }
+
+    // 先校验代理地址，再同时替换接口客户端；已开始的请求继续使用原客户端。
+    pub fn set_network_proxy(&self, proxy_url: Option<String>) -> Result<(), String> {
+        let mut client = self.client.write().map_err(|_| "无法更新酷安 HTTP 客户端".to_string())?;
+        let mut redirect_client = self.redirect_client.write().map_err(|_| "无法更新酷安重定向客户端".to_string())?;
+        let previous = super::network_proxy::update(proxy_url.as_deref())?;
+        let rebuilt = build_api_clients(&self.native_device_profile);
+        let (new_client, new_redirect_client) = match rebuilt { Ok(clients) => clients, Err(error) => { super::network_proxy::update(previous.as_deref())?; return Err(error); } };
+        *client = new_client;
+        *redirect_client = new_redirect_client;
+        log::info!("network.proxy_changed enabled={}", proxy_url.as_deref().is_some_and(|value| !value.trim().is_empty()));
+        Ok(())
     }
 
     /// 获取当前设备码签名（Token V3 与设备码绑定，切换设备码后自动换签名）
@@ -1789,7 +1801,7 @@ impl CoolapkClient {
         let url = format!("{api_origin}{path}");
         let requested_with = "XMLHttpRequest";
         let mut request = self.apply_device_profile(
-            self.client
+            self.api_client()?
                 .request(method, url)
                 .header("X-App-Token", token)
                 .header("X-Requested-With", requested_with)
@@ -1880,7 +1892,7 @@ impl CoolapkClient {
             .map_err(|_| "公开读取设备码格式无效".to_string())?;
         log::debug!("api.guest_request path={} cookie_attached=false", log_path);
         let response = self
-            .client
+            .api_client()?
             .get(format!("{api_origin}{path}"))
             .header("X-App-Token", public_token)
             .header("X-App-Device", device_header)
@@ -1930,7 +1942,7 @@ impl CoolapkClient {
         let token = self.get_token()?;
         let url = format!("https://api.coolapk.com{path}");
         let mut request = self.apply_device_profile(
-            self.client
+            self.api_client()?
                 .request(Method::POST, url)
                 .header("X-App-Token", token)
                 .header("X-Requested-With", "XMLHttpRequest")
@@ -2788,7 +2800,7 @@ impl CoolapkClient {
         }
 
         let res = self
-            .client
+            .api_client()?
             .get(full_url)
             .header("X-App-Token", token)
             .send()
@@ -3747,7 +3759,7 @@ impl CoolapkClient {
             // 不能只带 Token，否则持久缓存改为原生代理加载后会出现空白图片。
             let token = self.get_token()?;
             self.apply_device_profile(
-                self.client
+                self.api_client()?
                     .get(url)
                     .timeout(std::time::Duration::from_secs(20))
                     .header(
@@ -3763,7 +3775,7 @@ impl CoolapkClient {
             } else {
                 "https://www.coolapk.com/"
             };
-            session(url.as_str(), SessionPolicy::Follow, None)?
+            session(url.as_str(), SessionPolicy::Follow)?
                 .get(url)
                 .timeout(std::time::Duration::from_secs(12))
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -3830,7 +3842,7 @@ impl CoolapkClient {
         let ddid = if path == "getPlugin" || path == "savePlugin" { self.effective_custom_ddid() } else { None };
         let cookie = user_plugin_cookie(&cookie, did.as_deref(), ddid.as_deref());
         let url = format!("https://m.coolapk.com/mp/userPlugin/{path}");
-        let client = session(&url, SessionPolicy::NoRedirect, None)?;
+        let client = session(&url, SessionPolicy::NoRedirect)?;
         let request = match form {
             Some(form) => client.post(&url).form(form),
             None => client.get(&url),
@@ -3881,7 +3893,7 @@ impl CoolapkClient {
             return Err("仅支持 http(s) 链接".to_string());
         }
 
-        let page_client = session(url, SessionPolicy::Follow, None)?;
+        let page_client = session(url, SessionPolicy::Follow)?;
 
         let parsed_url = reqwest::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
         let is_coolapk_target = parsed_url.host_str().map(is_coolapk_host).unwrap_or(false);
@@ -3958,7 +3970,7 @@ impl CoolapkClient {
         }
         let cookie = self.user_cookie.read().map_err(|_| "无法读取登录状态".to_string())?.clone()
             .ok_or_else(|| "请先登录后举报".to_string())?;
-        let client = session("https://m.coolapk.com", SessionPolicy::NoRedirect, None)?;
+        let client = session("https://m.coolapk.com", SessionPolicy::NoRedirect)?;
         let form = reqwest::multipart::Form::new()
             .text("requestHash", request_hash.to_string()).text("submit", "1")
             .text("id", id.to_string()).text("type", report_type.to_string())
@@ -4160,7 +4172,7 @@ impl CoolapkClient {
             return Err("仅允许代理微博 HTTPS 视频地址".to_string());
         }
 
-        let client = session(parsed.as_str(), SessionPolicy::Follow, None)?;
+        let client = session(parsed.as_str(), SessionPolicy::Follow)?;
         let mut request = client
             .get(parsed)
             .timeout(std::time::Duration::from_secs(90))
@@ -4261,7 +4273,7 @@ impl CoolapkClient {
 
         let token = self.get_token()?;
         let mut request = self.apply_device_profile(
-            self.redirect_client
+            self.api_redirect_client()?
                 .get(wrapper_url)
                 .header("X-App-Token", token)
                 .header("X-Requested-With", "XMLHttpRequest"),
@@ -4333,7 +4345,7 @@ impl CoolapkClient {
             return Err("Live Photo 视频地址必须来自酷安官方 HTTPS 域名".to_string());
         }
 
-        let client = session(parsed_url.as_str(), SessionPolicy::Follow, None)?;
+        let client = session(parsed_url.as_str(), SessionPolicy::Follow)?;
         let mut response = client
             .get(parsed_url)
             .timeout(std::time::Duration::from_secs(12))
@@ -6083,7 +6095,7 @@ impl CoolapkClient {
             .text("message_extra", "");
 
         let mut request = self.apply_device_profile(
-            self.client
+            self.api_client()?
                 .request(reqwest::Method::POST, url)
                 .header("X-App-Token", token)
                 .header("X-Requested-With", "XMLHttpRequest")
@@ -6129,7 +6141,7 @@ impl CoolapkClient {
             .text("message_extra", "");
 
         let mut request = self.apply_device_profile(
-            self.client
+            self.api_client()?
                 .request(reqwest::Method::POST, url)
                 .header("X-App-Token", token)
                 .header("X-Requested-With", "XMLHttpRequest")
@@ -6203,7 +6215,7 @@ impl CoolapkClient {
         let token = self.get_token()?;
         let url = format!("https://api.coolapk.com{path}?id={}", id);
         let mut request = self.apply_device_profile(
-            self.client
+            self.api_client()?
                 .request(reqwest::Method::POST, url)
                 .header("X-App-Token", token)
                 .header("X-Requested-With", "XMLHttpRequest"),
@@ -6450,7 +6462,7 @@ impl CoolapkClient {
         let oss_url = format!("https://{}.{}/{}", bucket, oss_host, upload_file_name);
 
         let mut oss_request = self
-            .client
+            .api_client()?
             .request(reqwest::Method::PUT, &oss_url)
             .header("Authorization", &authorization)
             .header("Content-MD5", &content_md5_b64)
@@ -6654,7 +6666,7 @@ impl CoolapkClient {
         // This request carries short-lived OSS credentials. The redirect-disabled client
         // prevents those headers from being forwarded to a different host.
         let response = self
-            .redirect_client
+            .api_redirect_client()?
             .put(&oss_url)
             .header("Authorization", authorization)
             .header("Content-MD5", content_md5_b64)
@@ -6701,7 +6713,7 @@ impl CoolapkClient {
         let signature = BASE64.encode(mac.finalize().into_bytes());
         let host = endpoint.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
         let url = format!("https://{bucket}.{host}/{key}");
-        let response = self.client.put(url).header("Authorization", format!("OSS {id}:{signature}")).header("Content-MD5", digest).header("Content-Type", content_type).header("Date", now).header("x-oss-security-token", token).body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?;
+        let response = self.api_client()?.put(url).header("Authorization", format!("OSS {id}:{signature}")).header("Content-MD5", digest).header("Content-Type", content_type).header("Date", now).header("x-oss-security-token", token).body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?;
         if !response.status().is_success() { return Err(format!("实况视频上传失败（HTTP {}）", response.status())); }
         Ok(())
     }
@@ -7211,7 +7223,7 @@ impl CoolapkClient {
         // 发布时单独签名，不能改动共享登录指纹或影响并发请求。
         let token = CoolapkAuth::new(code.clone()).get_app_token()?;
         let request = self.apply_device_profile_with_code(
-            self.client
+            self.api_client()?
                 .request(
                     reqwest::Method::POST,
                     "https://api.coolapk.com/v6/feed/createFeed",

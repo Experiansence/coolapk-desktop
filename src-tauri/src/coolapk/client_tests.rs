@@ -1072,7 +1072,7 @@ fn test_user_agent_device_profile_headers_for_publish_request() {
         brand: Some("Xiaomi".into()), model: Some("2210132C".into()),
         build: Some("BP2A.250605.031.A3".into()), ..Default::default()
     });
-    let request = client.apply_device_profile(client.client.post("https://api.coolapk.com/v6/feed/createFeed"))
+    let request = client.apply_device_profile(client.api_client().unwrap().post("https://api.coolapk.com/v6/feed/createFeed"))
         .unwrap().build().unwrap();
     assert_eq!(request.headers().get(USER_AGENT).unwrap().to_str().unwrap(), ua);
     let code = request.headers().get("X-App-Device").unwrap().to_str().unwrap();
@@ -1706,7 +1706,7 @@ fn test_native_device_profile_survives_settings_sync_and_custom_reset() {
         user_agent: Some(native_ua.into()), ..Default::default()
     };
     let verify = |expected_ua: &str, expected_model_fields: &str| {
-        let request = client.apply_device_profile(client.client.post("https://api.coolapk.com/v6/feed/createFeed"))
+        let request = client.apply_device_profile(client.api_client().unwrap().post("https://api.coolapk.com/v6/feed/createFeed"))
             .unwrap().build().unwrap();
         assert_eq!(request.headers().get(USER_AGENT).unwrap().to_str().unwrap(), expected_ua);
         let code = request.headers().get("X-App-Device").unwrap().to_str().unwrap();

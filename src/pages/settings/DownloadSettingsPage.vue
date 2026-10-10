@@ -146,19 +146,6 @@
 
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">HTTP 代理</span>
-          <span class="row-sub">为更新下载配置代理服务器（如 http://127.0.0.1:7890），留空则直连</span>
-        </div>
-        <input
-          v-model="settingsStore.settings.proxyUrl"
-          type="text"
-          class="text-input"
-          placeholder="http://127.0.0.1:7890"
-        />
-      </div>
-
-      <div class="setting-row">
-        <div class="row-info">
           <span class="row-label">下载完成桌面通知</span>
           <span class="row-sub">更新包下载完成后发送系统通知提醒</span>
         </div>

@@ -190,7 +190,7 @@ export interface AppSettings {
   deviceSignature: string;
   imageOpenMode: ExternalLinkMode;
   updateSpeedLimitKBps: number;
-  proxyUrl: string;
+  networkProxyUrl: string;
   notifyDownloadComplete: boolean;
   updateChannel: UpdateChannel;
   experimentalFeatures: boolean;

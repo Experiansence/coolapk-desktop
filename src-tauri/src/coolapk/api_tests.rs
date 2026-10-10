@@ -294,7 +294,7 @@ async fn probe_all_write_endpoints_http_method() {
         let url = format!("https://api.coolapk.com{}", case.path);
         let res = if case.is_get {
             client
-                .client
+                .api_client().unwrap()
                 .get(&url)
                 .header("X-App-Token", token.clone())
                 .header("X-Requested-With", "XMLHttpRequest")
@@ -303,7 +303,7 @@ async fn probe_all_write_endpoints_http_method() {
                 .await
         } else {
             client
-                .client
+                .api_client().unwrap()
                 .post(&url)
                 .header("X-App-Token", token.clone())
                 .header("X-Requested-With", "com.coolapk.market")
@@ -1796,7 +1796,7 @@ async fn probe_more_endpoints_deep() {
         // 对于 api2 端点，我们仍请求 api.coolapk.com (因为 api2 是智能路由别名)
         let url = format!("https://api.coolapk.com{path}");
         let res = client
-            .client
+            .api_client().unwrap()
             .get(&url)
             .header("X-App-Token", token.clone())
             .header("X-Requested-With", "XMLHttpRequest")
@@ -1945,7 +1945,7 @@ async fn probe_api2_and_static_endpoints() {
     for (name, path, params) in api2_cases {
         let url = format!("https://api2.coolapk.com{path}");
         let res = client
-            .client
+            .api_client().unwrap()
             .get(&url)
             .header("X-App-Token", token.clone())
             .header("X-Requested-With", "XMLHttpRequest")
@@ -2014,7 +2014,7 @@ async fn probe_api2_and_static_endpoints() {
 
     for (label, url) in static_urls {
         let res = client
-            .client
+            .api_client().unwrap()
             .get(*url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             .send()
@@ -2270,7 +2270,7 @@ async fn probe_undocumented_endpoints() {
     for (name, path, params) in cases {
         let url = format!("https://api.coolapk.com{path}");
         let res = client
-            .client
+            .api_client().unwrap()
             .get(&url)
             .header("X-App-Token", token.clone())
             .header("X-Requested-With", "XMLHttpRequest")
@@ -2784,7 +2784,7 @@ async fn probe_new_write_endpoints() {
     for (name, path, params) in cases {
         let url = format!("https://api.coolapk.com{path}");
         let res = client
-            .client
+            .api_client().unwrap()
             .get(&url)
             .header("X-App-Token", token.clone())
             .header("X-Requested-With", "XMLHttpRequest")
@@ -2842,7 +2842,7 @@ async fn probe_hot_reply_target_row() {
             feed_id
         );
         let resp = client
-            .client
+            .api_client().unwrap()
             .get(&url)
             .header("X-App-Token", token.clone())
             .header("X-Requested-With", "XMLHttpRequest")
@@ -2927,7 +2927,7 @@ async fn probe_dyh_square_endpoints() {
     for (name, path, params) in cases {
         let url = format!("https://api.coolapk.com{path}");
         let res = client
-            .client
+            .api_client().unwrap()
             .get(&url)
             .header("X-App-Token", token.clone())
             .header("X-Requested-With", "XMLHttpRequest")

@@ -1,4 +1,4 @@
-//! 按站点、代理和跳转策略复用连接池；账号凭据始终由每次请求提供。
+//! 按站点、全局代理代次和跳转策略复用连接池；账号凭据始终由每次请求提供。
 use reqwest::{Client, Url};
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
@@ -22,14 +22,14 @@ pub(crate) enum Policy {
 struct Key {
     origin: String,
     policy: Policy,
-    proxy: Option<String>,
+    proxy_generation: u64,
 }
 
 #[derive(Default)]
 struct Sessions(VecDeque<(Key, Client)>);
 
 impl Sessions {
-    fn get(&mut self, url: &str, policy: Policy, proxy: Option<&str>) -> Result<Client, String> {
+    fn get(&mut self, url: &str, policy: Policy) -> Result<Client, String> {
         let url = Url::parse(url).map_err(|_| "HTTP 地址无效".to_string())?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
             return Err("仅支持 HTTP(S) 地址".to_string());
@@ -37,10 +37,7 @@ impl Sessions {
         let key = Key {
             origin: url.origin().ascii_serialization(),
             policy,
-            proxy: proxy
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned),
+            proxy_generation: super::network_proxy::generation(),
         };
         if let Some(index) = self.0.iter().position(|(existing, _)| existing == &key) {
             let entry = self.0.remove(index).unwrap();
@@ -62,10 +59,6 @@ impl Sessions {
                     } else { attempt.error("更新包跳转到了不可信地址") }
                 })),
         };
-        if let Some(proxy) = key.proxy.as_deref() {
-            builder =
-                builder.proxy(reqwest::Proxy::all(proxy).map_err(|_| "代理设置无效".to_string())?);
-        }
         let client = builder
             .build()
             .map_err(|_| "创建 HTTP 客户端失败".to_string())?;
@@ -87,13 +80,13 @@ fn update_redirect_allowed(url: &Url, previous: usize) -> bool {
             .unwrap_or(false)
 }
 
-pub(crate) fn session(url: &str, policy: Policy, proxy: Option<&str>) -> Result<Client, String> {
+pub(crate) fn session(url: &str, policy: Policy) -> Result<Client, String> {
     static SESSIONS: OnceLock<Mutex<Sessions>> = OnceLock::new();
     SESSIONS
         .get_or_init(|| Mutex::new(Sessions::default()))
         .lock()
         .map_err(|_| "无法读取 HTTP 连接池".to_string())?
-        .get(url, policy, proxy)
+        .get(url, policy)
 }
 
 #[cfg(test)]
@@ -104,16 +97,14 @@ mod tests {
     use std::time::Duration;
 
     #[tokio::test]
-    async fn reuses_connection_without_retaining_request_credentials() {
+    async fn cached_client_does_not_retain_request_credentials() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
-            let (mut socket, _) = listener.accept().unwrap();
-            socket
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
             let mut requests = Vec::new();
             for _ in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 let mut bytes = Vec::new();
                 while !bytes.ends_with(b"\r\n\r\n") {
                     let mut byte = [0];
@@ -123,16 +114,16 @@ mod tests {
                 requests.push(String::from_utf8(bytes).unwrap().to_lowercase());
                 socket
                     .write_all(
-                        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nSet-Cookie: server=test\r\n\r\n",
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\nSet-Cookie: server=test\r\n\r\n",
                     )
                     .unwrap();
             }
             requests
         });
         let mut cache = Sessions::default();
-        // 使用本地测试服务器作为显式代理，避免系统代理干预连接复用断言。
+        // 使用本地测试服务器验证连接复用，账号凭据只随单次请求发送。
         let first = cache
-            .get(&format!("{base}/first"), Policy::Follow, Some(&base))
+            .get(&format!("{base}/first"), Policy::Follow)
             .unwrap();
         first
             .get(format!("{base}/first"))
@@ -147,7 +138,7 @@ mod tests {
             .await
             .unwrap();
         let second = cache
-            .get(&format!("{base}/second?q=1"), Policy::Follow, Some(&base))
+            .get(&format!("{base}/second?q=1"), Policy::Follow)
             .unwrap();
         second
             .get(format!("{base}/second"))
@@ -170,28 +161,23 @@ mod tests {
     }
 
     #[test]
-    fn isolates_origins_proxies_and_policies_and_bounds_cache() {
+    fn isolates_origins_and_policies_and_bounds_cache() {
         let mut cache = Sessions::default();
-        for (url, policy, proxy) in [
-            ("https://example.com/a", Policy::Follow, None),
-            ("https://example.com:443/b", Policy::Follow, None),
-            ("http://example.com/a", Policy::Follow, None),
-            ("https://other.example/a", Policy::Follow, None),
-            ("https://example.com:8443/a", Policy::Follow, None),
-            ("https://example.com/a", Policy::NoRedirect, None),
-            (
-                "https://example.com/a",
-                Policy::Follow,
-                Some("http://127.0.0.1:8080"),
-            ),
+        for (url, policy) in [
+            ("https://example.com/a", Policy::Follow),
+            ("https://example.com:443/b", Policy::Follow),
+            ("http://example.com/a", Policy::Follow),
+            ("https://other.example/a", Policy::Follow),
+            ("https://example.com:8443/a", Policy::Follow),
+            ("https://example.com/a", Policy::NoRedirect),
         ] {
-            cache.get(url, policy, proxy).unwrap();
+            cache.get(url, policy).unwrap();
         }
-        assert_eq!(cache.0.len(), 6);
-        assert!(cache.get("file:///tmp/a", Policy::Follow, None).is_err());
+        assert_eq!(cache.0.len(), 5);
+        assert!(cache.get("file:///tmp/a", Policy::Follow).is_err());
         for port in 10000..10080 {
             cache
-                .get(&format!("http://localhost:{port}/"), Policy::Follow, None)
+                .get(&format!("http://localhost:{port}/"), Policy::Follow)
                 .unwrap();
         }
         assert_eq!(cache.0.len(), 64);
@@ -242,7 +228,7 @@ mod tests {
             }
         });
         let mut cache = Sessions::default();
-        let follow = cache.get(&url, Policy::Follow, Some(&url)).unwrap();
+        let follow = cache.get(&url, Policy::Follow).unwrap();
         assert_eq!(
             follow
                 .get(&url)
@@ -253,7 +239,7 @@ mod tests {
                 .status(),
             200
         );
-        let no_redirect = cache.get(&url, Policy::NoRedirect, Some(&url)).unwrap();
+        let no_redirect = cache.get(&url, Policy::NoRedirect).unwrap();
         assert_eq!(
             no_redirect
                 .get(&url)

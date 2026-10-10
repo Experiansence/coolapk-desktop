@@ -176,7 +176,7 @@ const defaultSettings: AppSettings = {
   deviceSignature: '',
   imageOpenMode: 'internal',
   updateSpeedLimitKBps: 0,
-  proxyUrl: '',
+  networkProxyUrl: '',
   notifyDownloadComplete: true,
   updateChannel: 'stable',
   experimentalFeatures: false,
@@ -319,7 +319,8 @@ export function normalizeSettings(value: unknown): AppSettings {
   result.publishDeviceSignature = readBoolean(source.publishDeviceSignature, result.publishDeviceSignature);
   result.deviceSignature = readString(source.deviceSignature, result.deviceSignature).slice(0, 40);
   result.updateSpeedLimitKBps = [0, 500, 1024, 2048, 5120].includes(Number(source.updateSpeedLimitKBps)) ? Number(source.updateSpeedLimitKBps) : result.updateSpeedLimitKBps;
-  result.proxyUrl = readString(source.proxyUrl, result.proxyUrl);
+  // 旧版下载代理升级为全局代理，已有全局地址始终优先。
+  result.networkProxyUrl = readString(source.networkProxyUrl, readString(source.proxyUrl, result.networkProxyUrl));
   result.notifyDownloadComplete = readBoolean(source.notifyDownloadComplete, result.notifyDownloadComplete);
   result.experimentalFeatures = readBoolean(source.experimentalFeatures, result.experimentalFeatures);
   if (!result.experimentalFeatures && result.updateChannel === 'beta') result.updateChannel = 'stable';
@@ -428,7 +429,7 @@ export const useSettingsStore = defineStore('settings', () => {
       fileStore = store;
       persistenceReady = true;
       nativeSyncReady = true;
-      syncNativeSettings(settings.value);
+      await syncNativeSettings(settings.value);
       await queueFileSave(settings.value);
     } catch (err) {
       console.error('加载 settings.json 失败，将回退到 localStorage', err);
@@ -436,7 +437,7 @@ export const useSettingsStore = defineStore('settings', () => {
       if (!settings.value.zoomManuallySet) settings.value.zoom = getSystemZoom();
       persistenceReady = true;
       nativeSyncReady = true;
-      syncNativeSettings(settings.value);
+      await syncNativeSettings(settings.value);
     }
   }
 
@@ -696,11 +697,24 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  function syncNativeSettings(s: AppSettings) {
+  async function syncNativeSettings(s: AppSettings) {
     syncCloseToTray(s.closeToTray);
     syncAlwaysOnTop(s.alwaysOnTop);
     syncStartupFlags(s);
     syncDeviceProfile(s);
+    await syncNetworkProxy(s.networkProxyUrl);
+  }
+
+  async function syncNetworkProxy(proxyUrl: string): Promise<boolean> {
+    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return true;
+    try { await invoke('set_network_proxy', { proxyUrl: proxyUrl.trim() || null }); return true; }
+    catch (err) { console.warn('同步网络代理设置失败:', err); return false; }
+  }
+
+  async function setNetworkProxyUrl(proxyUrl: string): Promise<boolean> {
+    if (!await syncNetworkProxy(proxyUrl)) return false;
+    settings.value.networkProxyUrl = proxyUrl.trim();
+    return true;
   }
 
   async function setAutostart(enabled: boolean): Promise<boolean> {
@@ -774,6 +788,7 @@ export const useSettingsStore = defineStore('settings', () => {
     initializeSettings,
     flushSettings,
     syncDeviceProfile,
+    setNetworkProxyUrl,
     applyAppearance,
     setAutostart,
     setTheme,

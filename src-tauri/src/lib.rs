@@ -1304,6 +1304,8 @@ pub fn run() {
             save_cookie_securely,
             check_login_status,
             update_device_profile,
+            coolapk::commands::set_network_proxy,
+            coolapk::commands::test_network_proxy,
             get_device_info,
             list_accounts,
             login_as,
