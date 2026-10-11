@@ -359,6 +359,59 @@ mod tests {
         assert!(!is_windows_10_build(26100), "Win11 24H2 不应判为 Windows 10");
     }
 
+    // ---- 能力判定的结构化状态 ----
+
+    /// 三个条件全满足才算可用。
+    #[test]
+    fn ready_requires_windows_10_and_identity() {
+        assert_eq!(classify_platform(Some(true), true), LiveTileStatus::Ready);
+    }
+
+    /// **Windows 11 上即使有包标识也不可用** —— 系统已移除动态磁贴。
+    ///
+    /// 这条最容易写错：只看「有身份」就放行，会在 Win11 上白白产生网络请求
+    /// 和永不停止的定时刷新，而磁贴根本不会出现。
+    #[test]
+    fn windows_11_is_unsupported_even_with_identity() {
+        assert_eq!(classify_platform(Some(false), true), LiveTileStatus::UnsupportedOs);
+        assert_eq!(classify_platform(Some(false), false), LiveTileStatus::UnsupportedOs);
+    }
+
+    /// Windows 10 但当前进程没有包标识 —— 未注册稀疏包，或跑的是裸 exe。
+    #[test]
+    fn windows_10_without_identity_reports_identity_missing() {
+        assert_eq!(classify_platform(Some(true), false), LiveTileStatus::IdentityMissing);
+    }
+
+    #[test]
+    fn non_windows_reports_unsupported_platform() {
+        assert_eq!(classify_platform(None, false), LiveTileStatus::UnsupportedPlatform);
+        // 非 Windows 上即使误传 true 也不该判为可用
+        assert_eq!(classify_platform(None, true), LiveTileStatus::UnsupportedPlatform);
+    }
+
+    /// 状态串会经 IPC 传给前端、也会写进诊断日志 —— 改动等于破坏契约。
+    #[test]
+    fn status_strings_are_stable() {
+        assert_eq!(LiveTileStatus::Ready.as_str(), "ready");
+        assert_eq!(LiveTileStatus::UnsupportedPlatform.as_str(), "unsupported_platform");
+        assert_eq!(LiveTileStatus::UnsupportedOs.as_str(), "unsupported_os");
+        assert_eq!(LiveTileStatus::IdentityMissing.as_str(), "identity_missing");
+    }
+
+    /// `supports_live_tile()` 是状态判定的薄封装，两者不能出现分歧。
+    #[test]
+    fn bool_helper_agrees_with_status() {
+        for (win10, identity) in [(Some(true), true), (Some(true), false), (Some(false), true), (None, true)] {
+            let status = classify_platform(win10, identity);
+            assert_eq!(
+                status == LiveTileStatus::Ready,
+                matches!(win10, Some(true)) && identity,
+                "状态 {status:?} 与 bool 语义不一致"
+            );
+        }
+    }
+
     #[test]
     fn malformed_response_yields_empty_vec_not_panic() {
         assert!(tile_items_from_response(&serde_json::json!({ "code": 500 })).is_empty());
@@ -721,7 +774,62 @@ pub fn is_windows_10() -> bool {
     false
 }
 
-/// 本机是否**真正可以显示动态磁贴**。
+/// 动态磁贴的可用性状态。
+///
+/// 用带原因的状态而不是 `bool`：用户报「没有磁贴」时，光看 `false` 分不清是
+/// 系统版本不对、身份包没注册，还是压根不在 Windows 上 —— 而这三者的处置
+/// 方式完全不同。状态串会写进诊断日志，并经 IPC 传给前端。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveTileStatus {
+    /// 可以显示动态磁贴
+    Ready,
+    /// 非 Windows 平台 —— 磁贴是 Windows Shell 的功能
+    UnsupportedPlatform,
+    /// Windows 11 及以上 —— 系统已移除动态磁贴
+    UnsupportedOs,
+    /// 当前进程没有包标识 —— 未注册稀疏身份包，或跑的是未嵌入 `<msix>` 的裸 exe
+    IdentityMissing,
+}
+
+impl LiveTileStatus {
+    /// 稳定标识串，供 IPC 与日志使用。**改动等于破坏契约。**
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::UnsupportedPlatform => "unsupported_platform",
+            Self::UnsupportedOs => "unsupported_os",
+            Self::IdentityMissing => "identity_missing",
+        }
+    }
+
+    /// 面向用户的说明，可直接写进日志或诊断提示。
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Ready => "动态磁贴可用",
+            Self::UnsupportedPlatform => "当前平台不是 Windows",
+            Self::UnsupportedOs => "Windows 11 及以上已移除动态磁贴",
+            Self::IdentityMissing => "当前进程没有包标识（需注册稀疏身份包）",
+        }
+    }
+}
+
+/// 纯判定：平台 / 系统版本 / 包标识 → 状态。
+///
+/// 与系统查询分离，好让单测钉住优先级与每一条分支 —— 直接查系统的那一层
+/// 在 CI 上无法断言（Windows runner 的版本会随镜像变化）。
+///
+/// `is_windows_10` 为 `None` 表示非 Windows。判定顺序即优先级：
+/// 先排除非 Windows，再排除 Win11，最后才看包标识。
+fn classify_platform(is_windows_10: Option<bool>, has_identity: bool) -> LiveTileStatus {
+    match (is_windows_10, has_identity) {
+        (None, _) => LiveTileStatus::UnsupportedPlatform,
+        (Some(false), _) => LiveTileStatus::UnsupportedOs,
+        (Some(true), false) => LiveTileStatus::IdentityMissing,
+        (Some(true), true) => LiveTileStatus::Ready,
+    }
+}
+
+/// 本机**能否显示动态磁贴**，以及**不能时是因为什么**。
 ///
 /// 三个条件缺一不可：
 ///
@@ -730,18 +838,26 @@ pub fn is_windows_10() -> bool {
 ///    Win11 上即使注册了稀疏包、`TileUpdateManager` 调用成功，
 ///    也不会有任何磁贴被显示 —— 只会白白产生网络请求和永不停止的定时刷新
 /// 3. **具有包标识** —— 磁贴 API 的硬性要求（未打包进程只会得到 `0x80070490`）
-///
-/// 所有与磁贴相关的分支 —— 启动刷新、30 分钟定时器 ——
-/// 都统一走这一个判断，不要各自去判子条件，否则很容易漏掉第 2 条。
-pub fn supports_live_tile() -> bool {
+pub fn live_tile_status() -> LiveTileStatus {
     #[cfg(target_os = "windows")]
     {
-        is_windows_10() && has_package_identity()
+        classify_platform(Some(is_windows_10()), has_package_identity())
     }
     #[cfg(not(target_os = "windows"))]
     {
-        false
+        classify_platform(None, false)
     }
+}
+
+/// 本机是否**真正可以显示动态磁贴**。
+///
+/// `live_tile_status()` 的布尔封装，供只关心「能不能用」的调用方使用
+/// （启动刷新、30 分钟定时器、前端设置项显隐）。
+///
+/// 所有与磁贴相关的分支都统一走这一个判断，不要各自去判子条件，
+/// 否则很容易漏掉第 2 条。
+pub fn supports_live_tile() -> bool {
+    live_tile_status() == LiveTileStatus::Ready
 }
 
 /// 打包形态下本应用的 Application Id。

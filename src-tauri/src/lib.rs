@@ -683,13 +683,20 @@ async fn update_desktop_tile(
 
 #[tauri::command]
 fn get_platform_info() -> serde_json::Value {
+    // 只查一次系统，避免两个字段各查一遍。
+    let tile_status = crate::windows_tile::live_tile_status();
     serde_json::json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         // 是否为 Windows 10（内部版本号 < 22000），前端据此在设置中显示动态磁贴开关与说明。
         "isWindows10": crate::windows_tile::is_windows_10(),
         // 本机当前进程是否具备动态磁贴运行条件（Windows && Windows 10 && 有包标识）。
-        "supportsLiveTile": crate::windows_tile::supports_live_tile(),
+        "supportsLiveTile": tile_status == crate::windows_tile::LiveTileStatus::Ready,
+        // 同一判定的**带原因**形式，供诊断使用。前端目前不消费它 ——
+        // 保留 `supportsLiveTile` 是为了不破坏既有契约。
+        // 用户报「没有磁贴」时，这两项能一句话定位是版本、身份还是平台问题。
+        "liveTileStatus": tile_status.as_str(),
+        "liveTileStatusReason": tile_status.reason(),
     })
 }
 
@@ -1157,6 +1164,20 @@ pub fn run() {
             // 包标识，即使用户打开设置开关也不会启动磁贴后台任务。
             let initial_tile_enabled = crate::windows_tile::read_live_tile_enabled(app.handle());
             crate::windows_tile::set_live_tile_enabled_flag(initial_tile_enabled);
+
+            // 排查用：一条日志同时记下「能力状态」与「用户开关」。
+            // 两者是**正交**的 —— 磁贴不显示可能是能力不具备（版本 / 身份包），
+            // 也可能是用户自己关了开关；只有合起来看才能定位是哪一种。
+            // 用 debug 而非 info：绝大多数用户属于 `IdentityMissing`
+            // （正常安装、没跑启用脚本），记 info 就是噪音。
+            let tile_status = crate::windows_tile::live_tile_status();
+            log::debug!(
+                "动态磁贴：{}（{}），用户开关={}",
+                tile_status.as_str(),
+                tile_status.reason(),
+                initial_tile_enabled
+            );
+
             if initial_tile_enabled {
                 // 首次刷新异步执行，避免网络请求阻塞应用启动。
                 if let Err(e) =
