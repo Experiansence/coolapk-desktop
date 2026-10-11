@@ -165,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import AppImage from '../common/AppImage.vue';
 import type { PublishArticleBlock, PublishArticleState, PublishImage } from '../../utils/publishArticle';
 import { preparePublishImage } from '../../utils/publishMedia';
@@ -344,17 +344,58 @@ function imageBlockNumber(blockIndex: number): number {
   return props.modelValue.blocks.slice(0, blockIndex + 1).filter((block) => block.type === 'image').length;
 }
 
+const textAreaSizes = new WeakMap<HTMLTextAreaElement, { value: string; width: number; minHeight: number; height: string }>();
 function autoGrow(textarea: HTMLTextAreaElement, minHeight = 44): void {
+  const previous = textAreaSizes.get(textarea);
+  const width = textarea.clientWidth;
+  // v-for function refs can run before the dialog is inserted or shown.
+  // A zero-width measurement must never become a cached paragraph height.
+  if (!textarea.isConnected || !width) return;
+  if (previous?.value === textarea.value && previous.width === width && previous.minHeight === minHeight && previous.height === textarea.style.height) return;
+  // Collapsing a long textarea clamps its ancestors' scroll positions before
+  // the measured height is restored. Keep the viewport where the user was.
+  const scrollPositions: Array<{ element: HTMLElement; top: number; left: number }> = [];
+  for (let element = textarea.parentElement; element; element = element.parentElement) {
+    if (element.scrollTop || element.scrollLeft) scrollPositions.push({ element, top: element.scrollTop, left: element.scrollLeft });
+  }
   textarea.style.height = 'auto';
   textarea.style.height = `${Math.max(minHeight, textarea.scrollHeight)}px`;
+  textAreaSizes.set(textarea, { value: textarea.value, width, minHeight, height: textarea.style.height });
+  for (const { element, top, left } of scrollPositions) {
+    element.scrollTop = top;
+    element.scrollLeft = left;
+  }
 }
+
+function growTextBlock(id: string, element: HTMLTextAreaElement): void {
+  const firstBlock = props.modelValue.blocks[0];
+  autoGrow(element, firstBlock?.id === id && firstBlock.type === 'text' && !firstBlock.text ? 180 : 44);
+}
+let resizeFrame = 0;
+const textAreaObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+  if (resizeFrame) return;
+  // Measure in the next frame, outside ResizeObserver delivery, so changing
+  // the paragraph height cannot create an observer notification loop.
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    for (const [id, element] of textAreaRefs) growTextBlock(id, element);
+  });
+});
+onBeforeUnmount(() => {
+  textAreaObserver?.disconnect();
+  if (resizeFrame) cancelAnimationFrame(resizeFrame);
+});
 
 function setTextAreaRef(id: string, element: unknown): void {
   if (element instanceof HTMLTextAreaElement) {
     textAreaRefs.set(id, element);
-    const firstBlock = props.modelValue.blocks[0];
-    autoGrow(element, firstBlock?.id === id && firstBlock.type === 'text' && !firstBlock.text ? 180 : 44);
+    textAreaObserver?.observe(element);
+    void nextTick(() => {
+      if (textAreaRefs.get(id) === element) growTextBlock(id, element);
+    });
   } else {
+    const previous = textAreaRefs.get(id);
+    if (previous) textAreaObserver?.unobserve(previous);
     textAreaRefs.delete(id);
   }
 }
