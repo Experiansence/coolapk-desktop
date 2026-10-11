@@ -645,10 +645,32 @@ async fn pick_font_family(
 }
 
 #[tauri::command]
+async fn set_live_tile_enabled(
+    app: tauri::AppHandle,
+    enabled: bool,
+    source: Option<String>,
+) -> Result<(), String> {
+    crate::windows_tile::set_live_tile_enabled_flag(enabled);
+    if !enabled {
+        return crate::windows_tile::clear_tile();
+    }
+    if !crate::windows_tile::supports_live_tile() {
+        return Ok(());
+    }
+    let override_source = source
+        .as_deref()
+        .map(|raw| crate::windows_tile::LiveTileSource::from_setting(Some(raw)));
+    crate::windows_tile::refresh_tile(&app, override_source).await
+}
+
+#[tauri::command]
 async fn update_desktop_tile(
     app: tauri::AppHandle,
     source: Option<String>,
 ) -> Result<(), String> {
+    if !crate::windows_tile::is_live_tile_enabled() {
+        return Ok(());
+    }
     let override_source = source
         .as_deref()
         .map(|raw| crate::windows_tile::LiveTileSource::from_setting(Some(raw)));
@@ -660,9 +682,9 @@ fn get_platform_info() -> serde_json::Value {
     serde_json::json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        // 本机是否真正支持动态磁贴（Windows && Windows 10 && 有包标识）。
-        // 前端据此决定是否显示磁贴数据源设置项 —— 条件不满足时整行隐藏，
-        // 避免给出一个选了也不会有任何效果的选项。
+        // 是否为 Windows 10（内部版本号 < 22000），前端据此在设置中显示动态磁贴开关与说明。
+        "isWindows10": crate::windows_tile::is_windows_10(),
+        // 本机当前进程是否具备动态磁贴运行条件（Windows && Windows 10 && 有包标识）。
         "supportsLiveTile": crate::windows_tile::supports_live_tile(),
     })
 }
@@ -1135,12 +1157,18 @@ pub fn run() {
             //
             // 注意 Windows 11 也必须跳过：Win11 已移除动态磁贴，
             // 即使注册了稀疏包、API 调用成功，也不会有磁贴被显示。
+            let initial_tile_enabled = crate::windows_tile::read_live_tile_enabled(app.handle());
+            crate::windows_tile::set_live_tile_enabled_flag(initial_tile_enabled);
             if crate::windows_tile::supports_live_tile() {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    match crate::windows_tile::refresh_tile(&handle, None).await {
-                        Ok(()) => log::info!("动态磁贴已更新"),
-                        Err(e) => log::warn!("动态磁贴更新失败: {e}"),
+                    if crate::windows_tile::is_live_tile_enabled() {
+                        match crate::windows_tile::refresh_tile(&handle, None).await {
+                            Ok(()) => log::info!("动态磁贴已更新"),
+                            Err(e) => log::warn!("动态磁贴更新失败: {e}"),
+                        }
+                    } else if let Err(e) = crate::windows_tile::clear_tile() {
+                        log::warn!("清空动态磁贴队列失败: {e}");
                     }
 
                     // 运行中定时刷新。间隔 30 分钟。
@@ -1148,6 +1176,9 @@ pub fn run() {
                     ticker.tick().await; // 跳过立刻返回的第一次 tick
                     loop {
                         ticker.tick().await;
+                        if !crate::windows_tile::is_live_tile_enabled() {
+                            continue;
+                        }
                         match crate::windows_tile::refresh_tile(&handle, None).await {
                             Ok(()) => log::info!("动态磁贴已按计划刷新"),
                             Err(e) => log::warn!("动态磁贴定时刷新失败: {e}"),
@@ -1382,6 +1413,7 @@ pub fn run() {
             set_window_theme,
             set_android_system_bar_theme,
             pick_font_family,
+            set_live_tile_enabled,
             update_desktop_tile,
             set_startup_flags,
             send_desktop_notification,

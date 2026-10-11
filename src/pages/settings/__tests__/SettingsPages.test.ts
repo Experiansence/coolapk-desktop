@@ -39,9 +39,7 @@ vi.mock('../../../utils/devicePresets', async (importOriginal) => ({
     { id: 'official-k80', brand: 'Redmi', label: 'REDMI K80', device: 'zorn', model: '24117RK2CC' },
   ]),
 }));
-// 磁贴数据源设置行只在 supportsLiveTile 为真时渲染，因此这里把它声明为真，
-// 以便覆盖该行。判定条件本身（Windows && Windows 10 && 有包标识）由 Rust 侧的
-// supports_live_tile() 提供，不在此处断言。
+// Windows 10 动态磁贴设置区块仅在 isWindows10 为真时渲染，此处默认声明为真以便覆盖。
 vi.mock('../../../utils/platform', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../utils/platform')>();
   return {
@@ -49,6 +47,7 @@ vi.mock('../../../utils/platform', async (importOriginal) => {
     getPlatformInfo: vi.fn().mockResolvedValue({
       os: 'windows',
       arch: 'x86_64',
+      isWindows10: true,
       supportsLiveTile: true,
     }),
   };
@@ -67,6 +66,7 @@ import StartupSettingsPage from '../StartupSettingsPage.vue';
 import SettingsLayout from '../SettingsLayout.vue';
 import ShortcutSettingsPage from '../ShortcutSettingsPage.vue';
 import { normalizeSettings, useSettingsStore } from '../../../stores/settings';
+import { getPlatformInfo } from '../../../utils/platform';
 
 const RouterViewStub = { template: '<div><slot :Component="null" /></div>' };
 const RouterLinkStub = { props: ['to'], template: '<a><slot /></a>' };
@@ -157,18 +157,24 @@ describe('设置页面交互', () => {
     expect(settings.settings.deviceSignature).toBe('测试设备');
   });
 
-  it('启动页覆盖首页、磁贴数据源、关闭行为、更新渠道和窗口行为', async () => {
+  it('启动页覆盖首页、Windows 10 动态磁贴开关与数据源、开发预览说明、关闭行为、更新渠道和窗口行为', async () => {
     const { wrapper, settings } = mountPage(StartupSettingsPage);
-    // 磁贴数据源那一行要等 getPlatformInfo() 解析后才渲染。
     await flushPromises();
-    const selects = wrapper.findAll('select');
-    await selects[0].setValue('secondhand');
-    await selects[1].setValue('hot');
-    await selects[3].setValue('tray');
-    await wrapper.findAll('.switch-input')[3].setValue(true);
-    await selects[2].setValue('beta');
-    await wrapper.findAll('.switch-input')[4].setValue(true);
+    expect(wrapper.text()).toContain('Windows 10 动态磁贴（开发预览）');
+    expect(wrapper.find('.live-tile-guide').text()).toContain('dev-live-tile.ps1');
+
+    const findRow = (label: string) =>
+      wrapper.findAll('.setting-row').find((row) => row.find('.row-label').text() === label)!;
+    await findRow('启动后默认页签').find('select').setValue('secondhand');
+    await findRow('实验性功能').find('.switch-input').setValue(true);
+    await findRow('更新渠道').find('select').setValue('beta');
+    await findRow('启用动态磁贴').find('.switch-input').setValue(true);
+    await findRow('磁贴数据源').find('select').setValue('hot');
+    await findRow('关闭主窗口时').find('select').setValue('tray');
+    await findRow('窗口置顶').find('.switch-input').setValue(true);
+
     expect(settings.settings.defaultHomeTab).toBe('secondhand');
+    expect(settings.settings.liveTileEnabled).toBe(true);
     expect(settings.settings.liveTileSource).toBe('hot');
     expect(settings.settings.closeToTray).toBe(true);
     expect(settings.settings.experimentalFeatures).toBe(true);
@@ -176,15 +182,29 @@ describe('设置页面交互', () => {
     expect(settings.settings.alwaysOnTop).toBe(true);
   });
 
-  it('磁贴数据源默认是推荐，且非法值被归一化回默认', async () => {
+  it('非 Windows 10 环境下隐藏动态磁贴设置区块', async () => {
+    vi.mocked(getPlatformInfo).mockResolvedValueOnce({
+      os: 'windows',
+      arch: 'x86_64',
+      isWindows10: false,
+      supportsLiveTile: false,
+    });
+    const { wrapper } = mountPage(StartupSettingsPage);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Windows 10 动态磁贴（开发预览）');
+  });
+
+  it('磁贴开关默认关闭、数据源默认推荐，且非法值被归一化回默认', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const settings = useSettingsStore(pinia);
     await settings.initializeSettings();
+    expect(settings.settings.liveTileEnabled).toBe(false);
     expect(settings.settings.liveTileSource).toBe('index_v8');
 
     // 非法值必须被白名单拒绝并回落，而不是被静默丢弃导致 undefined
-    const normalized = normalizeSettings({ liveTileSource: 'not_a_source' } as never);
+    const normalized = normalizeSettings({ liveTileEnabled: 'invalid', liveTileSource: 'not_a_source' } as never);
+    expect(normalized.liveTileEnabled).toBe(false);
     expect(normalized.liveTileSource).toBe('index_v8');
   });
 

@@ -151,6 +151,7 @@ export interface AppSettings {
   showHomeMonthlyRank: boolean;
   showHomeHotTopics: boolean;
   defaultHomeTab: HomeTabKey;
+  liveTileEnabled: boolean;
   liveTileSource: LiveTileSource;
   homeTabOrder: HomeTabKey[];
   favoriteCollectionViewMode: FavoriteCollectionViewMode;

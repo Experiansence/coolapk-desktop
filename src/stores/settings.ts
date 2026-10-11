@@ -137,6 +137,7 @@ const defaultSettings: AppSettings = {
   showHomeMonthlyRank: true,
   showHomeHotTopics: true,
   defaultHomeTab: 'digest',
+  liveTileEnabled: false,
   liveTileSource: 'index_v8',
   homeTabOrder: [...DEFAULT_HOME_TAB_ORDER],
   favoriteCollectionViewMode: 'large',
@@ -243,6 +244,7 @@ export function normalizeSettings(value: unknown): AppSettings {
   result.fontFamily = normalizeFontFamily(source.fontFamily, result.fontFamily);
   if (isOneOf(source.accentColor, ['green', 'blue', 'violet', 'orange'])) result.accentColor = source.accentColor;
   if (isOneOf(source.defaultHomeTab, ['index_v8', 'digest', 'hot', 'latest', 'cool_picture', 'secondhand', 'pictures', 'dyh'])) result.defaultHomeTab = source.defaultHomeTab;
+  result.liveTileEnabled = readBoolean(source.liveTileEnabled, result.liveTileEnabled);
   if (isOneOf(source.liveTileSource, ['index_v8', 'hot', 'news', 'digest'])) {
     result.liveTileSource = source.liveTileSource;
   }
@@ -509,11 +511,21 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(() => settings.value.experimentalFeatures, (enabled) => {
     if (!enabled && settings.value.updateChannel === 'beta') settings.value.updateChannel = 'stable';
   }, { flush: 'sync' });
+  // 动态磁贴开关变更后立即同步给后端：开启时立即刷新磁贴，关闭时清空磁贴队列。
+  watch(() => settings.value.liveTileEnabled, (enabled) => {
+    if (!nativeSyncReady) return;
+    invoke('set_live_tile_enabled', {
+      enabled,
+      source: settings.value.liveTileSource,
+    }).catch((err) => {
+      console.warn('[settings] 同步动态磁贴开关失败', err);
+    });
+  }, { flush: 'sync' });
   // 磁贴数据源变更后立即刷新，不必等下一个定时周期。
   // 直接把新值传给后端：持久化链路较慢（异步写盘），后端此刻读缓存拿到的
   // 仍是旧值，磁贴会与界面不一致。
   watch(() => settings.value.liveTileSource, (source) => {
-    if (!nativeSyncReady) return;
+    if (!nativeSyncReady || !settings.value.liveTileEnabled) return;
     invoke('update_desktop_tile', { source }).catch((err) => {
       console.warn('[settings] 触发磁贴刷新失败', err);
     });

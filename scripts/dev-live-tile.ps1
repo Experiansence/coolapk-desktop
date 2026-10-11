@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     【开发/本地测试工具】为酷安桌面客户端启用或停用 Windows 10 动态磁贴。
 
@@ -298,5 +298,5 @@ Write-Host "  1. 打开开始菜单，搜索「酷安」" -ForegroundColor White
 Write-Host "  2. 右键条目 → 固定到开始屏幕" -ForegroundColor White
 Write-Host "  3. 磁贴会显示真实酷安内容，最多 5 条自动轮播" -ForegroundColor White
 Write-Host ""
-Write-Host "数据源可在 设置 → 启动 → 磁贴数据源 中切换。" -ForegroundColor Gray
+Write-Host "可在 设置 → 启动与行为设置 中打开/关闭动态磁贴并切换磁贴数据源。" -ForegroundColor Gray
 Write-Host "停用：本脚本加 -Unregister。" -ForegroundColor Gray

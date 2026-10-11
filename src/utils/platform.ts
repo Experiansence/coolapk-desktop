@@ -4,16 +4,22 @@ export type PlatformInfo = {
   os: 'windows' | 'macos' | 'linux' | string;
   arch: 'x86_64' | 'aarch64' | string;
   /**
-   * 本机是否真正支持动态磁贴。
-   *
-   * 需同时满足 Windows、Windows 10、且具有包标识 ——
-   * Windows 11 已移除动态磁贴，仅有包标识并不足够。
-   * 条件不满足时前端隐藏磁贴相关设置，避免给出一个选了也没用的选项。
+   * 当前系统是否为 Windows 10（内部版本号 < 22000）。
+   * 前端据此决定是否展示「Windows 10 动态磁贴（开发预览）」开关与说明。
+   */
+  isWindows10?: boolean;
+  /**
+   * 本机是否真正具备动态磁贴运行条件（Windows 10 且已注册稀疏身份包）。
    */
   supportsLiveTile?: boolean;
 };
 
-const UNKNOWN_PLATFORM: PlatformInfo = { os: 'unknown', arch: 'unknown', supportsLiveTile: false };
+const UNKNOWN_PLATFORM: PlatformInfo = {
+  os: 'unknown',
+  arch: 'unknown',
+  isWindows10: false,
+  supportsLiveTile: false,
+};
 let platformInfoPromise: Promise<PlatformInfo> | null = null;
 
 export function getPlatformInfo(): Promise<PlatformInfo> {

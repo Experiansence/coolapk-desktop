@@ -8,7 +8,7 @@
 //! `<visual>` 也不带 `version` 属性。实测加上 `<adaptive>` 时外壳会静默丢弃
 //! binding 内容，磁贴只剩品牌名。
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[cfg(test)]
 mod tests {
@@ -395,6 +395,16 @@ mod tests {
             assert!(matches!(LiveTileSource::from_setting(Some(key)), x if x.setting_key() == key));
         }
     }
+
+    #[test]
+    fn live_tile_enabled_flag_toggles_cleanly() {
+        set_live_tile_enabled_flag(false);
+        assert!(!is_live_tile_enabled());
+        set_live_tile_enabled_flag(true);
+        assert!(is_live_tile_enabled());
+        set_live_tile_enabled_flag(false);
+        assert!(!is_live_tile_enabled());
+    }
 }
 
 /// 把若干条目推入磁贴通知队列。
@@ -458,6 +468,34 @@ fn push_tile(_items: &[TileItem]) -> Result<(), String> {
     Err("动态磁贴仅在 Windows 上可用".to_string())
 }
 
+#[cfg(target_os = "windows")]
+fn clear_tile_queue() -> Result<(), String> {
+    use windows::UI::Notifications::TileUpdateManager;
+
+    let updater = TileUpdateManager::CreateTileUpdaterForApplication()
+        .map_err(|e| format!("获取 TileUpdater 失败（未打包时常见）: {e}"))?;
+    updater
+        .Clear()
+        .map_err(|e| format!("清空磁贴队列失败: {e}"))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn clear_tile_queue() -> Result<(), String> {
+    Err("动态磁贴仅在 Windows 上可用".to_string())
+}
+
+/// 动态磁贴运行时开关（默认关闭，由「设置 → 启动与行为设置」控制）。
+static LIVE_TILE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn is_live_tile_enabled() -> bool {
+    LIVE_TILE_ENABLED.load(Ordering::SeqCst)
+}
+
+pub fn set_live_tile_enabled_flag(enabled: bool) {
+    LIVE_TILE_ENABLED.store(enabled, Ordering::SeqCst);
+}
+
 /// 刷新代次计数器，用于让"最新发起的刷新"胜出。
 ///
 /// 三个触发源（启动、30 分钟定时、设置变更）都可能并发发起刷新，而网络请求
@@ -476,6 +514,21 @@ static REFRESH_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// 并发，只有真正写磁贴的那一小段是串行的。
 static TILE_COMMIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// 关闭动态磁贴时清空通知队列，并递增代次使在途刷新请求作废。
+pub fn clear_tile() -> Result<(), String> {
+    let generation = REFRESH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    if !supports_live_tile() {
+        return Ok(());
+    }
+    let _commit_guard = TILE_COMMIT_LOCK
+        .lock()
+        .map_err(|_| "磁贴提交锁已损坏".to_string())?;
+    if generation != REFRESH_GENERATION.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    clear_tile_queue()
+}
+
 /// 读设置 → 取数 → 生成 → 推送。
 ///
 /// **保留旧磁贴的边界**：取数失败、结果为空、或 XML 构造失败时，不会触碰现有
@@ -490,6 +543,10 @@ pub async fn refresh_tile(
     app: &tauri::AppHandle,
     override_source: Option<LiveTileSource>,
 ) -> Result<(), String> {
+    if !is_live_tile_enabled() {
+        return Ok(());
+    }
+
     // 本机不支持磁贴时（非 Windows / Windows 11 无磁贴 / 未打包），
     // 连取数都不该做 —— 那只是白白发一次网络请求。
     if !supports_live_tile() {
@@ -515,7 +572,7 @@ pub async fn refresh_tile(
         .lock()
         .map_err(|_| "磁贴提交锁已损坏".to_string())?;
 
-    if generation != REFRESH_GENERATION.load(Ordering::SeqCst) {
+    if !is_live_tile_enabled() || generation != REFRESH_GENERATION.load(Ordering::SeqCst) {
         return Ok(());
     }
 
@@ -570,7 +627,7 @@ fn is_windows_10_build(build: u32) -> bool {
 /// 用注册表而不 `GetVersionEx`：后者在清单未声明 `supportedOS` 时会谎报 6.2。
 /// `winreg` 已是本项目的 Windows 依赖。
 #[cfg(target_os = "windows")]
-fn is_windows_10() -> bool {
+pub fn is_windows_10() -> bool {
     use winreg::RegKey;
     use winreg::enums::HKEY_LOCAL_MACHINE;
 
@@ -580,6 +637,11 @@ fn is_windows_10() -> bool {
         .ok()
         .and_then(|build| build.trim().parse::<u32>().ok())
         .is_some_and(is_windows_10_build)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn is_windows_10() -> bool {
+    false
 }
 
 /// 本机是否**真正可以显示动态磁贴**。
@@ -592,7 +654,7 @@ fn is_windows_10() -> bool {
 ///    也不会有任何磁贴被显示 —— 只会白白产生网络请求和永不停止的定时刷新
 /// 3. **具有包标识** —— 磁贴 API 的硬性要求（未打包进程只会得到 `0x80070490`）
 ///
-/// 所有与磁贴相关的分支 —— 启动刷新、30 分钟定时器、前端设置项显隐 ——
+/// 所有与磁贴相关的分支 —— 启动刷新、30 分钟定时器 ——
 /// 都统一走这一个判断，不要各自去判子条件，否则很容易漏掉第 2 条。
 pub fn supports_live_tile() -> bool {
     #[cfg(target_os = "windows")]
@@ -941,8 +1003,22 @@ impl LiveTileSource {
     }
 }
 
+/// 设置文件中承载动态磁贴开关的键名。
+const LIVE_TILE_ENABLED_KEY: &str = "liveTileEnabled";
+
 /// 设置文件中承载磁贴数据源的键名。
 const LIVE_TILE_SOURCE_KEY: &str = "liveTileSource";
+
+/// 从 settings.json 读取动态磁贴启用状态，默认关闭（false）。
+pub fn read_live_tile_enabled(app: &tauri::AppHandle) -> bool {
+    use tauri_plugin_store::StoreExt;
+
+    app.store("settings.json")
+        .ok()
+        .and_then(|store| store.get(LIVE_TILE_ENABLED_KEY))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
 
 /// 从 settings.json 读取磁贴数据源。
 ///
