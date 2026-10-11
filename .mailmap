@@ -1,0 +1,11 @@
+# 把 PR #62 里那批提交的本地占位邮箱归正到我的 GitHub 账号邮箱。
+#
+# 背景：那 10 个提交的作者邮箱是 `Experiansence@localhost` —— 一个无法
+# 验证、也无法添加到 GitHub 账号的本地地址，因此它们没有被关联到我的
+# 账号。GitHub 的归属只认已验证邮箱，对我不适用。
+#
+# 社区实测（Apache Calcite，2025）表明 .mailmap 可能让这类提交被正确关联，
+# 约需 24 小时。报告存在分歧，若不生效，本文件对构建与其他工具链均无影响。
+#
+# 本地 git 身份已更正为 mingruiye2@gmail.com，后续提交不再有此问题。
+Experiansence <mingruiye2@gmail.com> <Experiansence@localhost>
