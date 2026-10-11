@@ -535,7 +535,7 @@ jobs:
           java-version: '21'
 
       - name: 缓存 Gradle 依赖与构建工具
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           # 测试版和正式 tag 构建也需要写入缓存；签名文件不在 Gradle User Home 中。
           cache-read-only: false
