@@ -1,13 +1,11 @@
 <template>
-  <Teleport to="#app">
-    <button
-      v-if="mobileOpen"
-      type="button"
-      :class="['mobile-sidebar-backdrop', { 'has-window-controls': mobileWindowControls }]"
-      aria-label="关闭导航菜单"
-      @click="emit('closeMobile')"
-    ></button>
-  </Teleport>
+  <button
+    v-if="mobileOpen"
+    type="button"
+    class="mobile-sidebar-backdrop"
+    aria-label="关闭导航菜单"
+    @click="emit('closeMobile')"
+  ></button>
 
   <aside :class="['main-sidebar', { 'is-collapsed': isCollapsed, 'is-mobile-open': mobileOpen, 'has-window-controls': mobileWindowControls }]">
     <div v-if="mobileOpen" class="mobile-navigation-header">
@@ -754,11 +752,9 @@ function handleLogout() {
 
 @media (max-width: 720px) {
   .mobile-sidebar-backdrop {
-    position: fixed;
-    /* 顶栏/底栏会因为安全区变高，遮罩按真实高度让位。 */
-    inset: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px))
-      0
-      calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+    position: absolute;
+    /* Keep this inside AppShell to share its floating-nav and safe-area space. */
+    inset: calc(var(--mobile-navigation-top) - 8px) 0 var(--mobile-bottom-overlay-space);
     z-index: 1000;
     display: block;
     padding: 0;
@@ -767,8 +763,5 @@ function handleLogout() {
     touch-action: manipulation;
   }
 
-  .mobile-sidebar-backdrop.has-window-controls {
-    top: calc(var(--mobile-window-controls-height) + var(--mobile-topbar-height));
-  }
 }
 </style>

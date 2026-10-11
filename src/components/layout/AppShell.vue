@@ -155,6 +155,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
   .app-shell:not(.prevent-mobile-layout) {
     position: relative;
     --mobile-bottom-overlay-space: env(safe-area-inset-bottom, 0px);
+    --mobile-navigation-top: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px) + 8px);
+  }
+
+  .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls {
+    --mobile-navigation-top: calc(var(--mobile-window-controls-height) + var(--mobile-topbar-height) + 8px);
   }
 
   .app-shell:not(.prevent-mobile-layout).has-mobile-bottom-nav {
@@ -195,13 +200,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
 
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar) {
     display: flex !important;
-    position: fixed;
-    top: calc(var(--mobile-topbar-height) + env(safe-area-inset-top, 0px) + 8px);
-    bottom: calc(var(--mobile-bottom-overlay-space) + 8px);
+    position: absolute;
+    top: var(--mobile-navigation-top);
+    bottom: auto;
     left: 50%;
     z-index: 1001;
     width: min(460px, calc(100vw - 24px)) !important;
-    height: auto;
+    height: max-content;
+    max-height: calc(100% - var(--mobile-navigation-top) - var(--mobile-bottom-overlay-space) - 12px);
     transform: translate(-50%, -8px);
     visibility: hidden;
     pointer-events: none;
@@ -214,7 +220,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
   }
 
   .app-shell:not(.prevent-mobile-layout).has-mobile-window-controls :deep(.main-sidebar.has-window-controls) {
-    top: calc(var(--mobile-window-controls-height) + var(--mobile-topbar-height) + 8px);
+    top: var(--mobile-navigation-top);
   }
 
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open) {
@@ -227,7 +233,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .mobile-navigation-header) {
     display: flex;
     flex: 0 0 auto;
-    align-items: baseline;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 10px;
     padding: 14px 16px 8px;
     color: var(--text-primary);
@@ -245,7 +252,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
 
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .sidebar-nav) {
     display: grid !important;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-content: start;
     gap: 8px;
@@ -303,6 +310,38 @@ onUnmounted(() => window.removeEventListener('keydown', handleMobileNavigationKe
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .sidebar-footer) {
     display: flex !important;
     flex: 0 0 auto;
+    padding: 12px;
+  }
+
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .app-info-card) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    width: 100%;
+  }
+
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .app-info-top) {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .app-info-actions) {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .footer-action-btn) {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+
+  .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .beta-toggle-btn) {
+    gap: 6px;
+    flex-wrap: wrap;
   }
 
   .app-shell:not(.prevent-mobile-layout) :deep(.main-sidebar.is-mobile-open .nav-badge) {
