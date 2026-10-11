@@ -467,7 +467,11 @@ mod tests {
             let _keep_sender_alive = sender;
             std::future::pending::<()>().await;
         });
-        *TILE_REFRESH_TASK.lock().unwrap() = Some(worker);
+        // 本测试用 `tokio::spawn`（`#[tokio::test]` 内已有运行时），它返回的是
+        // tokio 的句柄；静态变量存的是 `tauri::async_runtime::JoinHandle`，
+        // 需要显式包进对应的 enum 变体。
+        *TILE_REFRESH_TASK.lock().unwrap() =
+            Some(tauri::async_runtime::JoinHandle::Tokio(worker));
 
         stop_tile_refresh_task().unwrap();
         // 任务取消会丢弃 sender，receiver 因而返回 Err，而不是一直挂起。
@@ -570,7 +574,14 @@ pub fn set_live_tile_enabled_flag(enabled: bool) {
 }
 
 /// 周期刷新任务句柄。默认不创建；关闭开关时通过句柄立即取消定时器。
-static TILE_REFRESH_TASK: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>> =
+///
+/// 类型必须是 `tauri::async_runtime::JoinHandle`，**不能**用
+/// `tokio::task::JoinHandle` —— `tauri::async_runtime::spawn` 返回的是前者，
+/// 它是一个 enum 而非别名，两者不能相互赋值。
+///
+/// 该类型的公开方法只有 `abort()` 与 `inner()`：判断任务是否已结束需要经
+/// `inner()` 取到托管的 tokio 句柄再调 `is_finished()`。
+static TILE_REFRESH_TASK: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>> =
     std::sync::Mutex::new(None);
 
 /// 启动磁贴周期刷新任务（同一进程最多一个）。
@@ -589,7 +600,9 @@ pub fn start_tile_refresh_task(
     let mut task = TILE_REFRESH_TASK
         .lock()
         .map_err(|_| "磁贴刷新任务锁已损坏".to_string())?;
-    if task.as_ref().is_some_and(|handle| !handle.is_finished()) {
+    // `tauri::async_runtime::JoinHandle` 本身没有 `is_finished()`，
+    // 要经 `inner()` 拿到托管的 tokio 句柄。
+    if task.as_ref().is_some_and(|handle| !handle.inner().is_finished()) {
         return Ok(());
     }
 
