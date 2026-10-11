@@ -405,6 +405,26 @@ mod tests {
         set_live_tile_enabled_flag(false);
         assert!(!is_live_tile_enabled());
     }
+
+    #[tokio::test]
+    async fn stopping_refresh_worker_cancels_the_timer_and_is_idempotent() {
+        // 用永不结束的异步任务模拟正在等待下一轮刷新的定时器。
+        let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
+        let worker = tokio::spawn(async move {
+            let _keep_sender_alive = sender;
+            std::future::pending::<()>().await;
+        });
+        *TILE_REFRESH_TASK.lock().unwrap() = Some(worker);
+
+        stop_tile_refresh_task().unwrap();
+        // 任务取消会丢弃 sender，receiver 因而返回 Err，而不是一直挂起。
+        assert!(tokio::time::timeout(std::time::Duration::from_secs(1), receiver)
+            .await
+            .expect("关闭任务后应及时退出")
+            .is_err());
+        assert!(TILE_REFRESH_TASK.lock().unwrap().is_none());
+        stop_tile_refresh_task().unwrap();
+    }
 }
 
 /// 把若干条目推入磁贴通知队列。
@@ -494,6 +514,63 @@ pub fn is_live_tile_enabled() -> bool {
 
 pub fn set_live_tile_enabled_flag(enabled: bool) {
     LIVE_TILE_ENABLED.store(enabled, Ordering::SeqCst);
+}
+
+/// 周期刷新任务句柄。默认不创建；关闭开关时通过句柄立即取消定时器。
+static TILE_REFRESH_TASK: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>> =
+    std::sync::Mutex::new(None);
+
+/// 启动磁贴周期刷新任务（同一进程最多一个）。
+///
+/// `refresh_on_start` 仅用于启动阶段；用户切换开关时，立即刷新仍由
+/// `set_live_tile_enabled` 发起，以沿用 UI 传入的最新数据源。
+pub fn start_tile_refresh_task(
+    app: tauri::AppHandle,
+    refresh_on_start: bool,
+) -> Result<(), String> {
+    // 先判断开关，确保默认关闭时不会调用包身份 API 或创建任何异步任务。
+    if !is_live_tile_enabled() || !supports_live_tile() {
+        return Ok(());
+    }
+
+    let mut task = TILE_REFRESH_TASK
+        .lock()
+        .map_err(|_| "磁贴刷新任务锁已损坏".to_string())?;
+    if task.as_ref().is_some_and(|handle| !handle.is_finished()) {
+        return Ok(());
+    }
+
+    *task = Some(tauri::async_runtime::spawn(async move {
+        if refresh_on_start {
+            match refresh_tile(&app, None).await {
+                Ok(()) => log::info!("动态磁贴已更新"),
+                Err(e) => log::warn!("动态磁贴更新失败: {e}"),
+            }
+        }
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1800)).await;
+            if !is_live_tile_enabled() {
+                break;
+            }
+            match refresh_tile(&app, None).await {
+                Ok(()) => log::info!("动态磁贴已按计划刷新"),
+                Err(e) => log::warn!("动态磁贴定时刷新失败: {e}"),
+            }
+        }
+    }));
+    Ok(())
+}
+
+/// 停用时中止周期任务（包括正在等待的定时器），重复调用也安全。
+pub fn stop_tile_refresh_task() -> Result<(), String> {
+    let mut task = TILE_REFRESH_TASK
+        .lock()
+        .map_err(|_| "磁贴刷新任务锁已损坏".to_string())?;
+    if let Some(handle) = task.take() {
+        handle.abort();
+    }
+    Ok(())
 }
 
 /// 刷新代次计数器，用于让"最新发起的刷新"胜出。
