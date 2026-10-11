@@ -255,6 +255,9 @@ import DigitalProductCard from '../components/digital/DigitalProductCard.vue';
 import MobileDigitalCard from '../components/digital/MobileDigitalCard.vue';
 import { useSettingsStore } from '../stores/settings';
 import { isTouchMobilePlatform } from '../utils/platform';
+import { findProductCategory } from '../utils/productCategory';
+import { productSortTarget, markProductSort, replaceSortedProducts } from '../utils/productSort';
+import { showToast } from '../utils/toast';
 import DigitalProductRow from '../components/digital/DigitalProductRow.vue';
 import DigitalSeriesMore from '../components/digital/DigitalSeriesMore.vue';
 import DigitalSeriesTitle from '../components/digital/DigitalSeriesTitle.vue';
@@ -444,15 +447,16 @@ function dynamicCategoryTarget(item: DiscoveryEntity): string {
   return route?.kind === 'data-list' && isDigitalCategoryRoute(route.target) ? normalizeDigitalTarget(route.target) : '';
 }
 
-function dynamicCategoryContentTarget(item: DiscoveryEntity): string {
+async function resolveDynamicCategory(item: DiscoveryEntity): Promise<DiscoveryEntity> {
   const target = dynamicCategoryTarget(item);
-  if (!target) return '';
-  const [path, query = ''] = target.split('?', 2);
-  if (!/^\/product\/categoryList$/i.test(path)) return target;
-  const id = new URLSearchParams(query).get('id')?.trim();
-  if (!id) return target;
-  // 数码首页下发的分类链接指向分类目录，详情内容需要沿用同一个分类 ID 请求服务端详情页。
-  return `/page?url=${encodeURIComponent(`/product/categoryDetailList?type=category&id=${id}&showMode=0`)}`;
+  const id = new URLSearchParams(target.split('?')[1] || '').get('id')?.trim();
+  if (!id) return item;
+  const response = await CoolapkTauriAPI.getProductCategoryList();
+  const categories: DiscoveryEntity[] = Array.isArray(response?.data) ? response.data : [];
+  const result = findProductCategory(categories, id);
+  if (!result?.category.url) throw new Error('该数码分类缺少内容地址');
+  // Preserve the APK directory URL, including isSecondCategory and other server context.
+  return result.category;
 }
 
 function isWebUrl(value: string): boolean {
@@ -544,9 +548,12 @@ function blockKey(block: DigitalBlock, index: number): string {
   return `${block.kind}-${index}`;
 }
 
-function resetTabItems() {
+const sortTarget = ref('');
+
+function resetTabItems(preserveContent = false) {
+  sortTarget.value = '';
   tabSelectionVersion.value += 1;
-  tabItems.value = [];
+  if (!preserveContent) tabItems.value = [];
   tabError.value = '';
   tabNoMore.value = false;
   tabPage.value = 1;
@@ -621,15 +628,15 @@ async function loadTabItems(isLoadMore = false, expectedSelectionVersion = tabSe
   const tabKey = tab.key;
   loadingTabSelectionVersion = expectedSelectionVersion;
   try {
-    const response = await CoolapkTauriAPI.getDiscoveryPageData({ url: selectedTabTarget.value || tab.pageName || tab.key, title: selectedTabTitle.value, subTitle: selectedTabSubTitle.value, page: tabPage.value, firstItem: tabFirstItem.value, lastItem: tabLastItem.value, pageContext: buildPageContext('digital-tab', tab, selectedSubtab.value), requestArgs: selectedRequestArgs.value });
+    const response = await CoolapkTauriAPI.getDiscoveryPageData({ url: sortTarget.value || selectedTabTarget.value || tab.pageName || tab.key, title: selectedTabTitle.value, subTitle: selectedTabSubTitle.value, page: tabPage.value, firstItem: tabFirstItem.value, lastItem: tabLastItem.value, pageContext: buildPageContext('digital-tab', tab, selectedSubtab.value), requestArgs: selectedRequestArgs.value });
     const parsed = parseDiscoveryPage(response, tabPage.value);
     if (expectedSelectionVersion !== tabSelectionVersion.value || tabKey !== selectedTabKey.value) return;
-    const incoming = parsed.items;
+    const incoming = markProductSort(parsed.items, sortTarget.value);
     if (isLoadMore) {
       const existingKeys = new Set(tabItems.value.map((item, index) => getEntityKey(item, index)));
       tabItems.value = [...tabItems.value, ...incoming.filter((item, index) => !existingKeys.has(getEntityKey(item, tabItems.value.length + index)))];
     } else {
-      tabItems.value = incoming;
+      tabItems.value = replaceSortedProducts(tabItems.value, incoming, sortTarget.value);
     }
     tabFirstItem.value = parsed.firstItem;
     tabLastItem.value = parsed.lastItem;
@@ -695,9 +702,10 @@ function openDigitalCategory(entity: DiscoveryEntity, target: string): boolean {
   return true;
 }
 
-function resetDynamicCategoryContent() {
+function resetDynamicCategoryContent(preserveContent = false) {
+  sortTarget.value = '';
   dynamicCategorySelectionVersion.value += 1;
-  dynamicCategoryItems.value = [];
+  if (!preserveContent) dynamicCategoryItems.value = [];
   dynamicCategoryError.value = '';
   dynamicCategoryNoMore.value = false;
   dynamicCategoryPage.value = 1;
@@ -722,8 +730,7 @@ function selectDynamicCategory(item: DiscoveryEntity) {
 
 async function loadDynamicCategory(isLoadMore = false, expectedSelectionVersion = dynamicCategorySelectionVersion.value) {
   const selection = dynamicCategorySelected.value;
-  const url = selection ? dynamicCategoryContentTarget(selection) : '';
-  if (!selection || !url || expectedSelectionVersion !== dynamicCategorySelectionVersion.value) return;
+  if (!selection || expectedSelectionVersion !== dynamicCategorySelectionVersion.value) return;
   if (dynamicCategoryLoading.value && loadingDynamicCategorySelectionVersion === expectedSelectionVersion) return;
   if (dynamicCategoryNoMore.value) return;
   dynamicCategoryLoading.value = true;
@@ -731,15 +738,17 @@ async function loadDynamicCategory(isLoadMore = false, expectedSelectionVersion 
   const currentRequest = ++dynamicCategoryRequestVersion;
   loadingDynamicCategorySelectionVersion = expectedSelectionVersion;
   try {
-    const response = await CoolapkTauriAPI.getDiscoveryPageData({ url, title: entityTitle(selection), subTitle: String(selection.subTitle || selection.sub_title || ''), page: dynamicCategoryPage.value, firstItem: dynamicCategoryFirstItem.value, lastItem: dynamicCategoryLastItem.value, pageContext: buildPageContext('digital-category-page', selectedTab.value, selection), requestArgs: getDigitalRequestArgs(selection) });
+    const category = await resolveDynamicCategory(selection);
+    if (expectedSelectionVersion !== dynamicCategorySelectionVersion.value || selection !== dynamicCategorySelected.value) return;
+    const response = await CoolapkTauriAPI.getDiscoveryPageData({ url: sortTarget.value || String(category.url || ''), title: entityTitle(category), subTitle: String(category.subTitle || category.sub_title || ''), page: dynamicCategoryPage.value, firstItem: dynamicCategoryFirstItem.value, lastItem: dynamicCategoryLastItem.value, pageContext: buildPageContext('digital-category-page', selectedTab.value, category), requestArgs: getDigitalRequestArgs(category) });
     const parsed = parseDiscoveryPage(response, dynamicCategoryPage.value);
     if (expectedSelectionVersion !== dynamicCategorySelectionVersion.value || selection !== dynamicCategorySelected.value) return;
-    const incoming = parsed.items;
+    const incoming = markProductSort(parsed.items, sortTarget.value);
     if (isLoadMore) {
       const existingKeys = new Set(dynamicCategoryItems.value.map((item, index) => getEntityKey(item, index)));
       dynamicCategoryItems.value = [...dynamicCategoryItems.value, ...incoming.filter((item, index) => !existingKeys.has(getEntityKey(item, dynamicCategoryItems.value.length + index)))];
     } else {
-      dynamicCategoryItems.value = incoming;
+      dynamicCategoryItems.value = replaceSortedProducts(dynamicCategoryItems.value, incoming, sortTarget.value);
     }
     dynamicCategoryFirstItem.value = parsed.firstItem;
     dynamicCategoryLastItem.value = parsed.lastItem;
@@ -757,9 +766,10 @@ async function loadDynamicCategory(isLoadMore = false, expectedSelectionVersion 
   }
 }
 
-function resetProducts() {
+function resetProducts(preserveContent = false) {
+  sortTarget.value = '';
   selectionVersion.value += 1;
-  products.value = [];
+  if (!preserveContent) products.value = [];
   productError.value = '';
   productNoMore.value = false;
   productPage.value = 1;
@@ -792,7 +802,7 @@ async function loadProducts(isLoadMore = false, expectedSelectionVersion = selec
   const currentRequest = ++requestVersion;
   loadingSelectionVersion = expectedSelectionVersion;
   try {
-    const url = String(selection.url || '').trim();
+    const url = sortTarget.value || String(selection.url || '').trim();
     if (!url && activeMode.value === 'category') throw new Error('服务端分类缺少数据地址');
     const response = url
       ? await CoolapkTauriAPI.getDiscoveryPageData({ url, title: String(selection.title || selection.name || ''), subTitle: String(selection.subTitle || ''), page: productPage.value, firstItem: firstItem.value, lastItem: lastItem.value, pageContext: buildPageContext(activeMode.value === 'brand' ? 'digital-brand' : 'digital-category', selectedTab.value, selection), requestArgs: getDigitalRequestArgs(selection) })
@@ -801,12 +811,12 @@ async function loadProducts(isLoadMore = false, expectedSelectionVersion = selec
         : await CoolapkTauriAPI.getProductList(String(selection.pageName || ''), String(selection.title || selection.name || ''), String(selection.subTitle || ''), productPage.value, { firstItem: firstItem.value, lastItem: lastItem.value });
     const parsed = url ? parseDiscoveryPage(response, productPage.value) : parseLegacyProducts(response, productPage.value);
     if (expectedSelectionVersion !== selectionVersion.value || selection !== selected.value) return;
-    const incoming = parsed.items;
+    const incoming = markProductSort(parsed.items, sortTarget.value);
     if (isLoadMore) {
       const existingKeys = new Set(products.value.map((item, index) => getEntityKey(item, index)));
       products.value = [...products.value, ...incoming.filter((item, index) => !existingKeys.has(getEntityKey(item, products.value.length + index)))];
     } else {
-      products.value = incoming;
+      products.value = replaceSortedProducts(products.value, incoming, sortTarget.value);
     }
     firstItem.value = parsed.firstItem;
     lastItem.value = parsed.lastItem;
@@ -849,13 +859,38 @@ function findDigitalTabForEntity(entity: DiscoveryEntity): DigitalTab | null {
   }) || null;
 }
 
-function openEntity(entity: DiscoveryEntity) {
+async function openEntity(entity: DiscoveryEntity) {
+  const sort = productSortTarget(isDynamicCategoryView.value ? dynamicCategoryItems.value : isCategoryTab.value ? products.value : tabItems.value, entity);
+  if (sort) {
+    if (sortTarget.value === sort) return;
+    if (isDynamicCategoryView.value) {
+      resetDynamicCategoryContent(true);
+      sortTarget.value = sort;
+      void loadDynamicCategory(false, dynamicCategorySelectionVersion.value);
+    } else if (isCategoryTab.value) {
+      resetProducts(true);
+      sortTarget.value = sort;
+      void loadProducts(false, selectionVersion.value);
+    } else {
+      resetTabItems(true);
+      sortTarget.value = sort;
+      void loadTabItems(false, tabSelectionVersion.value);
+    }
+    return;
+  }
   const route = resolveDiscoveryRoute(entity);
   if (!route) return;
+  if (isDigitalCategoryRoute(route.target) && !new URLSearchParams(normalizeDigitalTarget(route.target).split('?')[1] || '').get('id')) {
+    navigateDataList(normalizeDigitalTarget(route.target), entityTitle(entity));
+    return;
+  }
   if (mobilePresentation.value && isDigitalCategoryRoute(route.target)) {
-    const target = dynamicCategoryContentTarget(entity) || route.target;
-    const contentUrl = target.startsWith('/page?') ? new URLSearchParams(target.slice(6)).get('url') || target : target;
-    navigateDataList(contentUrl, entityTitle(entity));
+    try {
+      const category = await resolveDynamicCategory(entity);
+      navigateDataList(String(category.url), entityTitle(category), String(category.subTitle || category.sub_title || ''));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '分类加载失败', 'error');
+    }
     return;
   }
   if (isDigitalCategoryRoute(route.target) && openDigitalCategory(entity, route.target)) return;
@@ -877,8 +912,8 @@ function openWeb(url: string) {
   if (isWebUrl(url)) void CoolapkTauriAPI.openUrl(url, 'internal');
 }
 
-function navigateDataList(target: string, title: string) {
-  void router.push({ path: '/page', query: { url: target, title, renderer: 'discovery' } });
+function navigateDataList(target: string, title: string, subTitle = '') {
+  void router.push({ path: '/page', query: { url: target, title, subTitle, renderer: 'discovery' } });
 }
 
 function navigateNative(target: string, title: string) {

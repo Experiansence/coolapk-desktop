@@ -398,7 +398,7 @@ const isSortGroup = computed(() => title.value.trim() === '排序规则' || temp
 const activeSortIndex = ref(0);
 
 function isSortItemActive(child: DiscoveryEntity, index: number): boolean {
-  if (child.selected === 1 || child.selected === true || child.selected === '1') return true;
+  if (props.entity.entities?.some(item => item.selected === 1 || item.selected === true || item.selected === '1')) return isChildSelected(child);
   return activeSortIndex.value === index;
 }
 

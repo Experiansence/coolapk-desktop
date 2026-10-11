@@ -1,12 +1,13 @@
 <template>
-  <div class="page-container custom-scrollbar" @scroll="handleScroll">
+  <ProductCategoryBrowser v-if="isProductCategoryDirectory" :selected-id="productCategoryId" @open="openEntity" />
+  <div v-else class="page-container custom-scrollbar" @scroll="handleScroll">
     <div v-if="!isDynamicPage" class="page-header page-data-header">
       <div class="header-titles">
         <h2 class="page-title"><i class="fas fa-list-ul icon"></i>{{ pageTitle }}</h2>
       </div>
     </div>
 
-    <nav v-if="dynamicTabs.length" class="dynamic-tabs" aria-label="榜单分类">
+    <nav v-if="dynamicTabs.length" class="dynamic-tabs" aria-label="内容分类">
       <button v-for="tab in dynamicTabs" :key="String(tab.url)" :class="{ active: selectedTabUrl === tab.url }" :disabled="loading || loadingMore" @click="selectDynamicTab(tab)">{{ tab.title }}</button>
     </nav>
     <template v-if="isDynamicPage">
@@ -21,7 +22,7 @@
       </div>
       <div v-else :class="['feed-list', 'discovery-page-list', { 'topic-list-layout': isTopicListPage }]">
         <template v-for="(item, index) in dynamicItems" :key="getEntityKey(item, index)">
-          <button v-if="dynamicTabs.length && item.entityType === 'product'" class="ranking-row" @click="openEntity(item)">
+          <button v-if="isProductRankingPage && item.entityType === 'product'" class="ranking-row" @click="openEntity(item)">
             <span class="ranking-number">{{ String(index + 1).padStart(2, '0') }}</span><AppImage :src="getEntityImage(item)" fit="contain" class="ranking-image" />
             <span class="ranking-copy"><strong>{{ getDigitalEntityTitle(item) }}</strong><small>{{ getDigitalProductHot(item) }}热度<span v-if="item.feed_comment_num"> · {{ item.feed_comment_num }}讨论</span></small></span>
           </button>
@@ -54,10 +55,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
+import ProductCategoryBrowser from '../components/digital/ProductCategoryBrowser.vue';
 import AppImage from '../components/common/AppImage.vue';
 import { getEntityImage } from '../utils/discovery';
 import { getDigitalEntityTitle, getDigitalProductHot } from '../utils/digitalProduct';
@@ -71,14 +73,19 @@ import { hasFeedRenderableContent, shouldHideFeed } from '../utils/feedFilter';
 import { decodeDiscoveryRouteSegment, getEntityKey, parseDiscoveryPage, resolveDiscoveryRoute } from '../utils/discovery';
 import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import type { DiscoveryEntity } from '../types/discovery';
+import { productSortTarget, markProductSort, replaceSortedProducts } from '../utils/productSort';
 
-const route = useRoute();
+// App.vue caches each route.fullPath separately. useRoute() continues to change
+// even while this instance is leaving or deactivated, so bind its own query once.
+const pageQuery = { ...useRoute().query };
 const router = useRouter();
 const settingsStore = useSettingsStore();
-const pageUrl = computed(() => typeof route.query.url === 'string' ? route.query.url : '');
-const pageTitle = computed(() => typeof route.query.title === 'string' && route.query.title.trim()
-  ? route.query.title
+const pageUrl = computed(() => typeof pageQuery.url === 'string' ? pageQuery.url : '');
+const pageTitle = computed(() => typeof pageQuery.title === 'string' && pageQuery.title.trim()
+  ? pageQuery.title
   : '酷安内容');
+const pageSubTitle = computed(() => typeof pageQuery.subTitle === 'string' ? pageQuery.subTitle
+  : new URLSearchParams(pageUrl.value.split('?')[1] || '').get('subTitle') || '');
 
 const page = ref(1);
 const feeds = ref<any[]>([]);
@@ -92,9 +99,14 @@ const dynamicLastItem = ref('');
 const error = ref('');
 const dynamicTabs = ref<DiscoveryEntity[]>([]);
 const selectedTabUrl = ref('');
+const selectedTab = computed(() => dynamicTabs.value.find(tab => tab.url === selectedTabUrl.value));
+const contentTarget = ref('');
+const contentPageContext = ref('');
+const sortTarget = ref('');
 function selectDynamicTab(tab: DiscoveryEntity) {
   if (loading.value || loadingMore.value || selectedTabUrl.value === tab.url) return;
   selectedTabUrl.value = String(tab.url || '');
+  sortTarget.value = '';
   void loadDynamicPage(true);
 }
 
@@ -105,9 +117,13 @@ function extractServerPageTarget(value: string): string {
   return new URLSearchParams(raw.slice(queryIndex + 1)).get('url')?.trim() || '';
 }
 
-const dynamicPageTarget = computed(() => extractServerPageTarget(pageUrl.value) || (route.query.renderer === 'discovery' ? pageUrl.value.trim() : ''));
-const isDynamicPage = computed(() => Boolean(dynamicPageTarget.value) && (route.query.renderer === 'discovery' || Boolean(extractServerPageTarget(pageUrl.value))));
+const dynamicPageTarget = computed(() => extractServerPageTarget(pageUrl.value) || (pageQuery.renderer === 'discovery' ? pageUrl.value.trim() : ''));
+const categoryTarget = computed(() => (dynamicPageTarget.value || pageUrl.value).replace(/^#/, ''));
+const isProductCategoryDirectory = computed(() => /^\/product\/categoryList(?:\?|$)/i.test(categoryTarget.value));
+const productCategoryId = computed(() => new URLSearchParams(categoryTarget.value.split('?')[1] || '').get('id') || '');
+const isDynamicPage = computed(() => Boolean(dynamicPageTarget.value) && (pageQuery.renderer === 'discovery' || Boolean(extractServerPageTarget(pageUrl.value))));
 const isTopicListPage = computed(() => /^\/?topic\/tagList(?:\?|$)/i.test(dynamicPageTarget.value.trim().replace(/^#\/?/, '')));
+const isProductRankingPage = computed(() => /(?:JINRIREMEN|\/product\/(?:hotProductList|unreleasedProductList))(?:\?|$)/i.test(dynamicPageTarget.value.replace(/^#/, '')));
 
 function extractList(response: any): any[] {
   if (Array.isArray(response)) return response;
@@ -161,7 +177,9 @@ async function loadDynamicPage(isRefresh = false) {
     dynamicNoMore.value = false;
     dynamicFirstItem.value = '';
     dynamicLastItem.value = '';
-    dynamicItems.value = [];
+    if (!sortTarget.value) dynamicItems.value = [];
+    contentTarget.value = '';
+    contentPageContext.value = '';
     loading.value = true;
   } else {
     loadingMore.value = true;
@@ -169,21 +187,37 @@ async function loadDynamicPage(isRefresh = false) {
   error.value = '';
 
   try {
-    let response = await CoolapkTauriAPI.getDiscoveryPageData({ url: selectedTabUrl.value || dynamicPageTarget.value, title: pageTitle.value, page: page.value, firstItem: dynamicFirstItem.value, lastItem: dynamicLastItem.value, pageContext: JSON.stringify({ source: 'desktop-page-data-list', url: dynamicPageTarget.value }) });
+    let response = await requestDynamicContent(contentTarget.value || sortTarget.value || selectedTabUrl.value || dynamicPageTarget.value);
     let parsed = parseDiscoveryPage(response, page.value);
     const tabs = parsed.items.find(item => String(item.entityTemplate).toLowerCase() === 'icontablinkgridcard');
-    if (isRefresh && !selectedTabUrl.value && tabs?.entities?.length) {
+    if (isRefresh && !sortTarget.value && !selectedTabUrl.value && tabs?.entities?.length) {
       dynamicTabs.value = tabs.entities;
-      selectedTabUrl.value = String(tabs.entities[0]!.url || '');
-      response = await CoolapkTauriAPI.getDiscoveryPageData({ url: selectedTabUrl.value, title: pageTitle.value, page: 1, firstItem: '', lastItem: '', pageContext: '' });
+      const extra = entityExtra(tabs);
+      const configuredIndex = Number(extra.selectedTab ?? tabs.selectedTab ?? 0);
+      const initialTab = tabs.entities.find(tab => tab.selected === 1 || tab.selected === '1' || tab.selected === true)
+        || tabs.entities[Number.isInteger(configuredIndex) ? configuredIndex : 0] || tabs.entities[0]!;
+      selectedTabUrl.value = String(initialTab.url || '');
+      if (!selectedTabUrl.value) throw new Error('该分类缺少内容地址');
+      response = await requestDynamicContent(selectedTabUrl.value);
       parsed = parseDiscoveryPage(response, 1);
     }
-    const incoming = parsed.items;
+    // APK DataListFragment mounts flexList content separately after reading configCard.
+    // Follow its server-supplied target rather than interpreting a configuration-only response as empty.
+    const visited = new Set<string>([contentTarget.value || sortTarget.value || selectedTabUrl.value || dynamicPageTarget.value]);
+    while (parsed.flexUrl) {
+      if (visited.has(parsed.flexUrl) || visited.size >= 4) throw new Error('分类内容地址循环，请重试');
+      visited.add(parsed.flexUrl);
+      contentTarget.value = parsed.flexUrl;
+      response = await requestDynamicContent(parsed.flexUrl);
+      parsed = parseDiscoveryPage(response, page.value);
+    }
+    const incoming = markProductSort(parsed.items.filter(item => !sortTarget.value || String(item.entityTemplate).toLowerCase() !== 'icontablinkgridcard'), sortTarget.value);
     dynamicFirstItem.value = parsed.firstItem;
     dynamicLastItem.value = parsed.lastItem;
+    contentPageContext.value = parsed.pageContext || '';
     dynamicNoMore.value = incoming.length === 0 || !parsed.hasMore;
     if (isRefresh) {
-      dynamicItems.value = incoming;
+      dynamicItems.value = replaceSortedProducts(dynamicItems.value, incoming, sortTarget.value);
     } else {
       const existingKeys = new Set(dynamicItems.value.map((item, index) => getEntityKey(item, index)));
       dynamicItems.value = [...dynamicItems.value, ...incoming.filter((item, index) => !existingKeys.has(getEntityKey(item, dynamicItems.value.length + index)))];
@@ -197,7 +231,30 @@ async function loadDynamicPage(isRefresh = false) {
   }
 }
 
+function entityExtra(entity: DiscoveryEntity): Record<string, unknown> {
+  const raw = entity.extraData ?? entity.extra_data;
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  try { return typeof raw === 'string' ? JSON.parse(raw) || {} : {}; } catch { return {}; }
+}
+
+async function requestDynamicContent(target: string) {
+  const tab = selectedTab.value;
+  const nestedTarget = extractServerPageTarget(target);
+  const params = new URLSearchParams(target.replace(/^#/, '').split('?')[1] || '');
+  const response = await CoolapkTauriAPI.getDiscoveryPageData({
+    url: nestedTarget || target,
+    title: (nestedTarget ? params.get('title') : '') || String(tab?.title || pageTitle.value),
+    subTitle: (nestedTarget ? params.get('subTitle') : '') || String(tab?.subTitle || tab?.sub_title || pageSubTitle.value),
+    page: page.value,
+    firstItem: dynamicFirstItem.value,
+    lastItem: dynamicLastItem.value,
+    pageContext: contentPageContext.value || (tab ? '' : JSON.stringify({ source: 'desktop-page-data-list', url: dynamicPageTarget.value })),
+  });
+  return response;
+}
+
 function loadCurrentPage(isRefresh = false) {
+  if (isProductCategoryDirectory.value) return;
   if (isDynamicPage.value) void loadDynamicPage(isRefresh);
   else void loadFeeds(isRefresh);
 }
@@ -208,8 +265,8 @@ function handleScroll(event: Event) {
   if (element.scrollHeight - element.scrollTop - element.clientHeight < 480) void loadDynamicPage(false);
 }
 
-function navigateDataList(target: string, title: string) {
-  void router.push({ path: '/page', query: { url: target, title, renderer: 'discovery' } });
+function navigateDataList(target: string, title: string, subTitle = '') {
+  void router.push({ path: '/page', query: { url: target, title, subTitle, renderer: 'discovery' } });
 }
 
 function navigateNative(target: string, title: string) {
@@ -237,14 +294,20 @@ function navigateNative(target: string, title: string) {
 }
 
 function openEntity(entity: DiscoveryEntity) {
+  const target = productSortTarget(dynamicItems.value, entity);
+  if (target) {
+    if (loading.value || loadingMore.value || sortTarget.value === target) return;
+    sortTarget.value = target;
+    void loadDynamicPage(true);
+    return;
+  }
   const routeInfo = resolveDiscoveryRoute(entity);
   if (!routeInfo) return;
   if (routeInfo.kind === 'web') void CoolapkTauriAPI.openUrl(routeInfo.target, 'internal');
   else if (routeInfo.kind === 'native') navigateNative(routeInfo.target, routeInfo.title || String(entity.title || ''));
-  else navigateDataList(routeInfo.target, routeInfo.title || String(entity.title || ''));
+  else navigateDataList(routeInfo.target, routeInfo.title || String(entity.title || ''), String(entity.subTitle || entity.sub_title || ''));
 }
 
-watch([pageUrl, dynamicPageTarget, isDynamicPage], () => { dynamicTabs.value = []; selectedTabUrl.value = ''; loadCurrentPage(true); });
 onMounted(() => { loadCurrentPage(true); });
 </script>
 
