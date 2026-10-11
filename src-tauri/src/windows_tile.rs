@@ -69,6 +69,43 @@ mod tests {
         assert!(n >= 3, "应至少有 Small/Medium/Wide 三个绑定，实际 {n}");
     }
 
+    /// 大方块（310×310）需要自己的 `TileLarge` 绑定。
+    ///
+    /// 清单声明了 `Square310x310Logo`，用户可以把磁贴拉到方块 —— 但外壳按尺寸
+    /// 选绑定，缺 `TileLarge` 时拿不到任何内容。**同机实测**：只发
+    /// Small/Medium/Wide 时，方块磁贴只剩静态图标与应用名。
+    /// 参考实现 Coolapk-Lite 发送的是 Medium/Wide/**Large**。
+    #[test]
+    fn tile_xml_covers_the_large_square_tile() {
+        let xml = build_tile_xml(&sample());
+        let mut found = false;
+        for_each_binding(&xml, |block, _| {
+            if block.contains(r#"template="TileLarge""#) {
+                found = true;
+                assert!(block.contains("测试用户"), "Large 绑定缺少作者名");
+                assert!(block.contains("这是一条测试动态正文"), "Large 绑定缺少正文");
+                assert!(block.contains("<image"), "有头像时 Large 绑定应含 <image>");
+            }
+        });
+        assert!(found, "缺少 TileLarge 绑定：大方块磁贴会只剩静态图标与应用名");
+    }
+
+    /// 无头像时 Large 绑定仍须成立，且不应残留空的 `<group>`。
+    #[test]
+    fn large_binding_without_avatar_omits_group() {
+        let item = TileItem { avatar_url: None, ..sample() };
+        let xml = build_tile_xml(&item);
+        let mut found = false;
+        for_each_binding(&xml, |block, _| {
+            if block.contains(r#"template="TileLarge""#) {
+                found = true;
+                assert!(block.contains("测试用户"), "Large 绑定缺少作者名");
+                assert!(!block.contains("<group"), "无头像时不应输出空 <group>");
+            }
+        });
+        assert!(found, "缺少 TileLarge 绑定");
+    }
+
     #[test]
     fn text_is_escaped_so_output_stays_valid_xml() {
         let item = TileItem {
@@ -102,6 +139,49 @@ mod tests {
         let cjk = "中".repeat(MAX_MESSAGE_CHARS);
         let out = truncate_message(&cjk);
         assert_eq!(out, cjk, "恰好 160 个中文字符不应被截断");
+    }
+
+    /// 截断的单位是**字形簇**，不是 Unicode 标量值。
+    ///
+    /// 👨👩👧👦（一家四口）由 7 个标量值经 ZWJ 连成，算 **1 个字形簇**。
+    /// 按 `chars()` 数会把 1 个 emoji 当成 7 个字符，于是在边界处从中间切开，
+    /// 磁贴上就剩半个序列（一个孤立的 👨）。用户发 emoji 是常态，这个切法会露馅。
+    #[test]
+    fn truncation_counts_graphemes_not_scalar_values() {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
+        // 前提断言：这个序列是 7 个标量值、1 个字形簇。前提不成立则本测试无意义。
+        assert_eq!(FAMILY.chars().count(), 7);
+        assert_eq!(FAMILY.graphemes(true).count(), 1);
+
+        // 159 字 + 1 个 emoji = 恰好 160 个字形簇，不该截断。
+        // 按标量值算是 166 个，会被截成 159 字 + 半个 emoji。
+        let text = format!("{}{}", "字".repeat(MAX_MESSAGE_CHARS - 1), FAMILY);
+        assert_eq!(text.graphemes(true).count(), MAX_MESSAGE_CHARS, "前提：恰好 160 个字形簇");
+
+        let out = truncate_message(&text);
+        assert_eq!(out, text, "恰好 160 个字形簇不应被截断（按标量值截会切碎 emoji）");
+        assert!(!out.ends_with('…'), "未超限时不应追加省略号");
+    }
+
+    /// 超限时按字形簇截，且不残留半个 ZWJ 序列。
+    #[test]
+    fn truncation_never_leaves_a_partial_zwj_sequence() {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
+        // 161 个字形簇：应截成 160 个 + 省略号，第 161 个（家庭 emoji）整体丢弃。
+        let text = format!("{}{}", "字".repeat(MAX_MESSAGE_CHARS), FAMILY);
+        let out = truncate_message(&text);
+
+        assert_eq!(out, format!("{}…", "字".repeat(MAX_MESSAGE_CHARS)));
+        assert_eq!(
+            out.graphemes(true).count(),
+            MAX_MESSAGE_CHARS + 1,
+            "160 个字形簇 + 省略号"
+        );
+        assert!(!out.contains('\u{200D}'), "残留了半个 ZWJ 序列：{out:?}");
     }
 
     #[test]
@@ -595,10 +675,19 @@ pub struct TileItem {
 
 /// 截断过长正文，超出上限时追加省略号。
 ///
-/// 按 `char` 计数而非字节：中文每字 3 字节，按字节截会切出半个字符。
+/// 按**字形簇**计，不是字节也不是 `char`：
+///
+/// - 按字节截会切出半个中文字符（中文每字 3 字节）
+/// - 按 `char`（Unicode 标量值）截会把 ZWJ 组合 emoji 从中间切开 ——
+///   👨‍👩‍👧‍👦 是 7 个标量值但只是 **1 个**字形簇，数成 7 个就会在边界处切碎
 pub fn truncate_message(input: &str) -> String {
-    let mut out: String = input.chars().take(MAX_MESSAGE_CHARS).collect();
-    if input.chars().count() > MAX_MESSAGE_CHARS {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let mut graphemes = input.graphemes(true);
+    let mut out: String = graphemes.by_ref().take(MAX_MESSAGE_CHARS).collect();
+    // 取满上限后还有剩余，才说明被截断了 —— 这样只需遍历一次，
+    // 不必先数字形簇总数再遍历第二次。
+    if graphemes.next().is_some() {
         out.push('…');
     }
     out
@@ -612,12 +701,33 @@ pub fn build_tile_xml(item: &TileItem) -> String {
     let user = crate::escape_notification_xml(&item.user_name);
     let message = crate::escape_notification_xml(&truncate_message(&item.message));
 
-    let wide_left = match item.avatar_url.as_deref() {
-        Some(url) if !url.is_empty() => format!(
-            r#"<subgroup hint-weight="33"><image src="{}" hint-crop="circle"/></subgroup>"#,
-            crate::escape_notification_xml(url)
+    // 空串与 None 一律当作没有头像 —— 外壳拿到空 src 会画出破图。
+    let avatar = item
+        .avatar_url
+        .as_deref()
+        .filter(|url| !url.is_empty())
+        .map(crate::escape_notification_xml);
+
+    // Wide：左窄栏头像 + 右栏文字。
+    let wide_left = match &avatar {
+        Some(url) => format!(
+            r#"<subgroup hint-weight="33"><image src="{url}" hint-crop="circle"/></subgroup>"#
         ),
-        _ => String::new(),
+        None => String::new(),
+    };
+
+    // Large 是正方形（310×310）。这里照搬参考实现 Coolapk-Lite 的形状：
+    // 头像单独占一行、正文整宽铺在下方。沿用 Wide 的左右分栏会在方形下把
+    // 头像拉成一条窄长条。`<subgroup/>` 是让头像只占 33% 宽的空占位。
+    let large_head = match &avatar {
+        Some(url) => format!(
+            r#"<group>
+        <subgroup hint-weight="33"><image src="{url}" hint-crop="circle"/></subgroup>
+        <subgroup/>
+      </group>
+      "#
+        ),
+        None => String::new(),
     };
 
     format!(
@@ -638,6 +748,10 @@ pub fn build_tile_xml(item: &TileItem) -> String {
           <text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="3">{message}</text>
         </subgroup>
       </group>
+    </binding>
+    <binding template="TileLarge">
+      {large_head}<text hint-style="caption">{user}</text>
+      <text hint-style="captionSubtle" hint-wrap="true" hint-maxLines="4">{message}</text>
     </binding>
   </visual>
 </tile>"#
@@ -812,6 +926,11 @@ impl LiveTileSource {
         }
     }
 
+    /// `from_setting` 的逆映射，用于测试往返一致性。
+    ///
+    /// 生产代码只**读**设置、从不回写，所以非测试构建里它是死代码 ——
+    /// 不加 `cfg(test)` 会在 `cargo check` 里留下 `never used` 警告。
+    #[cfg(test)]
     pub fn setting_key(self) -> &'static str {
         match self {
             Self::IndexV8 => "index_v8",
