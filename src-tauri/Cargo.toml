@@ -42,6 +42,9 @@ tauri-plugin-log = "2"
 log = "0.4"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
+# 磁贴正文按字形簇（grapheme cluster）截断，避免把 ZWJ 组合 emoji 从中间切开。
+# 本就在依赖树中（tauri 间接引入），不增加新 crate。
+unicode-segmentation = "1.13"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
@@ -56,7 +59,7 @@ tauri-plugin-macos-fps = "0.1"
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 webview2-com = "0.38.2"
-windows = { version = "0.61", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Controls_Dialogs"] }
+windows = { version = "0.61", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Controls_Dialogs"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
