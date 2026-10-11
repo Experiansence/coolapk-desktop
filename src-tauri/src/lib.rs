@@ -652,11 +652,15 @@ async fn set_live_tile_enabled(
 ) -> Result<(), String> {
     crate::windows_tile::set_live_tile_enabled_flag(enabled);
     if !enabled {
+        // 先停止周期任务，再清空队列并让在途刷新失效。
+        crate::windows_tile::stop_tile_refresh_task()?;
         return crate::windows_tile::clear_tile();
     }
     if !crate::windows_tile::supports_live_tile() {
         return Ok(());
     }
+    // 定时器仅在用户启用时存在；开关切换的立即刷新仍直接使用 UI 传入的数据源。
+    crate::windows_tile::start_tile_refresh_task(app.clone(), false)?;
     let override_source = source
         .as_deref()
         .map(|raw| crate::windows_tile::LiveTileSource::from_setting(Some(raw)));
@@ -1149,42 +1153,22 @@ pub fn run() {
             }
             }
 
-            // 磁贴刷新含网络请求，必须离开主线程，否则应用启动会被一次网络往返阻塞。
-            //
-            // 先做统一能力判断（Windows && Windows 10 && 有包标识）。不满足就整体跳过，
-            // 连定时器都不启动 —— NSIS 版的普通用户与便携版用户对此完全无感：
-            // 不产生多余网络请求，也没有日志噪音。
-            //
-            // 注意 Windows 11 也必须跳过：Win11 已移除动态磁贴，
-            // 即使注册了稀疏包、API 调用成功，也不会有磁贴被显示。
+            // 默认关闭：不创建磁贴刷新任务或定时器。普通 NSIS/便携版没有
+            // 包标识，即使用户打开设置开关也不会启动磁贴后台任务。
             let initial_tile_enabled = crate::windows_tile::read_live_tile_enabled(app.handle());
             crate::windows_tile::set_live_tile_enabled_flag(initial_tile_enabled);
-            if crate::windows_tile::supports_live_tile() {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    if crate::windows_tile::is_live_tile_enabled() {
-                        match crate::windows_tile::refresh_tile(&handle, None).await {
-                            Ok(()) => log::info!("动态磁贴已更新"),
-                            Err(e) => log::warn!("动态磁贴更新失败: {e}"),
-                        }
-                    } else if let Err(e) = crate::windows_tile::clear_tile() {
-                        log::warn!("清空动态磁贴队列失败: {e}");
-                    }
-
-                    // 运行中定时刷新。间隔 30 分钟。
-                    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1800));
-                    ticker.tick().await; // 跳过立刻返回的第一次 tick
-                    loop {
-                        ticker.tick().await;
-                        if !crate::windows_tile::is_live_tile_enabled() {
-                            continue;
-                        }
-                        match crate::windows_tile::refresh_tile(&handle, None).await {
-                            Ok(()) => log::info!("动态磁贴已按计划刷新"),
-                            Err(e) => log::warn!("动态磁贴定时刷新失败: {e}"),
-                        }
-                    }
-                });
+            if initial_tile_enabled {
+                // 首次刷新异步执行，避免网络请求阻塞应用启动。
+                if let Err(e) =
+                    crate::windows_tile::start_tile_refresh_task(app.handle().clone(), true)
+                {
+                    log::warn!("启动动态磁贴刷新任务失败: {e}");
+                }
+            } else if crate::windows_tile::supports_live_tile() {
+                // 已注册身份包时清理可能残留的旧磁贴；不开启周期任务。
+                if let Err(e) = crate::windows_tile::clear_tile() {
+                    log::warn!("清空动态磁贴队列失败: {e}");
+                }
             }
 
             Ok(())
